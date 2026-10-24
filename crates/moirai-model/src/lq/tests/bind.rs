@@ -34,7 +34,7 @@ fn worked_example_of_4_4_and_6_5() {
     let bytes = bytes_of(a);
     assert_eq!(bytes.len(), 174);
     assert_eq!(bytes, bytes_of(b));
-    assert_eq!(&bytes[..22], b"\x10\x00\x00\x00moirai-lq-ast-v1\x01\x00");
+    assert_eq!(&bytes[..22], b"\x10\x00\x00\x00klotho-lq-ast-v1\x01\x00");
 }
 
 fn same_cast(a: &str, b: &str) {

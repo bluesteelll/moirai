@@ -31,7 +31,7 @@ pub const SEALED_FILES: usize = 8;
 /// `SegHdr`'s length ([F09 §2.1]).
 pub const SEG_HDR_LEN: usize = 120;
 /// `SegHdr.magic` ([F09 §2.1]).
-pub const SEG_MAGIC: [u8; 4] = *b"MSEG";
+pub const SEG_MAGIC: [u8; 4] = *b"KSEG";
 /// Hot-index bytes per node ([AR §8.1]).
 pub const HOT_BYTES_PER_NODE: u64 = 99;
 
@@ -60,7 +60,7 @@ pub fn seg_header(seg_kind: u8, file_no: u32, total_len: u64) -> [u8; SEG_HDR_LE
 /// Checks a `SegHdr`'s magic and `hdr_xxh3` and returns its `total_len`.
 pub fn check_seg_header(h: &[u8; SEG_HDR_LEN]) -> Result<u64, String> {
     if h[0..4] != SEG_MAGIC {
-        return Err("a sealed file without the MSEG magic".into());
+        return Err("a sealed file without the KSEG magic".into());
     }
     if u64::from_le_bytes(h[112..120].try_into().expect("8 bytes")) != xxh3_64(&h[..112]) {
         return Err("a SegHdr whose hdr_xxh3 does not match".into());
@@ -178,7 +178,7 @@ pub struct Fixture {
 }
 
 /// Writes `tail` as a store directory `<parent>/<name>`: `log.<n>` for every extent the tail touches (E bytes each),
-/// `HEAD` (8,192 bytes, the slot magic `MOIR` at 0 and 4,096) and the [`SEALED_FILES`] sealed files of `sealed_len`
+/// `HEAD` (8,192 bytes, the slot magic `KLTH` at 0 and 4,096) and the [`SEALED_FILES`] sealed files of `sealed_len`
 /// bytes each, sealed. Nothing is flushed: the measurement is warm ([AR §4.7]).
 pub fn write_fixture<V: StoreFs>(
     vfs: &V,
@@ -215,8 +215,8 @@ pub fn write_fixture<V: StoreFs>(
         .map_err(io)?;
     files.push("HEAD".into());
     let mut slots = vec![0u8; HEAD_LEN];
-    slots[..4].copy_from_slice(b"MOIR");
-    slots[4_096..4_100].copy_from_slice(b"MOIR");
+    slots[..4].copy_from_slice(b"KLTH");
+    slots[4_096..4_100].copy_from_slice(b"KLTH");
     vfs.write_at(&head, 0, &slots).map_err(io)?;
     let len = sealed_len.max(SEG_HDR_LEN as u64);
     let mut sealed = Vec::new();
@@ -497,7 +497,7 @@ pub(crate) mod tests {
         assert_eq!(head.len(), HEAD_LEN);
         assert_eq!(
             (&head[..4], &head[4_096..4_100]),
-            (&b"MOIR"[..], &b"MOIR"[..])
+            (&b"KLTH"[..], &b"KLTH"[..])
         );
         for (i, s) in sealed_names().iter().enumerate() {
             let p = fx.dir.join(s);

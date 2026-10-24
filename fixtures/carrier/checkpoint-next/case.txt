@@ -6,21 +6,21 @@
 %% source [F14 §12.1]
 %% source [F07 §12.4]
 %% source [F06 §4.4.4]
-%% note Row import-checkpoint: a checkpoint whose parent is the previous checkpoint; `Moirai-Folded: 2 commits from
+%% note Row import-checkpoint: a checkpoint whose parent is the previous checkpoint; `Klotho-Folded: 2 commits from
 %% note ... to ...` (n >= 1). FA's observation conflict is resolved, its counter grows by a ledger line.
 %% destination K sha1 full
 %% class checkpoint
-%% git-commit 623b389ef8f5555344f9a840b32c99b34eec4b1b
-%% git-tree ed71b8e9963ed6a65512d2a6edacc48c7d6021da
-%% git-parent 8d1469a55ab7be4254809feecc13b299e45a14b0 checkpoint-first
+%% git-commit 24b0ba3aecb1e238ee6adc2716bcf0fca9a183e4
+%% git-tree 393638fa3332e68edb557a2c174c1146cece78fe
+%% git-parent 53589d491ccf2696c47f8566d3828d54630fd38f checkpoint-first
 %% touched-new 3
 %% touched-old 3
 %% p-state
-node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
+node 721354ad0f367138746bf0429056d772 area
   field path_moves set pathmove 1 01a0c22b1b000000 explicit project "docs/plans/" project "docs/archive/plans/" sha1:b1e43ababc3315b634950b80ef5beb4d73c766be
   field root text "project"
   field title text "root:project"
-node 6fef39e646e3b6dd9d338701dec4afaf artifact
+node a157e873470ccad99035621afcd553e2 artifact
   status removed none
   parent - "V"
   field artifact_kind enum doc
@@ -31,7 +31,7 @@ node 6fef39e646e3b6dd9d338701dec4afaf artifact
   field root text "project"
   counter hits 3
   body "Superseded by the v2 plan."
-  edge derived_from e1000000000000000000000000000001 pin 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+  edge derived_from e1000000000000000000000000000001 pin 1d8a1ee4895447b71b88afaa573d7253fd2eafdc2a0073e58b36c9973069b553
   edge relates e1000000000000000000000000000001
   conflict observation FieldEdit
     base path project "docs/plans/storage.md" | oid sha1 a050e26bb167719ca59bd8529a6235f5409d8203 | int 52 | oid sha1 2e11433a48c8de61efb9a14117e41c7f33bfee1e | oid sha1 a050e26bb167719ca59bd8529a6235f5409d8203 | absent
@@ -39,16 +39,16 @@ node 6fef39e646e3b6dd9d338701dec4afaf artifact
     theirs path project "docs/plans/storage-v2.md" | oid sha1 173dbdd3d7fcd9c788dff74aabec16879c0a4b5c | int 78 | oid sha1 f1c88ef39a6e552d1ffb69e872b2f5494303d75a | oid sha1 173dbdd3d7fcd9c788dff74aabec16879c0a4b5c | text "confirmed/edited+moved/0.81"
 node e1000000000000000000000000000001 task
   field title text "Split the storage plan"
-  at 6fef39e646e3b6dd9d338701dec4afaf 49604013f649ea32e331162811e2f06f kind=quote mode=live watch=span resolver=1 captured=8d98adbed974dc6c64d1e23a4302b066 quote="## 3. Storage and flushes" prefix="" suffix="\n\nOne flush per group." hint=3-3 window=0100010041c39e07 span_hash=7c02d95ae13b4f86 blob=sha1:a050e26bb167719ca59bd8529a6235f5409d8203 git=sha1:b1e43ababc3315b634950b80ef5beb4d73c766be
-  at 6fef39e646e3b6dd9d338701dec4afaf dc62676aff00419ae884fc8bfb587002 kind=quote mode=live watch=span resolver=1 captured=8d98adbed974dc6c64d1e23a4302b066 pred=49604013f649ea32e331162811e2f06f quote="## 3. Storage" prefix="" suffix="\n\nOne flush per group." occurrence=1 hint=3-3 window=0100010041c39e07 span_hash=2d8e61b04c7f9a13 blob=sha1:a050e26bb167719ca59bd8529a6235f5409d8203 marker="plan-s3"
+  at a157e873470ccad99035621afcd553e2 c9a3192fa0867ce4bcb09bfec8150a71 kind=quote mode=live watch=span resolver=1 captured=4f4cc4f51ab7fb14819f4a0ecab814ec quote="## 3. Storage and flushes" prefix="" suffix="\n\nOne flush per group." hint=3-3 window=0100010041c39e07 span_hash=7c02d95ae13b4f86 blob=sha1:a050e26bb167719ca59bd8529a6235f5409d8203 git=sha1:b1e43ababc3315b634950b80ef5beb4d73c766be
+  at a157e873470ccad99035621afcd553e2 ad4fc68adfb4c82a4606096fb74f88bf kind=quote mode=live watch=span resolver=1 captured=4f4cc4f51ab7fb14819f4a0ecab814ec pred=c9a3192fa0867ce4bcb09bfec8150a71 quote="## 3. Storage" prefix="" suffix="\n\nOne flush per group." occurrence=1 hint=3-3 window=0100010041c39e07 span_hash=2d8e61b04c7f9a13 blob=sha1:a050e26bb167719ca59bd8529a6235f5409d8203 marker="plan-s3"
 schema field artifact hits type=counter elem=- class=counter storage=field decl=33 optional=true index=none coerce=none one_line=false ascii=false retired=false
 schema query stale_blockers lq=1 params="" shape="table" budget="light" text="DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS {\n  MATCH (t:task)-[:BLOCKS]->(u:task)\n  WHERE t.status = 'open' AND u = #u:e1000000000000000000000000000001\n  RETURN t, u\n}"
 %% q-state
-node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
+node 721354ad0f367138746bf0429056d772 area
   field path_moves set pathmove 2 01a0c22b1b000000 explicit project "docs/plans/" project "docs/archive/plans/" sha1:b1e43ababc3315b634950b80ef5beb4d73c766be 01a0c33dc3800000 committed project "docs/archive/" project "docs/old/" sha1:f1c88ef39a6e552d1ffb69e872b2f5494303d75a
   field root text "project"
   field title text "root:project"
-node 6fef39e646e3b6dd9d338701dec4afaf artifact
+node a157e873470ccad99035621afcd553e2 artifact
   status removed none
   parent - "V"
   field artifact_kind enum doc
@@ -65,66 +65,66 @@ node 6fef39e646e3b6dd9d338701dec4afaf artifact
   field root text "project"
   counter hits 5
   body "Superseded by the v2 plan."
-  edge derived_from e1000000000000000000000000000001 pin 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+  edge derived_from e1000000000000000000000000000001 pin 1d8a1ee4895447b71b88afaa573d7253fd2eafdc2a0073e58b36c9973069b553
   edge relates e1000000000000000000000000000001
 node e1000000000000000000000000000001 task
   status in_progress none
   field title text "Split the storage plan"
-  at 6fef39e646e3b6dd9d338701dec4afaf 49604013f649ea32e331162811e2f06f kind=quote mode=live watch=span resolver=1 captured=8d98adbed974dc6c64d1e23a4302b066 quote="## 3. Storage and flushes" prefix="" suffix="\n\nOne flush per group." hint=3-3 window=0100010041c39e07 span_hash=7c02d95ae13b4f86 blob=sha1:a050e26bb167719ca59bd8529a6235f5409d8203 git=sha1:b1e43ababc3315b634950b80ef5beb4d73c766be
-  at 6fef39e646e3b6dd9d338701dec4afaf dc62676aff00419ae884fc8bfb587002 kind=quote mode=live watch=span resolver=1 captured=8d98adbed974dc6c64d1e23a4302b066 pred=49604013f649ea32e331162811e2f06f quote="## 3. Storage" prefix="" suffix="\n\nOne flush per group." occurrence=1 hint=3-3 window=0100010041c39e07 span_hash=2d8e61b04c7f9a13 blob=sha1:a050e26bb167719ca59bd8529a6235f5409d8203 marker="plan-s3"
+  at a157e873470ccad99035621afcd553e2 c9a3192fa0867ce4bcb09bfec8150a71 kind=quote mode=live watch=span resolver=1 captured=4f4cc4f51ab7fb14819f4a0ecab814ec quote="## 3. Storage and flushes" prefix="" suffix="\n\nOne flush per group." hint=3-3 window=0100010041c39e07 span_hash=7c02d95ae13b4f86 blob=sha1:a050e26bb167719ca59bd8529a6235f5409d8203 git=sha1:b1e43ababc3315b634950b80ef5beb4d73c766be
+  at a157e873470ccad99035621afcd553e2 ad4fc68adfb4c82a4606096fb74f88bf kind=quote mode=live watch=span resolver=1 captured=4f4cc4f51ab7fb14819f4a0ecab814ec pred=c9a3192fa0867ce4bcb09bfec8150a71 quote="## 3. Storage" prefix="" suffix="\n\nOne flush per group." occurrence=1 hint=3-3 window=0100010041c39e07 span_hash=2d8e61b04c7f9a13 blob=sha1:a050e26bb167719ca59bd8529a6235f5409d8203 marker="plan-s3"
 schema field artifact hits type=counter elem=- class=counter storage=field decl=33 optional=true index=none coerce=none one_line=false ascii=false retired=false
 schema query stale_blockers lq=1 params="" shape="table" budget="light" text="DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS {\n  MATCH (t:task)-[:BLOCKS]->(u:task)\n  WHERE t.status = 'open' AND u = #u:e1000000000000000000000000000001\n  RETURN t, u\n}"
 %% entries
-5bd0e29e6afc4a73557e4cbdf7d34c33 field path_moves = set pathmove 2 01a0c22b1b000000 explicit project "docs/plans/" project "docs/archive/plans/" sha1:b1e43ababc3315b634950b80ef5beb4d73c766be 01a0c33dc3800000 committed project "docs/archive/" project "docs/old/" sha1:f1c88ef39a6e552d1ffb69e872b2f5494303d75a
-6fef39e646e3b6dd9d338701dec4afaf field bytes = int 52
-6fef39e646e3b6dd9d338701dec4afaf field observed_blob = oid sha1 a050e26bb167719ca59bd8529a6235f5409d8203
-6fef39e646e3b6dd9d338701dec4afaf field observed_git = oid sha1 b1e43ababc3315b634950b80ef5beb4d73c766be
-6fef39e646e3b6dd9d338701dec4afaf field oid = oid sha1 a050e26bb167719ca59bd8529a6235f5409d8203
-6fef39e646e3b6dd9d338701dec4afaf field path = path project "docs/archive/plans/storage.md"
-6fef39e646e3b6dd9d338701dec4afaf field relink = text "explicit/intent"
-6fef39e646e3b6dd9d338701dec4afaf observation = absent
-6fef39e646e3b6dd9d338701dec4afaf counter hits = +2
+721354ad0f367138746bf0429056d772 field path_moves = set pathmove 2 01a0c22b1b000000 explicit project "docs/plans/" project "docs/archive/plans/" sha1:b1e43ababc3315b634950b80ef5beb4d73c766be 01a0c33dc3800000 committed project "docs/archive/" project "docs/old/" sha1:f1c88ef39a6e552d1ffb69e872b2f5494303d75a
+a157e873470ccad99035621afcd553e2 field bytes = int 52
+a157e873470ccad99035621afcd553e2 field observed_blob = oid sha1 a050e26bb167719ca59bd8529a6235f5409d8203
+a157e873470ccad99035621afcd553e2 field observed_git = oid sha1 b1e43ababc3315b634950b80ef5beb4d73c766be
+a157e873470ccad99035621afcd553e2 field oid = oid sha1 a050e26bb167719ca59bd8529a6235f5409d8203
+a157e873470ccad99035621afcd553e2 field path = path project "docs/archive/plans/storage.md"
+a157e873470ccad99035621afcd553e2 field relink = text "explicit/intent"
+a157e873470ccad99035621afcd553e2 observation = absent
+a157e873470ccad99035621afcd553e2 counter hits = +2
 e1000000000000000000000000000001 status = in_progress none
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
-; entry 1: 5bd0e29e6afc4a73557e4cbdf7d34c33 field path_moves
-015bd0e29e6afc4a73557e4cbdf7d34c33040a000000706174685f6d6f76657300090e020000000000001b2bc2a00108
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
+; entry 1: 721354ad0f367138746bf0429056d772 field path_moves
+01721354ad0f367138746bf0429056d772040a000000706174685f6d6f76657300090e020000000000001b2bc2a00108
 0000006578706c696369740700000070726f6a6563740b000000646f63732f706c616e732f0700000070726f6a656374
 13000000646f63732f617263686976652f706c616e732f040000007368613114000000b1e43ababc3315b634950b80ef
 5beb4d73c766be000080c33dc3a00109000000636f6d6d69747465640700000070726f6a6563740d000000646f63732f
 617263686976652f0700000070726f6a65637409000000646f63732f6f6c642f040000007368613114000000f1c88ef3
 9a6e552d1ffb69e872b2f5494303d75a
-; entry 2: 6fef39e646e3b6dd9d338701dec4afaf field bytes
-016fef39e646e3b6dd9d338701dec4afaf0405000000627974657300033400000000000000
-; entry 3: 6fef39e646e3b6dd9d338701dec4afaf field observed_blob
-016fef39e646e3b6dd9d338701dec4afaf040d0000006f627365727665645f626c6f62000d0400000073686131140000
+; entry 2: a157e873470ccad99035621afcd553e2 field bytes
+01a157e873470ccad99035621afcd553e20405000000627974657300033400000000000000
+; entry 3: a157e873470ccad99035621afcd553e2 field observed_blob
+01a157e873470ccad99035621afcd553e2040d0000006f627365727665645f626c6f62000d0400000073686131140000
 00a050e26bb167719ca59bd8529a6235f5409d8203
-; entry 4: 6fef39e646e3b6dd9d338701dec4afaf field observed_git
-016fef39e646e3b6dd9d338701dec4afaf040c0000006f627365727665645f676974000d040000007368613114000000
+; entry 4: a157e873470ccad99035621afcd553e2 field observed_git
+01a157e873470ccad99035621afcd553e2040c0000006f627365727665645f676974000d040000007368613114000000
 b1e43ababc3315b634950b80ef5beb4d73c766be
-; entry 5: 6fef39e646e3b6dd9d338701dec4afaf field oid
-016fef39e646e3b6dd9d338701dec4afaf04030000006f6964000d040000007368613114000000a050e26bb167719ca5
+; entry 5: a157e873470ccad99035621afcd553e2 field oid
+01a157e873470ccad99035621afcd553e204030000006f6964000d040000007368613114000000a050e26bb167719ca5
 9bd8529a6235f5409d8203
-; entry 6: 6fef39e646e3b6dd9d338701dec4afaf field path
-016fef39e646e3b6dd9d338701dec4afaf040400000070617468000c0700000070726f6a6563741d000000646f63732f
+; entry 6: a157e873470ccad99035621afcd553e2 field path
+01a157e873470ccad99035621afcd553e2040400000070617468000c0700000070726f6a6563741d000000646f63732f
 617263686976652f706c616e732f73746f726167652e6d64
-; entry 7: 6fef39e646e3b6dd9d338701dec4afaf field relink
-016fef39e646e3b6dd9d338701dec4afaf040600000072656c696e6b00070f0000006578706c696369742f696e74656e
+; entry 7: a157e873470ccad99035621afcd553e2 field relink
+01a157e873470ccad99035621afcd553e2040600000072656c696e6b00070f0000006578706c696369742f696e74656e
 74
-; entry 8: 6fef39e646e3b6dd9d338701dec4afaf observation
-016fef39e646e3b6dd9d338701dec4afaf050000
-; entry 9: 6fef39e646e3b6dd9d338701dec4afaf counter hits
-016fef39e646e3b6dd9d338701dec4afaf060400000068697473000200000000000000
+; entry 8: a157e873470ccad99035621afcd553e2 observation
+01a157e873470ccad99035621afcd553e2050000
+; entry 9: a157e873470ccad99035621afcd553e2 counter hits
+01a157e873470ccad99035621afcd553e2060400000068697473000200000000000000
 ; entry 10: e1000000000000000000000000000001 status
 01e10000000000000000000000000000010200010b000000696e5f70726f6772657373040000006e6f6e65
 ; u64 entry count = 10
 0a00000000000000
 %% entry-count 10
-%% changeset-digest f2f659728039064b1aeb54cbe491fcec1eba5c3383d9c9b55136c3205071d4b1
+%% changeset-digest 988f1e0a06bbf170c1ff432c009b74a4d8db71b93ec61f151c3b4f0d9451cd8e
 %% commit
 kind checkpoint
-parent d8741d715ca09d1b983ab7a60e69a7312ec02896169ef20a860f704a2117435b
+parent 4b8252e33b2bde052f410323b636f29ef6a625a7a01936905c769f7dbe2cee2e
 hlc 01a0c33dc3800000
 actor "image:checkpoint"
 role ""
@@ -136,16 +136,16 @@ git-base -
 message "checkpoint plan/storage"
 schema-version 1
 origin -
-foreign sha1 623b389ef8f5555344f9a840b32c99b34eec4b1b
+foreign sha1 24b0ba3aecb1e238ee6adc2716bcf0fca9a183e4
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 0a000000636865636b706f696e74
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-d8741d715ca09d1b983ab7a60e69a7312ec02896169ef20a860f704a2117435b
+4b8252e33b2bde052f410323b636f29ef6a625a7a01936905c769f7dbe2cee2e
 ; item 3: hlc
 000080c33dc3a001
 ; item 4: actor
@@ -173,9 +173,9 @@ d8741d715ca09d1b983ab7a60e69a7312ec02896169ef20a860f704a2117435b
 ; item 9: foreign_algo
 0400000073686131
 ; item 9: foreign_oid
-14000000623b389ef8f5555344f9a840b32c99b34eec4b1b
+1400000024b0ba3aecb1e238ee6adc2716bcf0fca9a183e4
 ; item 10: changeset_digest
-f2f659728039064b1aeb54cbe491fcec1eba5c3383d9c9b55136c3205071d4b1
-%% commit-id 3ee71912671f848e38373c8e953667e351cf3101409ccaa3be84fff92c86c2cf
+988f1e0a06bbf170c1ff432c009b74a4d8db71b93ec61f151c3b4f0d9451cd8e
+%% commit-id d8f319656e78eccd282a6f26482b1ec89ace3d5f067c5c2ca3b21d6babeb1aa5
 %% canonical checkpoint.cases checkpoint-next changeset-digest
 %% end

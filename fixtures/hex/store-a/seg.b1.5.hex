@@ -7,7 +7,7 @@
 
 # SegHdr (120 B, [F09 §2.1])
 seghdr:
-  "MSEG"                                    # magic
+  "KSEG"                                    # magic
   {u16 1}                                   # format
   05                                        # seg_kind 5 `seg-branch`
   00                                        # tok_ver

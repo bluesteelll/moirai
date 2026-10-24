@@ -113,7 +113,7 @@ fn le_u64(b: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(x)
 }
 
-/// The boot identity: 16 opaque bytes ([OS/proc §4.2]), BLAKE3-128 of a per-OS source with the `moirai-boot-id-v1`
+/// The boot identity: 16 opaque bytes ([OS/proc §4.2]), BLAKE3-128 of a per-OS source with the `klotho-boot-id-v1`
 /// domain prefix (computed by `moirai-os`).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct BootId(pub [u8; 16]);

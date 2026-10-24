@@ -60,7 +60,7 @@ fn slot_of(path: &str) -> Result<Slot> {
         )
     };
     match parts[0] {
-        ".moirai-image" if parts.len() == 1 => Ok(Slot::Marker),
+        ".klotho-image" if parts.len() == 1 => Ok(Slot::Marker),
         "nodes" => {
             let ok = parts.len() == 4
                 && is_lhex(parts[1], 2)
@@ -144,17 +144,17 @@ pub fn check_tree(blobs: &[(String, Vec<u8>)], algo: Algo) -> Result<Tree> {
         return parse_err(
             Rule::Marker,
             0,
-            "the tree has no .moirai-image marker [F14 §4, §9.2]",
+            "the tree has no .klotho-image marker [F14 §4, §9.2]",
         );
     };
     let marker_bytes = &sorted[mi].1;
-    let marker = with_path(".moirai-image", files::parse_marker(marker_bytes))?;
+    let marker = with_path(".klotho-image", files::parse_marker(marker_bytes))?;
     if marker.object_format != algo.name() {
         return parse_err(
             Rule::Marker,
             0,
             format!(
-                ".moirai-image: object format {} is not the destination's {} [F14 §4]",
+                ".klotho-image: object format {} is not the destination's {} [F14 §4]",
                 marker.object_format,
                 algo.name()
             ),
@@ -163,7 +163,7 @@ pub fn check_tree(blobs: &[(String, Vec<u8>)], algo: Algo) -> Result<Tree> {
     let mut schema = Schema::core();
     let mut out: Vec<(String, Checked)> = Vec::with_capacity(sorted.len());
     out.push((
-        ".moirai-image".into(),
+        ".klotho-image".into(),
         check_file(marker_bytes, Place::default(), &schema)?,
     ));
     let mut rows: Vec<SchemaRow> = Vec::new();
@@ -231,14 +231,14 @@ mod tests {
         (p.to_owned(), b.as_bytes().to_vec())
     }
 
-    const MARKER: &str = "moirai-image 1\nobject-format: sha1\nschema-version: 1\n";
-    const NODE: &str = "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e40\nkind: task\ntitle: t\ndeleted: cca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7a\n";
+    const MARKER: &str = "klotho-image 1\nobject-format: sha1\nschema-version: 1\n";
+    const NODE: &str = "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e40\nkind: task\ntitle: t\ndeleted: cca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7a\n";
 
     /// [F14 §3.4], §4: the marker, the layout and the file-name rules; root entries outside the layout are ignored.
     #[test]
     fn tree_rules() {
         let good = vec![
-            blob(".moirai-image", MARKER),
+            blob(".klotho-image", MARKER),
             blob("nodes/01/8f/018f3c2e7a117b3c9d5e4c2f1a0b9e40.moi", NODE),
             blob("README.md", "hello"),
         ];
@@ -262,29 +262,29 @@ mod tests {
         let mut refs = good.clone();
         refs.push(blob(
             "refs/remotes.moi",
-            "moirai-refs 1\nref main kind=work\n",
+            "klotho-refs 1\nref main kind=work\n",
         ));
         assert!(check_tree(&refs, Algo::Sha1).is_err());
         let mut empty_table = good.clone();
-        empty_table.push(blob("schema/kinds.moi", "moirai-schema 1\n"));
+        empty_table.push(blob("schema/kinds.moi", "klotho-schema 1\n"));
         assert!(check_tree(&empty_table, Algo::Sha1).is_err());
         // [F14 §3.1], §7.1 (spec sync 2b S2B-R-28): `schema/policy.moi` is a table file of policy rows only.
         let mut policy = good.clone();
         policy.push(blob(
             "schema/policy.moi",
-            "moirai-schema 1\npolicy merge.policy.task delete-wins\n",
+            "klotho-schema 1\npolicy merge.policy.task delete-wins\n",
         ));
         assert!(check_tree(&policy, Algo::Sha1).unwrap().canonical());
         let mut kind_in_policy = good.clone();
         kind_in_policy.push(blob(
             "schema/policy.moi",
-            "moirai-schema 1\nkind incident derivation=random root-variant=none existence=resurrect\n",
+            "klotho-schema 1\nkind incident derivation=random root-variant=none existence=resurrect\n",
         ));
         assert!(check_tree(&kind_in_policy, Algo::Sha1).is_err());
         let mut policy_in_kinds = good;
         policy_in_kinds.push(blob(
             "schema/kinds.moi",
-            "moirai-schema 1\npolicy merge.policy.task delete-wins\n",
+            "klotho-schema 1\npolicy merge.policy.task delete-wins\n",
         ));
         assert!(check_tree(&policy_in_kinds, Algo::Sha1).is_err());
     }

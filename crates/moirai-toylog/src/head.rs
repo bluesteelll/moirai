@@ -8,8 +8,8 @@ use crate::format::{Counters, InitParams, SegRef};
 pub const HEAD_LEN: usize = 8192;
 /// The length of one slot.
 pub const SLOT_LEN: usize = 4096;
-/// `"MOIR"`.
-pub const MAGIC: [u8; 4] = *b"MOIR";
+/// `"KLTH"`.
+pub const MAGIC: [u8; 4] = *b"KLTH";
 
 /// `flags` bit 0: quiet mode.
 pub const FLAG_QUIET: u16 = 1 << 0;
@@ -428,7 +428,7 @@ pub(crate) mod tests {
     fn slots_round_trip_at_the_frozen_offsets() {
         let s = sample();
         let b = s.to_bytes();
-        assert_eq!(&b[..4], b"MOIR");
+        assert_eq!(&b[..4], b"KLTH");
         assert_eq!(u64_le(&b, 8), 3);
         assert_eq!(u64_le(&b, 32), 300);
         assert_eq!(u64_le(&b, 1056), 0);

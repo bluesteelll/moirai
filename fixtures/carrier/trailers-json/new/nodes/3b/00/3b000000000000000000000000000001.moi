@@ -1,11 +1,11 @@
-moirai-node 1
+klotho-node 1
 uid: 3b000000000000000000000000000001
 kind: note
 title: Flush stalls under real-time scanning
 status: active
-created: c64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541 2026-09-21T14:13:20.000Z
-updated: c6afe1bcfe3813d5d4e7c705e6c5f68a4bc49d58da857745fc0cd66dbd0fbf3c4 2026-09-21T15:21:20.000Z
+created: c3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3 2026-09-21T14:13:20.000Z
+updated: ccc975c4a9ace52bb4d19fea52bd491498051f021cb80142109dce9ed55cfdfa7 2026-09-21T15:21:20.000Z
 field note_kind: hazard
-incr incidents +2 c6afe1bcfe3813d5d4e7c705e6c5f68a4bc49d58da857745fc0cd66dbd0fbf3c4
+incr incidents +2 ccc975c4a9ace52bb4d19fea52bd491498051f021cb80142109dce9ed55cfdfa7
 ---
 Real-time scanning adds 40 ms to FlushFileBuffers.

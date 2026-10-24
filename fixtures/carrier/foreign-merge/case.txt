@@ -10,10 +10,10 @@
 %% note states over their merge base (foreign-root), not from the tree ([F14 §11.2]).
 %% destination F sha1 full
 %% class foreign
-%% git-commit 55b86a12e9d77a7a5a020e3e55f1ed0355db1f2a
-%% git-tree a3f60ee1868952005c84f08af0b586fb71ec28a9
-%% git-parent c4056d98d06b816e62206682d773e8e4ea459126 foreign-child
-%% git-parent ce17b70b88152a43dc78b8084cbeec3d8a50ea79 foreign-clock-behind
+%% git-commit 86ea14c6419bd885adfbff3dbd1f18d9e824f3bd
+%% git-tree ab22dd653af2ea40c9f6db055ffab7a5de3cb385
+%% git-parent c8b652a712267fab39952a5da860495ad0cb1994 foreign-child
+%% git-parent 4ef7158a02686a2dcf16a6a87e5378147a1ead29 foreign-clock-behind
 %% touched-new 1
 %% touched-old 1
 %% p-state
@@ -49,18 +49,18 @@ node 3d000000000000000000000000000001 note
 %% entries
 3d000000000000000000000000000001 body = hash 4d42bbdffd76ce78b2ee4727e1226514
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 3d000000000000000000000000000001 body
 013d0000000000000000000000000000010800014d42bbdffd76ce78b2ee4727e1226514
 ; u64 entry count = 1
 0100000000000000
 %% entry-count 1
-%% changeset-digest 551133192a82213abf0bfaaefd960ed98ef5eba8a4ab9fe686fe14deb0f51251
+%% changeset-digest 78992142e59ae9ccb507e4436f98b7ac03bfccb87214b0c1b79955e7ad8b7ca2
 %% commit
 kind merge
-parent e143819ccd708e8318946181783f5cd10899389cdfff24bfccc2fbf14f426f1b
-parent 1d64fd51baf38e887f225559b060174417518d5f6e66fe5967985c8ca0ea5c9a
+parent e0961d7626ac6045bbc36e55f451fc1ec0db28b52b21db6c181aafefdf1e6180
+parent c292998ba5a125e6c6fb917ff951814b0653f15934867e2a9de84f47817975b3
 hlc 01a088c7f1800000
 actor "git:bob@example.com"
 role ""
@@ -72,18 +72,18 @@ git-base -
 message "Merge branch 'notes'"
 schema-version 1
 origin -
-foreign sha1 55b86a12e9d77a7a5a020e3e55f1ed0355db1f2a
+foreign sha1 86ea14c6419bd885adfbff3dbd1f18d9e824f3bd
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 050000006d65726765
 ; item 2: n_parents
 02000000
 ; item 2: parent 1
-e143819ccd708e8318946181783f5cd10899389cdfff24bfccc2fbf14f426f1b
+e0961d7626ac6045bbc36e55f451fc1ec0db28b52b21db6c181aafefdf1e6180
 ; item 2: parent 2
-1d64fd51baf38e887f225559b060174417518d5f6e66fe5967985c8ca0ea5c9a
+c292998ba5a125e6c6fb917ff951814b0653f15934867e2a9de84f47817975b3
 ; item 3: hlc
 000080f1c788a001
 ; item 4: actor
@@ -111,9 +111,9 @@ e143819ccd708e8318946181783f5cd10899389cdfff24bfccc2fbf14f426f1b
 ; item 9: foreign_algo
 0400000073686131
 ; item 9: foreign_oid
-1400000055b86a12e9d77a7a5a020e3e55f1ed0355db1f2a
+1400000086ea14c6419bd885adfbff3dbd1f18d9e824f3bd
 ; item 10: changeset_digest
-551133192a82213abf0bfaaefd960ed98ef5eba8a4ab9fe686fe14deb0f51251
-%% commit-id ba2d655b8c6e7cf350537b37a64631c340f13103c2163fdd480531a0c516da3a
+78992142e59ae9ccb507e4436f98b7ac03bfccb87214b0c1b79955e7ad8b7ca2
+%% commit-id 7554b0af32911f9c2e6bab39690b9970597d6250609db24a5a361a7f8c2a4cf4
 %% canonical foreign.cases foreign-merge changeset-digest
 %% end

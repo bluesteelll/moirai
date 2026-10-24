@@ -1831,7 +1831,7 @@ NAME branch
 P =
 NAME la
 P .
-NAME moirai_branch
+NAME store_branch
 KW AND
 NAME tb
 P .
@@ -1841,7 +1841,7 @@ NAME branch
 P =
 NAME lb
 P .
-NAME moirai_branch
+NAME store_branch
 KW UNWIND
 NAME ta
 P .

@@ -904,7 +904,7 @@ const KIND_FIELDS: [&[FieldRow]; 13] = [
         opt("base_sha", T::Oid, "scalar"),
         opt("tip_sha", T::Oid, "scalar"),
         opt("target_dir", T::Path, "scalar"),
-        optf("moirai_branch", T::Sym, "scalar", OL, None, Shape::Plain),
+        optf("store_branch", T::Sym, "scalar", OL, None, Shape::Plain),
     ],
     // area
     &[

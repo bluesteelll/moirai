@@ -1,4 +1,4 @@
-moirai-node 1
+klotho-node 1
 uid: 1a000000000000000000000000000001
 kind: task
 title: Fix the lock timeout
@@ -6,14 +6,14 @@ status: open
 priority: P1
 parent: a0000000000000000000000000000001
 order: V
-created: c64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541 2026-09-21T14:13:20.000Z
-updated: c271bccbc4ad764b231382b2d36bbe448ebf02dedc623d72fa95361ee120e7a2f 2026-09-21T15:13:20.000Z
+created: c3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3 2026-09-21T14:13:20.000Z
+updated: c87cd762b535e0a73f1b6084520dad1ca25e65c8d7882bbf1708c3a4fc2d42206 2026-09-21T15:13:20.000Z
 field estimate: 3
 label l5
 label perf
 label storage
-anchor 954158c57297201444197696d4aed6c9 -> 672af70da09c660c2887060b8618cfd9 kind=quote mode=live watch=span quote_h=0690e3af80052a90e0d2b97cc8802c6d prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=f241ff9acbd91c73a1bd3ad50f0a331d quote=%Q2Fm6SBsb2NraW5n prefix="" suffix=": the old tracker used" hint=3-3 window=AQABAHwgEdM span=xxh3:0c5e8a31f7b2d946 blob=sha1:3c7f6ee22f7a670bc36cd11e0618674cebf1b900 captured=b5a4e17abcf644c0faa4d3dfaa4d9e99 v=1
-anchor 0a80c4aa9ba97255d8ca4cadcbb01b41 -> d706fcde60f0b6cbf56c23297162b652 kind=file mode=live watch=header blob=sha1:0aaa3cfcf90117058c75a1a383e6cfcc32890157 git=sha1:07749270e4852cbea89a09460cae7049ab75e153 captured=bcf306557fb04ecf570128703b7ac5fe v=1
-anchor 2e8af674850464f068c3cadd9a794c7c -> d706fcde60f0b6cbf56c23297162b652 kind=symbol mode=live watch=header scope="rust:impl LockFile/fn acquire" quote_h=17197edc079fc51d79b8ee94828993c3 prefix_h=0543223ded0e66a9441661b88320002b suffix_h=1b5df6c4fb55e868f99e941016c92ffb quote="pub fn acquire(&self, owner: Owner) -> Guard" prefix="/// Blocks until the byte is ours, then records the owner.\n" suffix=" {\n" occurrence=2 hint=14-16 window=AgABABxLk9B34Q span=xxh3:51a0c3e2b4d69f78 blob=sha1:0aaa3cfcf90117058c75a1a383e6cfcc32890157 git=sha1:07749270e4852cbea89a09460cae7049ab75e153 captured=048c36d94be73496f08e0a31affea367 v=1
-anchor cb66f57cd4c232e38a7a7bbdcb0a278e -> d706fcde60f0b6cbf56c23297162b652 kind=lines mode=live watch=span hint=3-5 window=AQACAKTBDp9bIg span=xxh3:3e9d07c1a2b4f658 blob=sha1:0aaa3cfcf90117058c75a1a383e6cfcc32890157 captured=b5891266b20a76eb45e3ee922dec4d8a v=1
-anchor b978c32ad98c80ada4226df98a3e470e -> ff62a2c718c52faafc108cf0e945642e kind=heading mode=live watch=header scope="markdown:h1 Lock protocol/h2 Timeouts %2f retries[2]" quote_h=4088f6c0faec4ed810e9eca1978806cd prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=211a7ebb647b83f7adbdfb3f54de3b38 quote="## Timeouts" prefix="" suffix="\n\nWaiters retry" hint=6-6 window=AQABAD2RWh4 span=xxh3:2a6b19c07e3f5d84 blob=sha1:fb553d60ac29e10a6c3a38c349be441cd67bf27b captured=2ea73e1d96748e05484bc0b99fb50cf5 v=1
+anchor f1b3b15d2846fca0d5a9e4a070d564ab -> 02a3a42c719765f4f57bb6ed534348ba kind=quote mode=live watch=span quote_h=0690e3af80052a90e0d2b97cc8802c6d prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=f241ff9acbd91c73a1bd3ad50f0a331d quote=%Q2Fm6SBsb2NraW5n prefix="" suffix=": the old tracker used" hint=3-3 window=AQABAHwgEdM span=xxh3:0c5e8a31f7b2d946 blob=sha1:3c7f6ee22f7a670bc36cd11e0618674cebf1b900 captured=2be103347f694532ebf06d7f0a9a0cc9 v=1
+anchor a2722cec365b6083b1e6fa97c75d5e7e -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=lines mode=live watch=span hint=3-5 window=AQACAKTBDp9bIg span=xxh3:3e9d07c1a2b4f658 blob=sha1:0aaa3cfcf90117058c75a1a383e6cfcc32890157 captured=7aec4a31619b1d650bde7851c4fe05c3 v=1
+anchor b10f7ea53ecfee12971f8c3b4d0669df -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=symbol mode=live watch=header scope="rust:impl LockFile/fn acquire" quote_h=17197edc079fc51d79b8ee94828993c3 prefix_h=0543223ded0e66a9441661b88320002b suffix_h=1b5df6c4fb55e868f99e941016c92ffb quote="pub fn acquire(&self, owner: Owner) -> Guard" prefix="/// Blocks until the byte is ours, then records the owner.\n" suffix=" {\n" occurrence=2 hint=14-16 window=AgABABxLk9B34Q span=xxh3:51a0c3e2b4d69f78 blob=sha1:0aaa3cfcf90117058c75a1a383e6cfcc32890157 git=sha1:07749270e4852cbea89a09460cae7049ab75e153 captured=b7b7708ebe56e79861072b2f558c5571 v=1
+anchor c73a9dda64c4836637bec4503272392d -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=file mode=live watch=header blob=sha1:0aaa3cfcf90117058c75a1a383e6cfcc32890157 git=sha1:07749270e4852cbea89a09460cae7049ab75e153 captured=c81b5793ae8794402388225c48c0048f v=1
+anchor 2e49a177d26011b3e70de8fdd1759a0b -> 58bf5caf4b563388042b46cd27dba3da kind=heading mode=live watch=header scope="markdown:h1 Lock protocol/h2 Timeouts %2f retries[2]" quote_h=4088f6c0faec4ed810e9eca1978806cd prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=211a7ebb647b83f7adbdfb3f54de3b38 quote="## Timeouts" prefix="" suffix="\n\nWaiters retry" hint=6-6 window=AQABAD2RWh4 span=xxh3:2a6b19c07e3f5d84 blob=sha1:fb553d60ac29e10a6c3a38c349be441cd67bf27b captured=20097c2a0fba47669c01c14c30d534cc v=1

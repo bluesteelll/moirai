@@ -80,9 +80,9 @@ pub enum Rule {
     TrailerMalformed,
     /// A repeated trailer.
     TrailerRepeated,
-    /// `Moirai-Git-Head` and `Moirai-Git-Base` of different algorithms.
+    /// `Klotho-Git-Head` and `Klotho-Git-Base` of different algorithms.
     TrailerAlgorithms,
-    /// A `Moirai-Sync-Base` that differs from its second parent's stated id.
+    /// A `Klotho-Sync-Base` that differs from its second parent's stated id.
     TrailerSyncBase,
     /// A schema version other than 1.
     TrailerSchema,

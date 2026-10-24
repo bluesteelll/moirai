@@ -4,7 +4,7 @@
 //! - **Roots hold no handle** ([OS/project §2.2]): a root is its canonical text, its `\\?\` form and its root id; every
 //!   operation opens what it needs with full sharing and closes it before returning, so no project handle blocks a
 //!   rename of an ancestor ([40 §4.7]) and no handle lives between operations (I-F11).
-//! - **Identity** is `FILE_ID_128` with the volume key `BLAKE3-128(lp("moirai-vol-key-v1") ‖ lp("win-volume-serial-64")
+//! - **Identity** is `FILE_ID_128` with the volume key `BLAKE3-128(lp("klotho-vol-key-v1") ‖ lp("win-volume-serial-64")
 //!   ‖ lp(u64le(VolumeSerialNumber)))` ([OS/project §3.1, §4.1]); `nFileIndex` is never used.
 //! - **Cloud placeholders are never hydrated** ([OS/project §5.10]): attributes come from `GetFileAttributesExW` or the
 //!   parent's enumeration; a `RECALL_ON_OPEN` or `OFFLINE` entry is never opened, a `RECALL_ON_DATA_ACCESS` directory is
@@ -185,7 +185,7 @@ fn caps_for(fs: FsFamily, journal: JournalKind) -> VolumeCaps {
 /// The volume key of a volume serial ([OS/project §4.1]).
 pub(crate) fn vol_key(serial: u64) -> VolumeKey {
     let mut h = blake3::Hasher::new();
-    lp(&mut h, b"moirai-vol-key-v1");
+    lp(&mut h, b"klotho-vol-key-v1");
     lp(&mut h, b"win-volume-serial-64");
     lp(&mut h, &serial.to_le_bytes());
     let mut k = [0u8; 16];
@@ -1647,7 +1647,7 @@ mod tests {
         assert_ne!(k, vol_key(0x1235));
         let mut h = blake3::Hasher::new();
         h.update(&17u32.to_le_bytes());
-        h.update(b"moirai-vol-key-v1");
+        h.update(b"klotho-vol-key-v1");
         h.update(&20u32.to_le_bytes());
         h.update(b"win-volume-serial-64");
         h.update(&8u32.to_le_bytes());

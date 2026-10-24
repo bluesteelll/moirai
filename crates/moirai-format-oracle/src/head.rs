@@ -281,7 +281,7 @@ impl HeadSlot {
         if b.len() != SLOT_LEN {
             return err(base, "a HEAD slot is 4096 bytes [F04 §2]");
         }
-        if &b[..4] != b"MOIR" {
+        if &b[..4] != b"KLTH" {
             return Ok(SlotClass::Absent(b.to_vec()));
         }
         let (lo, hi) = xxh3_128(&b[..4080]);
@@ -497,7 +497,7 @@ impl HeadSlot {
     /// Re-encodes the 4,096-byte slot with its checksum.
     pub fn encode(&self) -> Vec<u8> {
         let mut w = Writer::new();
-        w.bytes(b"MOIR");
+        w.bytes(b"KLTH");
         w.u16(1);
         w.u16(self.flags);
         w.u64(self.slot_seq);
@@ -716,7 +716,7 @@ pub(crate) mod tests {
         s.seq_ring[3] = SeqRingEntry { seq: 0, lsn: 0 };
         let b = s.encode();
         assert_eq!(b.len(), 4096);
-        assert_eq!(&b[0..4], b"MOIR");
+        assert_eq!(&b[0..4], b"KLTH");
         assert_eq!(&b[80..84], &1u32.to_le_bytes());
         assert_eq!(&b[100..104], &7u32.to_le_bytes());
         assert_eq!(b[104], 1);
@@ -855,7 +855,7 @@ mod props {
         /// [F04 §7]: any 4,096 bytes classify without error; a valid slot re-encodes to the same bytes.
         #[test]
         fn classify_any_slot(tail in proptest::collection::vec(any::<u8>(), SLOT_LEN - 4)) {
-            let mut b = b"MOIR".to_vec();
+            let mut b = b"KLTH".to_vec();
             b.extend_from_slice(&tail);
             let (lo, hi) = xxh3_128(&b[..4080]);
             b[4080..4088].copy_from_slice(&lo.to_le_bytes());

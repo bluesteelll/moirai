@@ -1,0 +1,14 @@
+klotho-node 1
+uid: 19143eabafc5ec1c2f8ddb102a731ae3
+kind: artifact
+status: present
+created: c87cd762b535e0a73f1b6084520dad1ca25e65c8d7882bbf1708c3a4fc2d42206 2026-09-21T15:13:20.000Z
+updated: c87cd762b535e0a73f1b6084520dad1ca25e65c8d7882bbf1708c3a4fc2d42206 2026-09-21T15:13:20.000Z
+field artifact_kind: source
+field bytes: 350
+field observed_blob: sha1:0aaa3cfcf90117058c75a1a383e6cfcc32890157
+field observed_git: sha1:07749270e4852cbea89a09460cae7049ab75e153
+field oid: sha1:0aaa3cfcf90117058c75a1a383e6cfcc32890157
+field origin_path: crates/engine/src/lock.rs
+field path: crates/engine/src/lock.rs
+field root: project

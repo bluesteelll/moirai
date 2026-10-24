@@ -1,16 +1,16 @@
-tree 95d5e04a6fff9e4f8e4ecb56a1f83e31894eb82c
-parent 15a8ce13bee4af280d0de5985643573e7fc0b05f
-author moirai/dev#2 <developer@moirai.invalid> 1790000780 +0000
-committer moirai/dev#2 <developer@moirai.invalid> 1790000780 +0000
+tree 11fd5221d2d6b8c4dea3ab1aa612f728aeaa1da6
+parent 21f78d7f7fece672743848e54ab637fdea7c4ba7
+author klotho/dev#2 <developer@klotho.invalid> 1790000780 +0000
+committer klotho/dev#2 <developer@klotho.invalid> 1790000780 +0000
 
 claim #2
 
-Moirai-Commit: c7d9dab189d18bd3308c25f1c6a53d166a40c6879768890340c765dd43a1b07e4
-Moirai-Kind: ordinary
-Moirai-Ref: lane/anchors
-Moirai-Hlc: 117309491118080000
-Moirai-Actor: dev#2
-Moirai-Role: developer
-Moirai-Session: codex:s7
-Moirai-Schema: 1
-Moirai-Ops: 1
+Klotho-Commit: c1d3849763034f0553051b7927f0a244f08f7739e5ba622c773c3ab5f928eba83
+Klotho-Kind: ordinary
+Klotho-Ref: lane/anchors
+Klotho-Hlc: 117309491118080000
+Klotho-Actor: dev#2
+Klotho-Role: developer
+Klotho-Session: codex:s7
+Klotho-Schema: 1
+Klotho-Ops: 1

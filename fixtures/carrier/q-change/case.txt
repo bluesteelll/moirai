@@ -9,10 +9,10 @@
 %% note Row R5 (+): open_tasks changed; stale_notes dropped (its query file leaves the tree).
 %% destination A sha1 full
 %% class native
-%% git-commit 15f59b62732a4382f3e8fc2dd913428b847e0dae
-%% git-tree 29efd41160e0b7a9ee76aadcc6ad452a57a3d5d7
-%% git-parent 507868c1ad2fc92931a5fc49f62e38d2e8fb168b q-define
-%% trailer-commit b615381affeff30141749be1064127f00c3a9e5362622a55032b6fbf1049358f
+%% git-commit 441cd92b8753e3f88c95a23d659b5e2ff4bd51be
+%% git-tree fbc6a2fca73c4447422f66f22ee6a7f5e8abc245
+%% git-parent 517f935aa0369111997f05b324abde912a0eb7e1 q-define
+%% trailer-commit 23c5525d44274f09a45defe4c4e59d0f48b6ab6df95472044a395914f37b84b0
 %% touched-new 1
 %% touched-old 2
 %% p-state
@@ -70,8 +70,8 @@ schema query open_tasks lq=1 params="$scope: node = #u:a000000000000000000000000
 schema query open_tasks = present
 schema query stale_notes = absent
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: schema query open_tasks
 02050a0000006f70656e5f7461736b7300010100440000002473636f70653a206e6f6465203d2023753a613030303030
 30303030303030303030303030303030303030303030303030312c20246c696d69743a20696e74203d20353005000000
@@ -86,10 +86,10 @@ schema query stale_notes = absent
 ; u64 entry count = 2
 0200000000000000
 %% entry-count 2
-%% changeset-digest 730e1ffde5907ae67f05901c5a7fc926b92dc3d6902de231785436d95959264b
+%% changeset-digest 599dcf11fb8b3372f71e8002482d7c490b2a2929dcb4903ac82b15a74409191a
 %% commit
 kind ordinary
-parent 7f6ec3a3e5ecf0a647b1466f6aad0dae358b34c905e96daa52e028310e436c5b
+parent 7440455f9d495de474ec51e4ac6ad078fa6e47c7a04b376821ab22bcbcbafdca
 hlc 01a0c48bee600000
 actor "orch"
 role "orchestrator"
@@ -103,14 +103,14 @@ schema-version 1
 origin -
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-7f6ec3a3e5ecf0a647b1466f6aad0dae358b34c905e96daa52e028310e436c5b
+7440455f9d495de474ec51e4ac6ad078fa6e47c7a04b376821ab22bcbcbafdca
 ; item 3: hlc
 000060ee8bc4a001
 ; item 4: actor
@@ -140,6 +140,6 @@ foreign -
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-730e1ffde5907ae67f05901c5a7fc926b92dc3d6902de231785436d95959264b
-%% commit-id b615381affeff30141749be1064127f00c3a9e5362622a55032b6fbf1049358f
+599dcf11fb8b3372f71e8002482d7c490b2a2929dcb4903ac82b15a74409191a
+%% commit-id 23c5525d44274f09a45defe4c4e59d0f48b6ab6df95472044a395914f37b84b0
 %% end

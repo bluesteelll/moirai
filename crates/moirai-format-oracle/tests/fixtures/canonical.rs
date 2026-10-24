@@ -2,7 +2,7 @@
 //! `changeset_digest` (their correctness is a C-rule, [F06 §4.3] orders 2 and 39); the oracle recomputes them over the
 //! fixtures that carry real ids, here and in `fixtures/carrier` ([F07 §12] intro; spec sync 2b S2B-F-14). Per case
 //! (`fixtures/canonical/INDEX.md` §2.2, §4): `changeset-digest` is BLAKE3-256 of `digest-input`, which is
-//! `lp("moirai-changeset-v1") ‖ E_1 ‖ … ‖ E_n ‖ u64(entry-count)` ([F07 §10.4]); `commit-id` is BLAKE3-256 of `c`
+//! `lp("klotho-changeset-v1") ‖ E_1 ‖ … ‖ E_n ‖ u64(entry-count)` ([F07 §10.4]); `commit-id` is BLAKE3-256 of `c`
 //! ([F07 §3.1]); and where the case gives a `commit` block, C rebuilt from its items 1–9 (INDEX.md §4.2, [F07 §3.2]–§3.10)
 //! and the case's `changeset-digest` as item 10 is `c` byte for byte. The entries of `digest-input` recompute the
 //! digest, and a stated `message-input-hex` normalises (`N`, [F07 §5.1]) to the commit's message. The message cases give

@@ -1554,9 +1554,9 @@ pub struct GitProv {
 /// The `ckpt` group ([F06 §4.4.11]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ckpt {
-    /// `Moirai-Head`.
+    /// `Klotho-Head`.
     pub head: [u8; 32],
-    /// `Moirai-Folded` count.
+    /// `Klotho-Folded` count.
     pub n_folded: u32,
     /// First folded commit.
     pub first: [u8; 32],
@@ -1567,9 +1567,9 @@ pub struct Ckpt {
 /// The `xtr` group ([F06 §4.4.12]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Xtr {
-    /// `Moirai-Ref` symbol.
+    /// `Klotho-Ref` symbol.
     pub x_ref: Option<u32>,
-    /// `Moirai-Idem` value.
+    /// `Klotho-Idem` value.
     pub x_idem: Option<[u8; 16]>,
 }
 

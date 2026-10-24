@@ -5,7 +5,7 @@
 //!   §9]); mono = `QueryPerformanceCounter` scaled by `QueryPerformanceFrequency` (the system-wide counter, no per-process
 //!   origin, so it is comparable across the processes of one boot, [OS/clock] open point 7); boot =
 //!   `QueryInterruptTimePrecise` × 100 (HOLE(OS-win-boot-clock), design choice (a)).
-//! - **Boot identity** ([OS/proc §4.2], HOLE(OS-win-boot-source) design choice (a)): `BLAKE3-128(lp("moirai-boot-id-v1")
+//! - **Boot identity** ([OS/proc §4.2], HOLE(OS-win-boot-source) design choice (a)): `BLAKE3-128(lp("klotho-boot-id-v1")
 //!   ‖ lp("win-bootid-machineguid") ‖ lp(u32le(B)) ‖ lp(G))` with `B` the `BootId` member of `KUSER_SHARED_DATA` (the
 //!   registry's `PrefetchParameters\BootId` when it reads 0) and `G` the `MachineGuid`; read once and cached; any failure
 //!   is Unknown-boot mode, never a refusal.
@@ -342,7 +342,7 @@ fn read_boot_identity() -> BootIdentity {
         return BootIdentity::Unknown(UnknownBoot::Malformed);
     }
     let mut h = blake3::Hasher::new();
-    lp(&mut h, b"moirai-boot-id-v1");
+    lp(&mut h, b"klotho-boot-id-v1");
     lp(&mut h, b"win-bootid-machineguid");
     lp(&mut h, &b.to_le_bytes());
     lp(&mut h, g.as_bytes());

@@ -197,7 +197,7 @@ value is `yes`, `no`, an integer, a label, `-` (none or absent), a name, a JSON 
 ### 2.9 Harness steps
 
 Both run the git CLI in a scratch clone of the image repository a previous `ImageExport` wrote, then push the named ref
-back; the resulting commit carries no `Moirai-*` trailer, so the importer classifies it as foreign ([F14 §10.9]).
+back; the resulting commit carries no `Klotho-*` trailer, so the importer classifies it as foreign ([F14 §10.9]).
 
 | Step | Tokens | Effect |
 |---|---|---|

@@ -1287,7 +1287,7 @@ impl Store {
             .nodes
             .values()
             .find(|x| {
-                x.live() && x.kind == "lane" && x.text("moirai_branch") == Some(l.branch.as_str())
+                x.live() && x.kind == "lane" && x.text("store_branch") == Some(l.branch.as_str())
             })
             .and_then(|x| path_of(x.fields.get("worktree_path")).map(|p| canon_abs(&p.text)))
         else {

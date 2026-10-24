@@ -453,7 +453,7 @@ impl<'a> SegView<'a> {
             return Err(format!("{} bytes, shorter than SegHdr", bytes.len()));
         }
         if bytes[0..4] != SEG_MAGIC || u16_at(bytes, 4) != FORMAT {
-            return Err("not an MSEG segment of format 1 (V-1)".into());
+            return Err("not a KSEG segment of format 1 (V-1)".into());
         }
         if u64_at(bytes, 112) != xxh3_64(&bytes[..112]) {
             return Err("hdr_xxh3 does not match (V-2)".into());
@@ -821,7 +821,7 @@ pub(crate) mod tests {
         let b = four();
         let d = data_off(4);
         assert_eq!((SEG_HDR_LEN, d), (120, 120 + 4 * 32));
-        assert_eq!(&b[0..4], b"MSEG");
+        assert_eq!(&b[0..4], b"KSEG");
         assert_eq!(&b[4..6], &[1, 0], "format 1");
         assert_eq!((b[6], b[7]), (4, 0), "seg_kind seg-delta, tok_ver 0");
         assert_eq!(&b[8..12], &[4, 3, 2, 1], "n_rows");

@@ -1,8 +1,8 @@
 //! The fixture checks of E3 (PLAN WP-95): every hand-written hex fixture decodes into typed values and re-encodes
 //! byte-identically, and the `moi/` and `carrier/` fixtures' expectation files are read in their framing.
 //!
-//! - A whole file with a magic ([F03 §4.1] `MLCK`, [F04 §3.1] `MOIR`, [F09 §2.1] `MSEG` with its `seg_kind`,
-//!   [F10 §6.1] `MDIC`, [F10 §7.2] `MGMP`) is checked by [`check_file`], with its name against its header when given
+//! - A whole file with a magic ([F03 §4.1] `KLCK`, [F04 §3.1] `KLTH`, [F09 §2.1] `KSEG` with its `seg_kind`,
+//!   [F10 §6.1] `KDIC`, [F10 §7.2] `KGMP`) is checked by [`check_file`], with its name against its header when given
 //!   ([F09 §17.1] V-3, [`sealed_identity`], [`FileName`]); a `HEAD` by [`check_head`], which also gives the slot
 //!   selection of [F04 §8.1].
 //! - A log is checked with the `HEAD` of its store by [`check_log`]: the scan of [F05 §5] over its extents, every valid
@@ -48,17 +48,17 @@ pub enum Kind {
 /// The structure a file's magic names, if any.
 pub fn kind_of(b: &[u8]) -> Option<Kind> {
     match b.get(..4)? {
-        b"MLCK" => Some(Kind::Lock),
-        b"MOIR" => Some(Kind::Head),
-        b"MSEG" => Some(match b.get(6) {
+        b"KLCK" => Some(Kind::Lock),
+        b"KLTH" => Some(Kind::Head),
+        b"KSEG" => Some(match b.get(6) {
             Some(2) => Kind::Hist,
             Some(6) => Kind::Blobs,
             _ => Kind::Segment,
         }),
-        b"MDIC" => Some(Kind::Dict),
-        b"MGMP" => Some(Kind::Gitmap),
+        b"KDIC" => Some(Kind::Dict),
+        b"KGMP" => Some(Kind::Gitmap),
         // [F04 §8.1]: slot A may be absent (never written or torn); slot B then carries the magic.
-        _ if b.len() == crate::head::HEAD_LEN && b.get(4096..4100) == Some(b"MOIR") => {
+        _ if b.len() == crate::head::HEAD_LEN && b.get(4096..4100) == Some(b"KLTH") => {
             Some(Kind::Head)
         }
         _ => None,
@@ -598,7 +598,7 @@ pub fn sealed_identity(name: &str, b: &[u8]) -> Result<Sealed> {
     };
     let mut digest16 = [0u8; 16];
     match b.get(..4) {
-        Some(b"MSEG") => {
+        Some(b"KSEG") => {
             let c = segment::decode_container(b)?;
             let h = &c.hdr;
             if h.seg_kind != n.family || h.file_no != n.file_no || h.ref_id != n.ref_id {
@@ -619,7 +619,7 @@ pub fn sealed_identity(name: &str, b: &[u8]) -> Result<Sealed> {
                 upto_lsn: h.upto_lsn,
             })
         }
-        Some(b"MDIC") if n.family == 7 => {
+        Some(b"KDIC") if n.family == 7 => {
             let d = sealed::decode_dict(b)?;
             sealed::check_dict_number(&d, n.file_no)?;
             Ok(Sealed {
@@ -630,7 +630,7 @@ pub fn sealed_identity(name: &str, b: &[u8]) -> Result<Sealed> {
                 upto_lsn: 0,
             })
         }
-        Some(b"MGMP") if n.family == 8 => {
+        Some(b"KGMP") if n.family == 8 => {
             let g = sealed::decode_gitmap(b)?;
             if g.file_no != n.file_no {
                 return err(
@@ -1456,11 +1456,11 @@ mod tests {
     /// Dispatch by magic.
     #[test]
     fn dispatch() {
-        let mut lock = b"MLCK".to_vec();
+        let mut lock = b"KLCK".to_vec();
         lock.resize(64, 0);
         assert_eq!(kind_of(&lock), Some(Kind::Lock));
-        assert_eq!(kind_of(b"MSEG\x01\x00\x06"), Some(Kind::Blobs));
-        assert_eq!(kind_of(b"MSEG\x01\x00\x02"), Some(Kind::Hist));
+        assert_eq!(kind_of(b"KSEG\x01\x00\x06"), Some(Kind::Blobs));
+        assert_eq!(kind_of(b"KSEG\x01\x00\x02"), Some(Kind::Hist));
         assert_eq!(kind_of(b"\x28\x00\x00\x00\x0c\x03"), None);
         assert!(check_file(b"xyz", None).is_err());
     }

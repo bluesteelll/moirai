@@ -589,7 +589,7 @@ impl Schema {
                 f("base_sha", Ty::Oid),
                 f("tip_sha", Ty::Oid),
                 with(f("target_dir", Ty::Path), Sub::AbsPath),
-                sym("moirai_branch"),
+                sym("store_branch"),
             ],
         );
         kind(

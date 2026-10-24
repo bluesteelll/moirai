@@ -7,7 +7,7 @@ use moirai_format_oracle::canon;
 use moirai_format_oracle::fixture::hex_block;
 use moirai_format_oracle::prim::lp;
 
-/// Item 10 as a case states it ([F07 §10.4]): the `digest-input` block holds `lp("moirai-changeset-v1") ‖ E_1 ‖ … ‖ E_n
+/// Item 10 as a case states it ([F07 §10.4]): the `digest-input` block holds `lp("klotho-changeset-v1") ‖ E_1 ‖ … ‖ E_n
 /// ‖ u64(n)` with one comment line before each part (`fixtures/canonical/INDEX.md` §2.2, §4.1). The block is split at
 /// its comment lines; it must hold the domain, `n` = `entry-count` non-empty entries and the count, and
 /// [`canon::changeset_digest`] of the entries must be `digest`.
@@ -27,13 +27,13 @@ pub fn check_digest_parts(block: &[String], n: u64, digest: &[u8; 32]) -> Result
         parts.push(hex_block(&block[s + 1..end]).map_err(|e| format!("digest-input: {e}"))?);
     }
     let mut domain = Vec::new();
-    lp(&mut domain, b"moirai-changeset-v1");
+    lp(&mut domain, b"klotho-changeset-v1");
     let [first, entries @ .., last] = parts.as_slice() else {
         return Err("digest-input has fewer than two commented parts".into());
     };
     if *first != domain || *last != n.to_le_bytes() {
         return Err(
-            "digest-input's first part is not lp(\"moirai-changeset-v1\") or its last is not u64(entry-count) [F07 §10.4]"
+            "digest-input's first part is not lp(\"klotho-changeset-v1\") or its last is not u64(entry-count) [F07 §10.4]"
                 .into(),
         );
     }

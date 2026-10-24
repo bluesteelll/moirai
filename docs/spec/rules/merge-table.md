@@ -471,7 +471,7 @@ design writes it; its encoding in the closed type set is [F08]'s ([OP-11]).
 | FC-132 | lane | `base_sha` | oid | scalar | design | [AR §3.2] | - |
 | FC-133 | lane | `tip_sha` | oid | scalar | design | [AR §3.2] | - |
 | FC-134 | lane | `target_dir` | path | scalar | design | [AR §3.2] | - |
-| FC-135 | lane | `moirai_branch` | sym | scalar | design | [AR §3.2] | - |
+| FC-135 | lane | `store_branch` | sym | scalar | design | [AR §3.2] | - |
 | FC-136 | area | `path_globs` | set<glob> | glob-set | design | [40 §2.4]; [40 §5.5] | - |
 | FC-137 | area/root | `root` | sym | identity | proposed | [40 §2.3]; [40 §2.4]; [OP-30] | The derivation input of a root-key uid. |
 | FC-138 | area/root | `path_moves` | set<pathmove> | pathmove-set | design | [40 §2.4]; [40 §5.5] | - |

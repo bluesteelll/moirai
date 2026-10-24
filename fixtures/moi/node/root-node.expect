@@ -12,7 +12,7 @@
 %% note (JSON arrays need no other escape).
 %% canonical self
 %% keys
-node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
+node 721354ad0f367138746bf0429056d772 area
   field path_moves set pathmove 3 01a0c45fae400000 observed project "crates/old/" project "crates/new, v2/" sha256:cd3ff2079e038724037e44f3fc3af41b634de4a0ed456c11fb2e65471569d389 01a0c4506c000003 explicit project "docs/plan/" project "docs/archive/plan/" sha1:d6b4c7833e87a2807b7b7b41a4ba5bf4db7929a7 01a0c4506c000003 committed project "docs/a/" project "docs/b/" -
   field root text "project"
   field title text "root:project"

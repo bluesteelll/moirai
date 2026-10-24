@@ -1455,7 +1455,7 @@ impl<'a> Cand<'a> {
         let mut t: u32 = 0;
         loop {
             let u = Uid(blake3_128(&[
-                b"moirai-api-uid-v1",
+                b"klotho-api-uid-v1",
                 &self.cx.seed.to_le_bytes(),
                 &self.cx.n.to_le_bytes(),
                 &self.random_i.to_le_bytes(),

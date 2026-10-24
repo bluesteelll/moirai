@@ -1,4 +1,4 @@
-moirai-node 1
+klotho-node 1
 uid: ab000000000000000000000000000011
 kind: run
 title: M0 nightly run
@@ -14,6 +14,6 @@ field script_path: project:scripts/nightly.ps1
 field session_id: claude:s9
 field started: 1790000100
 field wf_id: wf-17
-edge consumed -> d706fcde60f0b6cbf56c23297162b652 pin=c0c4cd7158cf16a5964d30a3962fc2a017e3530e3bd8b627a67c4c6f6c57858c7
+edge consumed -> 19143eabafc5ec1c2f8ddb102a731ae3 pin=c0c4cd7158cf16a5964d30a3962fc2a017e3530e3bd8b627a67c4c6f6c57858c7
 edge produced -> 2d000000000000000000000000000011
 edge runs_in -> bc000000000000000000000000000011

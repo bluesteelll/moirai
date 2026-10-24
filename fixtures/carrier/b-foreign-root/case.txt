@@ -9,13 +9,13 @@
 %% source [F14 §10.6]
 %% source [F14 §13.2]
 %% note Row re-exports (+): case foreign-root written natively by the second store:
-%% note Moirai-Foreign-Git carries item 9 (the sha1 id in destination F); Moirai-Actor its derived
+%% note Klotho-Foreign-Git carries item 9 (the sha1 id in destination F); Klotho-Actor its derived
 %% note actor; the message part is the stored imported message.
 %% destination B sha256 full
 %% class native
-%% git-commit a81698189be5d8ea2c76c96780e7da652214611b12fcb21d9938e55adda9bc90
-%% git-tree a9157c20e1a31618ac50ce4c6696fa6051931e84202eeaa9502b367194fd6afe
-%% trailer-commit a4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
+%% git-commit 945e1153c4fee626be28d899a559f9ac2996ba3a67abb09b352073e6d5fa073e
+%% git-tree fddb24bf93851842d2cc7c292576839e6869560c33faa795026a421409fb3305
+%% trailer-commit 50a13d75db5cc44f2dd416743cf3846047d747cb51bab3074164c253ddd2d7a0
 %% touched-new 3
 %% touched-old 0
 %% p-state
@@ -34,8 +34,8 @@ node 3d000000000000000000000000000001 note
 3d000000000000000000000000000001 field title = text "Tracker export format"
 3d000000000000000000000000000001 body = hash 1ee74db152a279ea3916cecb56b7b51e
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 2c000000000000000000000000000001 existence
 012c000000000000000000000000000001010001040000007461736b00
 ; entry 2: 2c000000000000000000000000000001 field priority
@@ -53,7 +53,7 @@ node 3d000000000000000000000000000001 note
 ; u64 entry count = 6
 0600000000000000
 %% entry-count 6
-%% changeset-digest 456e1480a95711af868ba9ea2348812eb78692d06c4deb0e9573e5b3ef9d3a0f
+%% changeset-digest 4ca4ddef3808290ad776c279515493d6b9a8352524319f50cc80ab5ac68d8fa4
 %% commit
 kind ordinary
 hlc 01a088b5a2000000
@@ -67,10 +67,10 @@ git-base -
 message "Import backlog from the old tracker\n\nSee the tracker export of 2026-09."
 schema-version 1
 origin -
-foreign sha1 33881ca4c0710e4ef0c39fa06904c0cc6494ca6a
+foreign sha1 d299508691dda2c972974271eac38464ae150599
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
@@ -103,8 +103,8 @@ foreign sha1 33881ca4c0710e4ef0c39fa06904c0cc6494ca6a
 ; item 9: foreign_algo
 0400000073686131
 ; item 9: foreign_oid
-1400000033881ca4c0710e4ef0c39fa06904c0cc6494ca6a
+14000000d299508691dda2c972974271eac38464ae150599
 ; item 10: changeset_digest
-456e1480a95711af868ba9ea2348812eb78692d06c4deb0e9573e5b3ef9d3a0f
-%% commit-id a4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
+4ca4ddef3808290ad776c279515493d6b9a8352524319f50cc80ab5ac68d8fa4
+%% commit-id 50a13d75db5cc44f2dd416743cf3846047d747cb51bab3074164c253ddd2d7a0
 %% end

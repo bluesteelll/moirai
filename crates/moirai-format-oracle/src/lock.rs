@@ -102,8 +102,8 @@ impl LockHdr {
             return r.fail("LockHdr needs 64 bytes [F03 §4.1]");
         }
         let sum = xxh3_64(&raw[..56]);
-        if r.array::<4>()? != *b"MLCK" {
-            return err(start, "LockHdr magic is not MLCK [F03 §4.1]");
+        if r.array::<4>()? != *b"KLCK" {
+            return err(start, "LockHdr magic is not KLCK [F03 §4.1]");
         }
         let at = r.offset();
         let format = r.u16()?;
@@ -141,7 +141,7 @@ impl LockHdr {
     /// Re-encodes the 64 bytes, checksum recomputed.
     pub fn encode(&self, w: &mut Writer) {
         let s = w.len();
-        w.bytes(b"MLCK");
+        w.bytes(b"KLCK");
         w.u16(1);
         w.u16(self.flags);
         w.u16(N_SLOTS as u16);
@@ -695,7 +695,7 @@ mod tests {
 
     fn hdr_bytes() -> Vec<u8> {
         let mut b = Vec::new();
-        b.extend_from_slice(b"MLCK");
+        b.extend_from_slice(b"KLCK");
         b.extend_from_slice(&[1, 0, 0, 0, 0, 1, 128, 0]);
         b.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0x40]);
         b.extend_from_slice(&[0, 0, 1, 0, 0, 0, 0, 0x40]);
@@ -849,7 +849,7 @@ mod tests {
             proc: ProcId::default(),
             proto: 1,
             endpoint_kind: 1,
-            endpoint: r"\\.\pipe\moirai-x".into(),
+            endpoint: r"\\.\pipe\klotho-x".into(),
             nonce: [9; 16],
         };
         let mut w = Writer::new();
@@ -1038,7 +1038,7 @@ mod props {
 
     fn live_file() -> Vec<u8> {
         let mut b = Vec::with_capacity(LOCK_LEN);
-        b.extend_from_slice(b"MLCK");
+        b.extend_from_slice(b"KLCK");
         b.extend_from_slice(&[1, 0, 0, 0, 0, 1, 128, 0]);
         b.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0x40]);
         b.extend_from_slice(&[0, 0, 1, 0, 0, 0, 0, 0x40]);

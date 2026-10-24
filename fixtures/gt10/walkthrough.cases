@@ -133,7 +133,7 @@ lease L-4 task=- holder=wf:r7/refuter branch=lane/l5np run=r7
 * ref:lane/l5np exists yes
 * ref:lane/l5np kind work
 main $lane94 status active
-main $lane94 field.moirai_branch lane/l5np
+main $lane94 field.store_branch lane/l5np
 main $run7 status running
 main edge:$run7:runs_in:$lane94 exists yes
 lane/l5np $lane94 exists yes

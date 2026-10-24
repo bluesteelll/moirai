@@ -221,73 +221,73 @@ pub fn split_message(m: &[u8]) -> (Vec<u8>, Vec<Vec<u8>>) {
 
 /// The trailer keys in exporter order ([F14 §10.5]).
 pub const TRAILER_ORDER: [&str; 20] = [
-    "Moirai-Commit",
-    "Moirai-Kind",
-    "Moirai-Parent",
-    "Moirai-Head",
-    "Moirai-Ref",
-    "Moirai-Folded",
-    "Moirai-Hlc",
-    "Moirai-Actor",
-    "Moirai-Role",
-    "Moirai-Session",
-    "Moirai-Git-Head",
-    "Moirai-Git-Branch",
-    "Moirai-Worktree",
-    "Moirai-Git-Base",
-    "Moirai-Origin",
-    "Moirai-Sync-Base",
-    "Moirai-Foreign-Git",
-    "Moirai-Schema",
-    "Moirai-Ops",
-    "Moirai-Idem",
+    "Klotho-Commit",
+    "Klotho-Kind",
+    "Klotho-Parent",
+    "Klotho-Head",
+    "Klotho-Ref",
+    "Klotho-Folded",
+    "Klotho-Hlc",
+    "Klotho-Actor",
+    "Klotho-Role",
+    "Klotho-Session",
+    "Klotho-Git-Head",
+    "Klotho-Git-Branch",
+    "Klotho-Worktree",
+    "Klotho-Git-Base",
+    "Klotho-Origin",
+    "Klotho-Sync-Base",
+    "Klotho-Foreign-Git",
+    "Klotho-Schema",
+    "Klotho-Ops",
+    "Klotho-Idem",
 ];
 
-/// A `Moirai-Folded` value ([F14 §10.7]): the commit count `n` and, when `n >= 1`, the first and last folded commit ids.
+/// A `Klotho-Folded` value ([F14 §10.7]): the commit count `n` and, when `n >= 1`, the first and last folded commit ids.
 pub type Folded = (u64, Option<([u8; 32], [u8; 32])>);
 
 /// The parsed trailers of a native or checkpoint commit ([F14 §10.4]).
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Trailers {
-    /// `Moirai-Commit`.
+    /// `Klotho-Commit`.
     pub commit: Option<[u8; 32]>,
-    /// `Moirai-Kind`.
+    /// `Klotho-Kind`.
     pub kind: Option<String>,
-    /// `Moirai-Parent` by index 1 and 2.
+    /// `Klotho-Parent` by index 1 and 2.
     pub parent: [Option<[u8; 32]>; 2],
-    /// `Moirai-Head`.
+    /// `Klotho-Head`.
     pub head: Option<[u8; 32]>,
-    /// `Moirai-Ref`.
+    /// `Klotho-Ref`.
     pub ref_name: Option<String>,
-    /// `Moirai-Folded`: (n, first, last).
+    /// `Klotho-Folded`: (n, first, last).
     pub folded: Option<Folded>,
-    /// `Moirai-Hlc`.
+    /// `Klotho-Hlc`.
     pub hlc: Option<u64>,
-    /// `Moirai-Actor`.
+    /// `Klotho-Actor`.
     pub actor: Option<String>,
-    /// `Moirai-Role`.
+    /// `Klotho-Role`.
     pub role: Option<String>,
-    /// `Moirai-Session`.
+    /// `Klotho-Session`.
     pub session: Option<String>,
-    /// `Moirai-Git-Head`.
+    /// `Klotho-Git-Head`.
     pub git_head: Option<Oid>,
-    /// `Moirai-Git-Branch`.
+    /// `Klotho-Git-Branch`.
     pub git_branch: Option<String>,
-    /// `Moirai-Worktree`.
+    /// `Klotho-Worktree`.
     pub worktree: Option<String>,
-    /// `Moirai-Git-Base`.
+    /// `Klotho-Git-Base`.
     pub git_base: Option<Oid>,
-    /// `Moirai-Origin`.
+    /// `Klotho-Origin`.
     pub origin: Option<[u8; 32]>,
-    /// `Moirai-Sync-Base`.
+    /// `Klotho-Sync-Base`.
     pub sync_base: Option<[u8; 32]>,
-    /// `Moirai-Foreign-Git`.
+    /// `Klotho-Foreign-Git`.
     pub foreign: Option<Oid>,
-    /// `Moirai-Schema`.
+    /// `Klotho-Schema`.
     pub schema: Option<u64>,
-    /// `Moirai-Ops`.
+    /// `Klotho-Ops`.
     pub ops: Option<u64>,
-    /// `Moirai-Idem`.
+    /// `Klotho-Idem`.
     pub idem: Option<[u8; 16]>,
     /// The keys in the order they appeared.
     pub order: Vec<String>,
@@ -326,11 +326,11 @@ fn trailer_value(t: &mut Trailers, key: &str, v: &str, at: usize) -> Result<()> 
         }};
     }
     match key {
-        "Moirai-Commit" => match cid(v) {
+        "Klotho-Commit" => match cid(v) {
             Some(c) => set!(t.commit, c),
             None => return bad(),
         },
-        "Moirai-Kind" => {
+        "Klotho-Kind" => {
             if ![
                 "ordinary",
                 "merge",
@@ -345,7 +345,7 @@ fn trailer_value(t: &mut Trailers, key: &str, v: &str, at: usize) -> Result<()> 
             }
             set!(t.kind, v.to_owned())
         }
-        "Moirai-Parent" => {
+        "Klotho-Parent" => {
             let (i, c) = match v.split_once(' ') {
                 Some(("1", c)) => (0, c),
                 Some(("2", c)) => (1, c),
@@ -356,17 +356,17 @@ fn trailer_value(t: &mut Trailers, key: &str, v: &str, at: usize) -> Result<()> 
                 None => return bad(),
             }
         }
-        "Moirai-Head" => match cid(v) {
+        "Klotho-Head" => match cid(v) {
             Some(c) => set!(t.head, c),
             None => return bad(),
         },
-        "Moirai-Ref" => {
+        "Klotho-Ref" => {
             if v.is_empty() || v.contains(' ') || v.chars().any(is_control) {
                 return bad();
             }
             set!(t.ref_name, v.to_owned())
         }
-        "Moirai-Folded" => {
+        "Klotho-Folded" => {
             let Some((n, rest)) = v.split_once(" commits") else {
                 return bad();
             };
@@ -391,53 +391,53 @@ fn trailer_value(t: &mut Trailers, key: &str, v: &str, at: usize) -> Result<()> 
                 return parse_err(
                     Rule::TrailerMalformed,
                     at,
-                    "Moirai-Folded names a range exactly when n >= 1 [F14 §10.7]",
+                    "Klotho-Folded names a range exactly when n >= 1 [F14 §10.7]",
                 );
             }
             set!(t.folded, (n, range))
         }
-        "Moirai-Hlc" => match parse_dec(v) {
+        "Klotho-Hlc" => match parse_dec(v) {
             Some(h) => set!(t.hlc, h),
             None => return bad(),
         },
-        "Moirai-Actor" | "Moirai-Role" | "Moirai-Session" | "Moirai-Git-Branch"
-        | "Moirai-Worktree" => {
+        "Klotho-Actor" | "Klotho-Role" | "Klotho-Session" | "Klotho-Git-Branch"
+        | "Klotho-Worktree" => {
             let s = read_sval(v, at)?;
             match key {
-                "Moirai-Actor" => set!(t.actor, s),
-                "Moirai-Role" => set!(t.role, s),
-                "Moirai-Session" => set!(t.session, s),
-                "Moirai-Git-Branch" => set!(t.git_branch, s),
+                "Klotho-Actor" => set!(t.actor, s),
+                "Klotho-Role" => set!(t.role, s),
+                "Klotho-Session" => set!(t.session, s),
+                "Klotho-Git-Branch" => set!(t.git_branch, s),
                 _ => set!(t.worktree, s),
             }
         }
-        "Moirai-Git-Head" | "Moirai-Git-Base" | "Moirai-Foreign-Git" => {
+        "Klotho-Git-Head" | "Klotho-Git-Base" | "Klotho-Foreign-Git" => {
             let Some(o) = parse_oid_text(v) else {
                 return bad();
             };
             match key {
-                "Moirai-Git-Head" => set!(t.git_head, o),
-                "Moirai-Git-Base" => set!(t.git_base, o),
+                "Klotho-Git-Head" => set!(t.git_head, o),
+                "Klotho-Git-Base" => set!(t.git_base, o),
                 _ => set!(t.foreign, o),
             }
         }
-        "Moirai-Origin" => match cid(v) {
+        "Klotho-Origin" => match cid(v) {
             Some(c) => set!(t.origin, c),
             None => return bad(),
         },
-        "Moirai-Sync-Base" => match cid(v) {
+        "Klotho-Sync-Base" => match cid(v) {
             Some(c) => set!(t.sync_base, c),
             None => return bad(),
         },
-        "Moirai-Schema" => match parse_dec(v) {
+        "Klotho-Schema" => match parse_dec(v) {
             Some(s) => set!(t.schema, s),
             None => return bad(),
         },
-        "Moirai-Ops" => match parse_dec(v) {
+        "Klotho-Ops" => match parse_dec(v) {
             Some(s) => set!(t.ops, s),
             None => return bad(),
         },
-        "Moirai-Idem" => {
+        "Klotho-Idem" => {
             if !is_lhex(v, 32) {
                 return bad();
             }
@@ -459,9 +459,9 @@ pub fn classify(message: &[u8]) -> Result<Class> {
     let Some(first) = para.first() else {
         return Ok(Class::Foreign);
     };
-    let native = first.starts_with(b"Moirai-Commit: ");
-    let ckpt = first == b"Moirai-Kind: checkpoint"
-        && !para.iter().any(|l| l.starts_with(b"Moirai-Commit:"));
+    let native = first.starts_with(b"Klotho-Commit: ");
+    let ckpt = first == b"Klotho-Kind: checkpoint"
+        && !para.iter().any(|l| l.starts_with(b"Klotho-Commit:"));
     if !native && !ckpt {
         return Ok(Class::Foreign);
     }
@@ -498,7 +498,7 @@ pub fn classify(message: &[u8]) -> Result<Class> {
         return parse_err(
             Rule::TrailerAlgorithms,
             0,
-            "Moirai-Git-Head and Moirai-Git-Base of different algorithms [F14 §9.2]",
+            "Klotho-Git-Head and Klotho-Git-Base of different algorithms [F14 §9.2]",
         );
     }
     if t.schema.is_some_and(|s| s != 1) {
@@ -517,7 +517,7 @@ pub fn classify(message: &[u8]) -> Result<Class> {
         Ok(Class::Native(Box::new(t)))
     } else {
         let only = t.order.iter().all(|k| {
-            ["Moirai-Kind", "Moirai-Head", "Moirai-Ref", "Moirai-Folded"].contains(&k.as_str())
+            ["Klotho-Kind", "Klotho-Head", "Klotho-Ref", "Klotho-Folded"].contains(&k.as_str())
         });
         if !only || t.head.is_none() || t.folded.is_none() {
             return Ok(Class::Foreign);
@@ -527,12 +527,12 @@ pub fn classify(message: &[u8]) -> Result<Class> {
 }
 
 /// What the carrier check knows about one git parent ([F14 §12.1] row 2): the id this store holds for it through
-/// `gitmap` (a demoted parent's foreign id), its own `Moirai-Commit` when it is a native candidate, and its `hlc`.
+/// `gitmap` (a demoted parent's foreign id), its own `Klotho-Commit` when it is a native candidate, and its `hlc`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParentInfo {
     /// The id the store holds for the git parent.
     pub id: [u8; 32],
-    /// The parent's `Moirai-Commit` trailer, when it has one: a native child states it ([F14 §10.9]: children of a
+    /// The parent's `Klotho-Commit` trailer, when it has one: a native child states it ([F14 §10.9]: children of a
     /// demoted commit still verify against the ids their trailers state).
     pub commit: Option<[u8; 32]>,
     /// Its `hlc` (for the foreign `hlc` rule).
@@ -575,11 +575,11 @@ pub struct CarrierCtx {
     pub own_oid: Oid,
     /// Item 10: the `changeset_digest` of the tree diff.
     pub changeset_digest: [u8; 32],
-    /// The number of item-10 entries of the tree diff ([F07 §10.4]), which `Moirai-Ops` states ([F14 §12.1]).
+    /// The number of item-10 entries of the tree diff ([F07 §10.4]), which `Klotho-Ops` states ([F14 §12.1]).
     pub entry_count: u64,
 }
 
-/// [F14 §12.1]: `Moirai-Ops` carries the item-10 entry count as a pre-check; an importer that counts another number
+/// [F14 §12.1]: `Klotho-Ops` carries the item-10 entry count as a pre-check; an importer that counts another number
 /// demotes the commit without hashing ([F07 §12.5]).
 fn ops_match(t: &Trailers, cx: &CarrierCtx) -> bool {
     t.ops == Some(cx.entry_count)
@@ -606,7 +606,7 @@ fn check_context(obj: &CommitObj, cx: &CarrierCtx) -> Result<()> {
 
 /// Items 1–10 of a native candidate from its trailers ([F07 §12.2], [F14 §12.1]), or `None` when its message part
 /// fails step 1 of N ([F07 §5.3]: the commit is demoted). Steps 2–4 of N apply and none of §5.2's refusals: a message
-/// part whose last paragraph begins with `Moirai-` verifies as it stands (spec sync 2b S2B-F-15).
+/// part whose last paragraph begins with `Klotho-` verifies as it stands (spec sync 2b S2B-F-15).
 fn native_items(obj: &CommitObj, t: &Trailers, cx: &CarrierCtx) -> Result<Option<Items>> {
     let parents: Vec<[u8; 32]> = cx
         .parents
@@ -625,7 +625,7 @@ fn native_items(obj: &CommitObj, t: &Trailers, cx: &CarrierCtx) -> Result<Option
         return parse_err(
             Rule::TrailerMalformed,
             0,
-            "Moirai-Parent names a parent the commit does not have [F14 §10.4]",
+            "Klotho-Parent names a parent the commit does not have [F14 §10.4]",
         );
     }
     if let Some(sb) = t.sync_base
@@ -634,14 +634,14 @@ fn native_items(obj: &CommitObj, t: &Trailers, cx: &CarrierCtx) -> Result<Option
         return parse_err(
             Rule::TrailerSyncBase,
             0,
-            "Moirai-Sync-Base differs from the second parent's stated id [F14 §9.2]",
+            "Klotho-Sync-Base differs from the second parent's stated id [F14 §9.2]",
         );
     }
     if t.schema != Some(u64::from(cx.marker_schema_version)) {
         return parse_err(
             Rule::TrailerSchema,
             0,
-            "Moirai-Schema differs from the tree's marker [F14 §4]",
+            "Klotho-Schema differs from the tree's marker [F14 §4]",
         );
     }
     let (msg_part, _) = split_message(&obj.message);
@@ -682,7 +682,7 @@ pub fn derive_items(obj: &CommitObj, cx: &CarrierCtx) -> Result<(Class, Items)> 
                 return parse_err(
                     Rule::Demoted,
                     0,
-                    "Moirai-Ops differs from the item-10 entry count: the commit is demoted [F14 §12.1]",
+                    "Klotho-Ops differs from the item-10 entry count: the commit is demoted [F14 §12.1]",
                 );
             }
             Some(items) => items,
@@ -769,11 +769,11 @@ pub fn foreign_items(obj: &CommitObj, cx: &CarrierCtx) -> Result<Items> {
 /// How an import treats a git commit after [F14 §10.9] and the id check of §12.6.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
-    /// A native candidate whose rebuilt id equals `Moirai-Commit`.
+    /// A native candidate whose rebuilt id equals `Klotho-Commit`.
     Native,
-    /// A native candidate whose `Moirai-Ops` is not the entry count ([F14 §12.1]), whose rebuilt id differs, or whose
+    /// A native candidate whose `Klotho-Ops` is not the entry count ([F14 §12.1]), whose rebuilt id differs, or whose
     /// message part fails N step 1: imported as foreign ([F07 §12.5]). Carries the failed native reconstruction when
-    /// one was built (unhashed when `Moirai-Ops` decided).
+    /// one was built (unhashed when `Klotho-Ops` decided).
     Demoted(Option<Box<Items>>),
     /// A checkpoint candidate ([F07 §12.4]).
     Checkpoint,
@@ -783,7 +783,7 @@ pub enum Verdict {
 
 /// The items an import rebuilds for a git commit ([F14 §10.9], §12.1): a native candidate that verifies keeps its
 /// native items; one that does not is demoted and gets the foreign items; `ImageParse` refusals propagate. A
-/// `Moirai-Ops` that differs from the entry count demotes before the id is computed or compared ([F14 §12.1]); the
+/// `Klotho-Ops` that differs from the entry count demotes before the id is computed or compared ([F14 §12.1]); the
 /// native reconstruction is still returned, unhashed, for diagnostics (a fixture may state its id).
 pub fn import_items(obj: &CommitObj, cx: &CarrierCtx) -> Result<(Verdict, Items)> {
     let class = classify(&obj.message)?;
@@ -808,7 +808,7 @@ pub fn import_items(obj: &CommitObj, cx: &CarrierCtx) -> Result<(Verdict, Items)
     }
 }
 
-/// The gate-0 check of one native commit ([F14 §12.6]): the id rebuilt from the carriers equals `Moirai-Commit`, and
+/// The gate-0 check of one native commit ([F14 §12.6]): the id rebuilt from the carriers equals `Klotho-Commit`, and
 /// the exporter's bytes follow §10.1, §10.2 and §10.5. Returns the verified id.
 pub fn verify_native(obj: &CommitObj, cx: &CarrierCtx) -> Result<[u8; 32]> {
     let (class, items) = derive_items(obj, cx)?;
@@ -825,7 +825,7 @@ pub fn verify_native(obj: &CommitObj, cx: &CarrierCtx) -> Result<[u8; 32]> {
             Rule::Export,
             0,
             format!(
-                "the rebuilt commit id c{} differs from Moirai-Commit [F14 §12.6]",
+                "the rebuilt commit id c{} differs from Klotho-Commit [F14 §12.6]",
                 hex(&id)
             ),
         );
@@ -854,10 +854,10 @@ pub fn check_exporter_bytes(obj: &CommitObj, t: &Trailers, items: &Items) -> Res
             })
             .collect()
     };
-    let mut name = b"moirai/".to_vec();
+    let mut name = b"klotho/".to_vec();
     name.extend(sub(&items.actor));
     let mut email = sub(&items.role);
-    email.extend_from_slice(b"@moirai.invalid");
+    email.extend_from_slice(b"@klotho.invalid");
     let want = Ident {
         name,
         email,
@@ -868,7 +868,7 @@ pub fn check_exporter_bytes(obj: &CommitObj, t: &Trailers, items: &Items) -> Res
         return parse_err(
             Rule::Export,
             0,
-            "author or committer is not moirai/<actor> <role@moirai.invalid> at floor((hlc >> 16) / 1000) [F14 §10.2]",
+            "author or committer is not klotho/<actor> <role@klotho.invalid> at floor((hlc >> 16) / 1000) [F14 §10.2]",
         );
     }
     let rank = |k: &str| TRAILER_ORDER.iter().position(|x| *x == k).expect("known");
@@ -915,20 +915,20 @@ mod tests {
     /// [F14 §17.6]: the native message classifies with every trailer; the checkpoint message classifies as checkpoint.
     #[test]
     fn example_messages() {
-        let native = "claim --start\n\nMoirai-Commit: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\nMoirai-Kind: ordinary\nMoirai-Ref: lane/l5np\nMoirai-Hlc: 117336598351118336\nMoirai-Actor: dev#1\nMoirai-Role: developer\nMoirai-Session: claude:s1\nMoirai-Git-Head: sha1:75bea42e34a5942eb6593b2867480e8fbc95eed1\nMoirai-Git-Branch: lane-l5np\nMoirai-Worktree: D:/work/demo-lanes/l5np\nMoirai-Git-Base: sha1:355b6ed5b782f6c37af0af19ff53ee150bdc8736\nMoirai-Schema: 1\nMoirai-Ops: 1\nMoirai-Idem: 6653a45d135b95e5b4266fe14c279747\n";
+        let native = "claim --start\n\nKlotho-Commit: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\nKlotho-Kind: ordinary\nKlotho-Ref: lane/l5np\nKlotho-Hlc: 117336598351118336\nKlotho-Actor: dev#1\nKlotho-Role: developer\nKlotho-Session: claude:s1\nKlotho-Git-Head: sha1:75bea42e34a5942eb6593b2867480e8fbc95eed1\nKlotho-Git-Branch: lane-l5np\nKlotho-Worktree: D:/work/demo-lanes/l5np\nKlotho-Git-Base: sha1:355b6ed5b782f6c37af0af19ff53ee150bdc8736\nKlotho-Schema: 1\nKlotho-Ops: 1\nKlotho-Idem: 6653a45d135b95e5b4266fe14c279747\n";
         let Class::Native(t) = classify(native.as_bytes()).unwrap() else {
             panic!("native")
         };
         assert_eq!(t.hlc, Some(117_336_598_351_118_336));
         assert_eq!((117_336_598_351_118_336u64 >> 16) / 1000, 1_790_414_403);
-        let ck = "checkpoint main\n\nMoirai-Kind: checkpoint\nMoirai-Head: ca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7ad\nMoirai-Ref: main\nMoirai-Folded: 12 commits from cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df to ca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7ad\n";
+        let ck = "checkpoint main\n\nKlotho-Kind: checkpoint\nKlotho-Head: ca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7ad\nKlotho-Ref: main\nKlotho-Folded: 12 commits from cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df to ca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7ad\n";
         assert!(matches!(
             classify(ck.as_bytes()).unwrap(),
             Class::Checkpoint(_)
         ));
         assert_eq!(classify(b"fix typo\n").unwrap(), Class::Foreign);
-        assert_eq!(classify(b"x\n\nMoirai-Commit: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\nMoirai-Unknown: 1\n").unwrap(), Class::Foreign);
-        assert!(classify(b"x\n\nMoirai-Commit: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\nMoirai-Hlc: 1\nMoirai-Hlc: 2\n").is_err());
+        assert_eq!(classify(b"x\n\nKlotho-Commit: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\nKlotho-Unknown: 1\n").unwrap(), Class::Foreign);
+        assert!(classify(b"x\n\nKlotho-Commit: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\nKlotho-Hlc: 1\nKlotho-Hlc: 2\n").is_err());
     }
 
     /// A native commit built by the exporter's rules verifies, and a tampered message demotes.
@@ -954,10 +954,10 @@ mod tests {
         };
         let id = items.commit_id();
         let msg = format!(
-            "claim --start\n\nMoirai-Commit: c{}\nMoirai-Kind: ordinary\nMoirai-Hlc: 117336598351118336\nMoirai-Actor: dev#1\nMoirai-Role: developer\nMoirai-Schema: 1\nMoirai-Ops: 1\n",
+            "claim --start\n\nKlotho-Commit: c{}\nKlotho-Kind: ordinary\nKlotho-Hlc: 117336598351118336\nKlotho-Actor: dev#1\nKlotho-Role: developer\nKlotho-Schema: 1\nKlotho-Ops: 1\n",
             hex(&id)
         );
-        let who = "moirai/dev#1 <developer@moirai.invalid> 1790414403 +0000";
+        let who = "klotho/dev#1 <developer@klotho.invalid> 1790414403 +0000";
         let obj_bytes = format!(
             "tree {}\nparent {}\nauthor {who}\ncommitter {who}\n\n{msg}",
             "ab".repeat(20),
@@ -982,8 +982,8 @@ mod tests {
         let mut bad = obj.clone();
         bad.message[0] = b'C';
         assert!(verify_native(&bad, &cx).is_err());
-        // [F14 §12.1]: a Moirai-Ops that is not the entry count demotes before the id is compared, so even a commit whose
-        // rebuilt id equals Moirai-Commit is demoted.
+        // [F14 §12.1]: a Klotho-Ops that is not the entry count demotes before the id is compared, so even a commit whose
+        // rebuilt id equals Klotho-Commit is demoted.
         let other = CarrierCtx {
             entry_count: 2,
             ..cx.clone()
@@ -999,10 +999,10 @@ mod tests {
     }
 
     /// [F07 §5.3] (spec sync 2b S2B-F-15): a native import applies steps 1–4 of N and none of §5.2's refusals, so a
-    /// message part whose last paragraph is an old `Moirai-` trailer paragraph (a re-exported demoted commit) verifies.
+    /// message part whose last paragraph is an old `Klotho-` trailer paragraph (a re-exported demoted commit) verifies.
     #[test]
     fn native_message_keeps_an_old_trailer_paragraph() {
-        let part = "re-export\n\nMoirai-Ref: lane/old";
+        let part = "re-export\n\nKlotho-Ref: lane/old";
         assert!(crate::canon::normalise(part.as_bytes()).is_err());
         let items = Items {
             kind: "ordinary".into(),
@@ -1024,10 +1024,10 @@ mod tests {
         };
         let id = items.commit_id();
         let msg = format!(
-            "{part}\n\nMoirai-Commit: c{}\nMoirai-Kind: ordinary\nMoirai-Hlc: 117336598351118336\nMoirai-Actor: dev#1\nMoirai-Role: developer\nMoirai-Schema: 1\nMoirai-Ops: 0\n",
+            "{part}\n\nKlotho-Commit: c{}\nKlotho-Kind: ordinary\nKlotho-Hlc: 117336598351118336\nKlotho-Actor: dev#1\nKlotho-Role: developer\nKlotho-Schema: 1\nKlotho-Ops: 0\n",
             hex(&id)
         );
-        let who = "moirai/dev#1 <developer@moirai.invalid> 1790414403 +0000";
+        let who = "klotho/dev#1 <developer@klotho.invalid> 1790414403 +0000";
         let obj_bytes = format!(
             "tree {}\nauthor {who}\ncommitter {who}\n\n{msg}",
             "ab".repeat(20)
@@ -1051,12 +1051,12 @@ mod tests {
     /// line, so the commit is foreign.
     #[test]
     fn non_utf8_trailer_values() {
-        let head = b"x\n\nMoirai-Commit: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n".to_vec();
+        let head = b"x\n\nKlotho-Commit: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n".to_vec();
         let mut bad_value = head.clone();
-        bad_value.extend_from_slice(b"Moirai-Actor: \xff\n");
+        bad_value.extend_from_slice(b"Klotho-Actor: \xff\n");
         assert!(classify(&bad_value).is_err());
         let mut bad_key = head;
-        bad_key.extend_from_slice(b"Moirai-\xffctor: a\n");
+        bad_key.extend_from_slice(b"Klotho-\xffctor: a\n");
         assert_eq!(classify(&bad_key).unwrap(), Class::Foreign);
     }
 

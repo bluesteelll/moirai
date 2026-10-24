@@ -1,0 +1,26 @@
+klotho-node 1
+uid: a157e873470ccad99035621afcd553e2
+kind: artifact
+status: removed
+order: V
+created: c760fbc40c443bc68c7eed45a357c53069855c86e9153b05093d60549bd0ee82b 2026-09-20T23:13:20.000Z
+updated: c6c6cc79b449aa7a90e69846163d0381b20138596997702b2700e5dd1849b4859 2026-09-21T02:33:20.000Z
+field artifact_kind: doc
+field bytes: 52
+field excerpt: Storage plan, section 3
+field observed_blob: sha1:a050e26bb167719ca59bd8529a6235f5409d8203
+field observed_git: sha1:b1e43ababc3315b634950b80ef5beb4d73c766be
+field oid: sha1:a050e26bb167719ca59bd8529a6235f5409d8203
+field origin_path: docs/plans/storage.md
+field path: docs/archive/plans/storage.md
+field reason: removed in the tree
+field relink: explicit/intent
+field root: project
+label plan
+incr hits +2 c65468549c3fcc471f5c8255730c48b1ce759877a2f843a3fe008e32f81632de7
+incr hits +2 c6c39e37da717e754f5746cf30c9b7ad4f263e9463f236772290157481f7a2ff9
+incr hits +1 cdb6599ce9691122c37bf6806d23ca8bb40096e5e93803e66e9b86e7719743002
+edge derived_from -> e1000000000000000000000000000001 pin=c1d8a1ee4895447b71b88afaa573d7253fd2eafdc2a0073e58b36c9973069b553
+edge relates -> e1000000000000000000000000000001
+---
+Superseded by the v2 plan.

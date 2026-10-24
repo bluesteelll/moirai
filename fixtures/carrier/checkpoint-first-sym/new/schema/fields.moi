@@ -1,2 +1,2 @@
-moirai-schema 1
+klotho-schema 1
 field artifact hits type=counter class=counter storage=field decl=33 optional=true index=none coerce=none

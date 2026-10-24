@@ -565,7 +565,7 @@ impl BitOr for FileAttrs {
 // ---------------------------------------------------------------------------------------------------------------------
 // Volumes ([OS/project §4])
 
-/// The volume key ([OS/project §4.1]): BLAKE3-128 of `lp("moirai-vol-key-v1") ‖ lp(N) ‖ lp(S)` for one fixed source per
+/// The volume key ([OS/project §4.1]): BLAKE3-128 of `lp("klotho-vol-key-v1") ‖ lp(N) ‖ lp(S)` for one fixed source per
 /// OS (computed by `moirai-os`).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct VolumeKey(pub [u8; 16]);

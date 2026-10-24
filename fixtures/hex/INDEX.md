@@ -110,7 +110,7 @@ every op tag.
 | g30 | 12921 | durable | create the staging ref `import/1` (ref id 4, kind import) |
 | g31 | 13165 | durable | `Reserve` (#13–#15, cs.6, no `blobs` file, project kind id 64 `incident`) |
 | g32 | 13298 | durable | c14: a bulk import-checkpoint on import/1; its changeset is `cs.6` |
-| g33 | 13654 | durable | c15: a foreign import, demoted after a `Moirai-Commit` mismatch (`verified` 0) |
+| g33 | 13654 | durable | c15: a foreign import, demoted after a `Klotho-Commit` mismatch (`verified` 0) |
 | g34 | 13882 | durable | c16: a native import whose parent was demoted (stated id), `verified` 1, with `xtr`; sets #7's `abstract` |
 | g35 | 14256 | durable | c17: an inline import-checkpoint with `ckpt` and `ckimg` (presence bits 10 and 17) |
 | g36 | 14779 | durable | `undo 1` on main (`RefUpdate` reason 3) |

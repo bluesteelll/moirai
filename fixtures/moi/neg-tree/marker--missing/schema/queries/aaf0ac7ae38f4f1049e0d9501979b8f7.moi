@@ -1,4 +1,4 @@
-moirai-query 1
+klotho-query 1
 name: open_tasks
 lq: 1
 params: $scope: node = #u:0a000000000000000000000000000001, $limit: int = 20

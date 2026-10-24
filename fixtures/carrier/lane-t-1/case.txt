@@ -12,10 +12,10 @@
 %% note B2: "Synthetic plan: raise the lock timeout to 30 s, then measure the flush p99 again."
 %% destination A sha1 full
 %% class native
-%% git-commit 206bd4e9ce085f6f0af0df20225706db63383167
-%% git-tree 6137b13a7be2d966dabc064991b6bd2d5fcffee2
-%% git-parent 018e6a12ce584771b360c194bc69088493ee821e root
-%% trailer-commit 4feab2439f5a108eda5787d199fc00ed98a43f206b54fdd93a236b93f8cd7062
+%% git-commit dd6b6127ae88b9907f3e6eabde52bed8369ae945
+%% git-tree ef12ef930d1a699a27f41328b153cb5ab88e42e4
+%% git-parent 815ecefd3990cfec6fd61fa7e77637f665e88ff1 root
+%% trailer-commit f0545204a3fc5e272af0ffeae7ec55ed526e18a5f8775d0a2b74010b584f1ac3
 %% touched-new 1
 %% touched-old 1
 %% p-state
@@ -70,17 +70,17 @@ node a0000000000000000000000000000001 area
 %% entries
 1a000000000000000000000000000001 body = hash 5a80746cb717ac79f5baaae8a9bec869
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 1a000000000000000000000000000001 body
 011a0000000000000000000000000000010800015a80746cb717ac79f5baaae8a9bec869
 ; u64 entry count = 1
 0100000000000000
 %% entry-count 1
-%% changeset-digest a2ae411258fd100a586a0c401a9e2c8e820752a5212bd4cf3c4336c1a14fc107
+%% changeset-digest bf2b2b85dfe63ec4e8af3e298bed37a394104a9462c809322f25330c891174a4
 %% commit
 kind ordinary
-parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+parent 3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 hlc 01a0c49257000000
 actor "dev#8"
 role "developer"
@@ -94,14 +94,14 @@ schema-version 1
 origin -
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 ; item 3: hlc
 0000005792c4a001
 ; item 4: actor
@@ -131,6 +131,6 @@ foreign -
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-a2ae411258fd100a586a0c401a9e2c8e820752a5212bd4cf3c4336c1a14fc107
-%% commit-id 4feab2439f5a108eda5787d199fc00ed98a43f206b54fdd93a236b93f8cd7062
+bf2b2b85dfe63ec4e8af3e298bed37a394104a9462c809322f25330c891174a4
+%% commit-id f0545204a3fc5e272af0ffeae7ec55ed526e18a5f8775d0a2b74010b584f1ac3
 %% end

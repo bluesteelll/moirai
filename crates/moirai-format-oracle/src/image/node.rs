@@ -2175,11 +2175,11 @@ pub fn parse(bytes: &[u8], cx: &Ctx<'_>) -> Result<NodeFile> {
         lines.push((off, l.strip_suffix('\n').unwrap_or(l)));
         off += l.len();
     }
-    if lines.first().map(|x| x.1.trim_end_matches([' ', '\t'])) != Some("moirai-node 1") {
+    if lines.first().map(|x| x.1.trim_end_matches([' ', '\t'])) != Some("klotho-node 1") {
         return parse_err(
             Rule::MagicVersion,
             0,
-            "the first line is not `moirai-node 1` [F14 §6.1]",
+            "the first line is not `klotho-node 1` [F14 §6.1]",
         );
     }
     let mut nf = NodeFile::default();
@@ -2853,7 +2853,7 @@ pub fn encode(nf: &NodeFile, schema: &Schema) -> Vec<u8> {
         o.push_str(&s);
         o.push('\n');
     };
-    line("moirai-node 1".into());
+    line("klotho-node 1".into());
     line(format!("uid: {}", hex(&nf.uid)));
     line(format!("kind: {}", nf.kind));
     if let Some(t) = &nf.title {
@@ -2990,7 +2990,7 @@ mod tests {
     }
 
     /// [F14 §17.1] the corrected task node.
-    pub(super) const TASK_EXAMPLE: &str = "moirai-node 1\n\
+    pub(super) const TASK_EXAMPLE: &str = "klotho-node 1\n\
 uid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\n\
 kind: task\n\
 title: Byte-range lock protocol\n\
@@ -3037,8 +3037,8 @@ See #52 for the reader registry this depends on.\n\
     #[test]
     fn file_root_and_anchors() {
         check_canonical(
-            "moirai-node 1\n\
-uid: d706fcde60f0b6cbf56c23297162b652\n\
+            "klotho-node 1\n\
+uid: 19143eabafc5ec1c2f8ddb102a731ae3\n\
 kind: artifact\n\
 status: present\n\
 created: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df 2026-09-21T14:02:11.483Z\n\
@@ -3055,8 +3055,8 @@ field relink: lazy/file-id\n\
 field root: project\n",
         );
         check_canonical(
-            "moirai-node 1\n\
-uid: 5bd0e29e6afc4a73557e4cbdf7d34c33\n\
+            "klotho-node 1\n\
+uid: 721354ad0f367138746bf0429056d772\n\
 kind: area\n\
 title: root:project\n\
 status: active\n\
@@ -3065,26 +3065,26 @@ updated: ca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7ad 2026-
 field path_moves: <<\n  [\"00117336598351118336\",\"explicit\",\"docs/plan/\",\"docs/archive/plan/\",\"sha1:80bb9dad56a25b8ec857f344172c71c9d8fe4ca6\"]\n>>\n\
 field root: project\n",
         );
-        let head = "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e51\nkind: task\ntitle: t\nstatus: open\n\
+        let head = "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e51\nkind: task\ntitle: t\nstatus: open\n\
 created: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n\
 updated: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n";
-        let file_a = "anchor 6b8c72caccb5d1cb7d3c9fc37f1ac98e -> d706fcde60f0b6cbf56c23297162b652 kind=file mode=live watch=header blob=sha1:de177738b58e970465382658e69b18745029e248 captured=bcf306557fb04ecf570128703b7ac5fe v=1\n";
-        let hash_only = "anchor a11bbeaab98f3fa9a695506f8ded56e0 -> d706fcde60f0b6cbf56c23297162b652 kind=symbol mode=live watch=header scope=\"rust:struct LockFile/impl LockFile/fn acquire\" quote_h=3e747c4056197b57203a29bb675bdccf prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 git=sha1:75bea42e34a5942eb6593b2867480e8fbc95eed1 captured=f6ba05cb0b8d5577c95cd8082b4367c4 v=1\n";
-        let nf = check_canonical(&format!("{head}{file_a}{hash_only}"));
+        let file_a = "anchor de8edb59215a406d849289841739d59b -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=file mode=live watch=header blob=sha1:de177738b58e970465382658e69b18745029e248 captured=c81b5793ae8794402388225c48c0048f v=1\n";
+        let hash_only = "anchor 6a49c1797315fca432f54040700ab381 -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=symbol mode=live watch=header scope=\"rust:struct LockFile/impl LockFile/fn acquire\" quote_h=3e747c4056197b57203a29bb675bdccf prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 git=sha1:75bea42e34a5942eb6593b2867480e8fbc95eed1 captured=8856fc02927f89608d0a57eb57ed2337 v=1\n";
+        let nf = check_canonical(&format!("{head}{hash_only}{file_a}"));
         assert_eq!(nf.anchors.len(), 2);
-        let full = "anchor a11bbeaab98f3fa9a695506f8ded56e0 -> d706fcde60f0b6cbf56c23297162b652 kind=symbol mode=live watch=header scope=\"rust:struct LockFile/impl LockFile/fn acquire\" quote_h=3e747c4056197b57203a29bb675bdccf prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 quote=\"pub fn acquire(&self, timeout: Duration) -> Result<Guard>\" prefix=\" Blocks until the byte is ours.\\n\" suffix=\" {\\nlet mut spins = 0u32;\\nloop {\\n\" hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 git=sha1:75bea42e34a5942eb6593b2867480e8fbc95eed1 captured=f6ba05cb0b8d5577c95cd8082b4367c4 v=1\n";
-        let nf2 = check_canonical(&format!("{head}{file_a}{full}"));
+        let full = "anchor 6a49c1797315fca432f54040700ab381 -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=symbol mode=live watch=header scope=\"rust:struct LockFile/impl LockFile/fn acquire\" quote_h=3e747c4056197b57203a29bb675bdccf prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 quote=\"pub fn acquire(&self, timeout: Duration) -> Result<Guard>\" prefix=\" Blocks until the byte is ours.\\n\" suffix=\" {\\nlet mut spins = 0u32;\\nloop {\\n\" hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 git=sha1:75bea42e34a5942eb6593b2867480e8fbc95eed1 captured=8856fc02927f89608d0a57eb57ed2337 v=1\n";
+        let nf2 = check_canonical(&format!("{head}{full}{file_a}"));
         assert_eq!(
-            nf2.anchors[1].props.digests, nf.anchors[1].props.digests,
+            nf2.anchors[0].props.digests, nf.anchors[0].props.digests,
             "full and hash-only carry one selector block"
         );
         assert_eq!(
             crate::value::uid_file("project", "crates/engine/src/lock.rs", None),
-            <[u8; 16]>::try_from(unhex("d706fcde60f0b6cbf56c23297162b652").unwrap()).unwrap()
+            <[u8; 16]>::try_from(unhex("19143eabafc5ec1c2f8ddb102a731ae3").unwrap()).unwrap()
         );
         assert_eq!(
             hex(&crate::value::uid_root("project")),
-            "5bd0e29e6afc4a73557e4cbdf7d34c33"
+            "721354ad0f367138746bf0429056d772"
         );
     }
 
@@ -3092,7 +3092,7 @@ updated: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n";
     #[test]
     fn tombstone_and_conflicts() {
         check_canonical(
-            "moirai-node 1\n\
+            "klotho-node 1\n\
 uid: 018f3c2e7a117b3c9d5e4c2f1a0b9e40\n\
 kind: task\n\
 title: Reader registry\n\
@@ -3103,7 +3103,7 @@ edge cites -> 018f3c2e7a117b3c9d5e4c2f1a0bd3a5\n\
 edge mentions -> 018f3c2e7a117b3c9d5e4c2f1a0b9e52\n",
         );
         let nf = check_canonical(
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\n\
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\n\
 created: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n\
 updated: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n\
 conflict body class=TextHunk base=\"Pairs are batched per frame.\\n\" ours=\"Pairs are batched per archetype.\\n\" theirs=\"Pairs are batched per grid cell.\\n\"\n\
@@ -3121,26 +3121,26 @@ conflict status class=StatusFork base=in_progress ours=done/completed theirs=can
             schema: &s,
             path_uid: None,
         };
-        let canon = "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nstatus: open\n\
+        let canon = "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nstatus: open\n\
 created: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n\
 updated: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n";
-        let sloppy = "\u{FEFF}moirai-node 1\r\nkind: task  \r\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\r\ntitle: \"\\u0074\"\r\npriority: P2\r\n\
+        let sloppy = "\u{FEFF}klotho-node 1\r\nkind: task  \r\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\r\ntitle: \"\\u0074\"\r\npriority: P2\r\n\
 created: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\r\n\
 updated: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df";
         let nf = parse(sloppy.as_bytes(), &cx).unwrap();
         assert_eq!(String::from_utf8(encode(&nf, &s)).unwrap(), canon);
         let negatives = [
-            "moirai-node 2\n",
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: widget\ntitle: t\n",
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\n",
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nfield estimate: 70000\n",
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nfield bogus: 1\n",
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\ntitle: u\n",
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\n<<<<<<< ours\n",
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nfield reopen_count: 3\n",
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nedge blocks -> 018f3c2e7a117b3c9d5e4c2f1a0b9e51 flagged\n",
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nconflict status class=DATA base= ours= theirs=\n",
-            "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: artifact\ntitle: t\n",
+            "klotho-node 2\n",
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: widget\ntitle: t\n",
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\n",
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nfield estimate: 70000\n",
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nfield bogus: 1\n",
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\ntitle: u\n",
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\n<<<<<<< ours\n",
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nfield reopen_count: 3\n",
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nedge blocks -> 018f3c2e7a117b3c9d5e4c2f1a0b9e51 flagged\n",
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nconflict status class=DATA base= ours= theirs=\n",
+            "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: artifact\ntitle: t\n",
         ];
         for n in negatives {
             assert!(parse(n.as_bytes(), &cx).is_err(), "should refuse:\n{n}");
@@ -3180,29 +3180,29 @@ updated: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df";
             schema: &s,
             path_uid: None,
         };
-        let head = "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e51\nkind: task\ntitle: t\nstatus: open\n\
+        let head = "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e51\nkind: task\ntitle: t\nstatus: open\n\
 created: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n\
 updated: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n";
         let lines = |w: &str| {
             format!(
-                "{head}anchor a11bbeaab98f3fa9a695506f8ded56e0 -> d706fcde60f0b6cbf56c23297162b652 kind=lines mode=live watch=header hint=88-131 window={w} span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 captured=f6ba05cb0b8d5577c95cd8082b4367c4 v=1\n"
+                "{head}anchor 6a49c1797315fca432f54040700ab381 -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=lines mode=live watch=header hint=88-131 window={w} span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 captured=8856fc02927f89608d0a57eb57ed2337 v=1\n"
             )
         };
         assert!(parse(lines("AQAAAHeq").as_bytes(), &cx).is_ok());
         assert!(parse(lines("AAAAAA").as_bytes(), &cx).is_err());
         let empty_quote = format!(
-            "{head}anchor a11bbeaab98f3fa9a695506f8ded56e0 -> d706fcde60f0b6cbf56c23297162b652 kind=quote mode=live watch=span quote_h=af1349b9f5f9a1a6a0404dea36dcc949 prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 captured=f6ba05cb0b8d5577c95cd8082b4367c4 v=1\n"
+            "{head}anchor 6a49c1797315fca432f54040700ab381 -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=quote mode=live watch=span quote_h=af1349b9f5f9a1a6a0404dea36dcc949 prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 captured=8856fc02927f89608d0a57eb57ed2337 v=1\n"
         );
         assert!(parse(empty_quote.as_bytes(), &cx).is_err());
     }
 
     /// A live task file's header lines, before its conflict lines and its body or `--- dropped` line.
-    const LIVE_HEAD: &str = "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nstatus: open\n\
+    const LIVE_HEAD: &str = "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nstatus: open\n\
 created: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n\
 updated: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n";
 
     /// A tombstone's lines ([F14 §17.3]).
-    const TOMB_HEAD: &str = "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e40\nkind: task\ntitle: Reader registry\n\
+    const TOMB_HEAD: &str = "klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e40\nkind: task\ntitle: Reader registry\n\
 deleted: ca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7ad 2026-09-26T09:12:40.118Z\n";
 
     /// A body key in lower-case hexadecimal ([F14 §2.3] `dg16`) and a second one.

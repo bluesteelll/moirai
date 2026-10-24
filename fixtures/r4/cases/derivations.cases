@@ -12,8 +12,8 @@
 %% arg path "docs/a.md"
 %% arg pred -
 %% input-hex
-; lp("moirai-file-v1")
-0e0000006d6f697261692d66696c652d7631
+; lp("klotho-file-v1")
+0e0000006b6c6f74686f2d66696c652d7631
 ; lp(r)
 0700000070726f6a656374
 ; lp(p)
@@ -21,7 +21,7 @@
 ; lp(q = empty)
 00000000
 %% input-length 46
-%% output d8253f84275a6c5b2fe5dbdb2bc28532
+%% output 2c8d2fb241fb9807569743e304bbe0d7
 %% end
 
 %% case file-with-pred
@@ -31,18 +31,18 @@
 %% function uid_file
 %% arg root "project"
 %% arg path "docs/a.md"
-%% arg pred d8253f84275a6c5b2fe5dbdb2bc28532
+%% arg pred 2c8d2fb241fb9807569743e304bbe0d7
 %% input-hex
-; lp("moirai-file-v1")
-0e0000006d6f697261692d66696c652d7631
+; lp("klotho-file-v1")
+0e0000006b6c6f74686f2d66696c652d7631
 ; lp(r)
 0700000070726f6a656374
 ; lp(p)
 09000000646f63732f612e6d64
 ; lp(q)
-10000000d8253f84275a6c5b2fe5dbdb2bc28532
+100000002c8d2fb241fb9807569743e304bbe0d7
 %% input-length 62
-%% output 1911e72f0dc27f230f6e8a66a125dca9
+%% output 7cec57d477b3d03609017b576883341e
 %% end
 
 %% case file-named-root
@@ -55,8 +55,8 @@
 %% arg path "index.md"
 %% arg pred -
 %% input-hex
-; lp("moirai-file-v1")
-0e0000006d6f697261692d66696c652d7631
+; lp("klotho-file-v1")
+0e0000006b6c6f74686f2d66696c652d7631
 ; lp(r)
 09000000646f63735f73697465
 ; lp(p)
@@ -64,7 +64,7 @@
 ; lp(q = empty)
 00000000
 %% input-length 47
-%% output ea9f2b0014900cee9af57b78e2ee6f7a
+%% output 6e3c976d1c36b55b63d6d5b382797416
 %% end
 
 %% case file-abs-root
@@ -77,8 +77,8 @@
 %% arg path "C:/work/tools/run.ps1"
 %% arg pred -
 %% input-hex
-; lp("moirai-file-v1")
-0e0000006d6f697261692d66696c652d7631
+; lp("klotho-file-v1")
+0e0000006b6c6f74686f2d66696c652d7631
 ; lp(r)
 03000000616273
 ; lp(p)
@@ -86,7 +86,7 @@
 ; lp(q = empty)
 00000000
 %% input-length 54
-%% output 5d502cb8eb1f73c29927aa84d5505c51
+%% output 8a1fcbff574da24160c42b7c50a12acb
 %% end
 
 %% case file-nfc-spelling
@@ -99,8 +99,8 @@
 %% arg path "docs/caf\u00e9.md"
 %% arg pred -
 %% input-hex
-; lp("moirai-file-v1")
-0e0000006d6f697261692d66696c652d7631
+; lp("klotho-file-v1")
+0e0000006b6c6f74686f2d66696c652d7631
 ; lp(r)
 0700000070726f6a656374
 ; lp(p)
@@ -108,7 +108,7 @@
 ; lp(q = empty)
 00000000
 %% input-length 50
-%% output e123b5b353d4c7f76c340a579fc5f228
+%% output 34c5fa3c3c7b98967d19f938168251f9
 %% end
 
 %% case file-nfd-spelling
@@ -122,8 +122,8 @@
 %% arg path "docs/cafe\u0301.md"
 %% arg pred -
 %% input-hex
-; lp("moirai-file-v1")
-0e0000006d6f697261692d66696c652d7631
+; lp("klotho-file-v1")
+0e0000006b6c6f74686f2d66696c652d7631
 ; lp(r)
 0700000070726f6a656374
 ; lp(p)
@@ -131,7 +131,7 @@
 ; lp(q = empty)
 00000000
 %% input-length 51
-%% output a9c1f34314157114fb4325fb866ac814
+%% output 557cb48e0975d3d318d235e56156bd03
 %% end
 
 %% case file-case-spelling
@@ -144,8 +144,8 @@
 %% arg path "Docs/A.md"
 %% arg pred -
 %% input-hex
-; lp("moirai-file-v1")
-0e0000006d6f697261692d66696c652d7631
+; lp("klotho-file-v1")
+0e0000006b6c6f74686f2d66696c652d7631
 ; lp(r)
 0700000070726f6a656374
 ; lp(p)
@@ -153,7 +153,7 @@
 ; lp(q = empty)
 00000000
 %% input-length 46
-%% output a394e8a0c20c145d8da75b5fc3422cdd
+%% output 9ef1fec9d6cc021161e688fd2403a069
 %% end
 
 %% case root-project
@@ -161,12 +161,12 @@
 %% function uid_root
 %% arg root "project"
 %% input-hex
-; lp("moirai-root-v1")
-0e0000006d6f697261692d726f6f742d7631
+; lp("klotho-root-v1")
+0e0000006b6c6f74686f2d726f6f742d7631
 ; lp(r)
 0700000070726f6a656374
 %% input-length 29
-%% output 5bd0e29e6afc4a73557e4cbdf7d34c33
+%% output 721354ad0f367138746bf0429056d772
 %% end
 
 %% case root-named
@@ -174,12 +174,12 @@
 %% function uid_root
 %% arg root "docs_site"
 %% input-hex
-; lp("moirai-root-v1")
-0e0000006d6f697261692d726f6f742d7631
+; lp("klotho-root-v1")
+0e0000006b6c6f74686f2d726f6f742d7631
 ; lp(r)
 09000000646f63735f73697465
 %% input-length 31
-%% output 778e84db3932345b5aae655f27329ac3
+%% output 76d91b076392d549f4aa43fede87775a
 %% end
 
 %% case root-abs
@@ -188,12 +188,12 @@
 %% function uid_root
 %% arg root "abs"
 %% input-hex
-; lp("moirai-root-v1")
-0e0000006d6f697261692d726f6f742d7631
+; lp("klotho-root-v1")
+0e0000006b6c6f74686f2d726f6f742d7631
 ; lp(r)
 03000000616273
 %% input-length 25
-%% output 3e48e091a00c24f6896dec2081e064b4
+%% output 16ad5b42dc79b3352be8a513a068a0d0
 %% end
 
 %% case captured-file
@@ -501,8 +501,8 @@
 %% arg captured 979e81a4e37ef2958b4112dc780b7430
 %% arg pred -
 %% input-hex
-; lp("moirai-anchor-v1")
-100000006d6f697261692d616e63686f722d7631
+; lp("klotho-anchor-v1")
+100000006b6c6f74686f2d616e63686f722d7631
 ; lp(s)
 100000001a000000000000000000000000000002
 ; lp(c)
@@ -510,7 +510,7 @@
 ; lp(p = empty)
 00000000
 %% input-length 64
-%% output 1fb4da2d86414ad798032f7ad3dc759e
+%% output c0d11c970f1d99bccc635f05d9b0f6ac
 %% end
 
 %% case anchor-with-pred
@@ -519,18 +519,18 @@
 %% function uid_anchor
 %% arg src 1a000000000000000000000000000002
 %% arg captured 979e81a4e37ef2958b4112dc780b7430
-%% arg pred 1fb4da2d86414ad798032f7ad3dc759e
+%% arg pred c0d11c970f1d99bccc635f05d9b0f6ac
 %% input-hex
-; lp("moirai-anchor-v1")
-100000006d6f697261692d616e63686f722d7631
+; lp("klotho-anchor-v1")
+100000006b6c6f74686f2d616e63686f722d7631
 ; lp(s)
 100000001a000000000000000000000000000002
 ; lp(c)
 10000000979e81a4e37ef2958b4112dc780b7430
 ; lp(p)
-100000001fb4da2d86414ad798032f7ad3dc759e
+10000000c0d11c970f1d99bccc635f05d9b0f6ac
 %% input-length 80
-%% output 8ef3d186c4c5c3711fb6e4cf38c78310
+%% output 1dd821c622ced2500f800bc519cb0550
 %% end
 
 %% case anchor-other-source
@@ -541,8 +541,8 @@
 %% arg captured 979e81a4e37ef2958b4112dc780b7430
 %% arg pred -
 %% input-hex
-; lp("moirai-anchor-v1")
-100000006d6f697261692d616e63686f722d7631
+; lp("klotho-anchor-v1")
+100000006b6c6f74686f2d616e63686f722d7631
 ; lp(s)
 100000001a000000000000000000000000000001
 ; lp(c)
@@ -550,5 +550,5 @@
 ; lp(p = empty)
 00000000
 %% input-length 64
-%% output c30c90ea3284d0b5990e85c7915e4794
+%% output cf34097039a888289475aeb03e978eae
 %% end

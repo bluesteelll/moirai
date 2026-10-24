@@ -1,4 +1,4 @@
-//! \[F14\] the image's other files: the `.moirai-image` marker (§4), the schema tables (§7.1), named-query files (§7.2),
+//! \[F14\] the image's other files: the `.klotho-image` marker (§4), the schema tables (§7.1), named-query files (§7.2),
 //! checkpoint ref rows (§8) and the side-ref files `meta.moi`, `aliases/<h1>.moi` and `ops.moi` (§14). Each parser reads
 //! the importer's superset (§9.1 rules 1–4) and each encoder writes the canonical bytes.
 
@@ -28,7 +28,7 @@ fn join(lines: &[String]) -> Vec<u8> {
     o.into_bytes()
 }
 
-/// The `.moirai-image` marker ([F14 §4]).
+/// The `.klotho-image` marker ([F14 §4]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Marker {
     /// `sha1` or `sha256`.
@@ -40,11 +40,11 @@ pub struct Marker {
 /// Parses the marker; a version other than 1 or a schema version other than 1 is `ImageParse`.
 pub fn parse_marker(b: &[u8]) -> Result<Marker> {
     let l = lines_of(b)?;
-    if l.len() != 3 || l[0] != "moirai-image 1" {
+    if l.len() != 3 || l[0] != "klotho-image 1" {
         return parse_err(
             Rule::Marker,
             0,
-            "the marker is not three lines beginning `moirai-image 1` [F14 §4]",
+            "the marker is not three lines beginning `klotho-image 1` [F14 §4]",
         );
     }
     let Some(of) = l[1]
@@ -76,7 +76,7 @@ pub fn parse_marker(b: &[u8]) -> Result<Marker> {
 /// Encodes the marker.
 pub fn encode_marker(m: &Marker) -> Vec<u8> {
     format!(
-        "moirai-image 1\nobject-format: {}\nschema-version: {}\n",
+        "klotho-image 1\nobject-format: {}\nschema-version: {}\n",
         m.object_format, m.schema_version
     )
     .into_bytes()
@@ -495,11 +495,11 @@ fn row_order_key(r: &SchemaRow) -> (u8, Vec<Vec<u8>>) {
 /// in canonical order.
 pub fn parse_schema_file(b: &[u8]) -> Result<Vec<SchemaRow>> {
     let l = lines_of(b)?;
-    if l.first().map(String::as_str) != Some("moirai-schema 1") {
+    if l.first().map(String::as_str) != Some("klotho-schema 1") {
         return parse_err(
             Rule::MagicVersion,
             0,
-            "a schema file does not begin `moirai-schema 1` [F14 §7.1]",
+            "a schema file does not begin `klotho-schema 1` [F14 §7.1]",
         );
     }
     let mut rows = Vec::with_capacity(l.len() - 1);
@@ -521,7 +521,7 @@ pub fn parse_schema_file(b: &[u8]) -> Result<Vec<SchemaRow>> {
 
 /// Encodes a schema table file.
 pub fn encode_schema_file(rows: &[SchemaRow]) -> Vec<u8> {
-    let mut l = vec!["moirai-schema 1".to_owned()];
+    let mut l = vec!["klotho-schema 1".to_owned()];
     l.extend(rows.iter().map(row_text));
     join(&l)
 }
@@ -726,11 +726,11 @@ pub fn parse_query(b: &[u8], q: Option<&str>) -> Result<Query> {
         .split('\n')
         .map(|x| x.trim_end_matches([' ', '\t']).to_owned())
         .collect();
-    if l.first().map(String::as_str) != Some("moirai-query 1") {
+    if l.first().map(String::as_str) != Some("klotho-query 1") {
         return parse_err(
             Rule::MagicVersion,
             0,
-            "a query file does not begin `moirai-query 1` [F14 §7.2.2]",
+            "a query file does not begin `klotho-query 1` [F14 §7.2.2]",
         );
     }
     let Some(name) = l.get(1).and_then(|x| x.strip_prefix("name: ")) else {
@@ -941,7 +941,7 @@ pub fn encode_query(q: &Query) -> Vec<u8> {
             budget,
             text,
         } => {
-            let mut o = format!("moirai-query 1\nname: {}\nlq: {lq}\n", sval(name));
+            let mut o = format!("klotho-query 1\nname: {}\nlq: {lq}\n", sval(name));
             if let Some(p) = params {
                 o.push_str(&format!("params: {}\n", sval(p)));
             }
@@ -951,7 +951,7 @@ pub fn encode_query(q: &Query) -> Vec<u8> {
         Query::Conflict { name, class, sides } => {
             let s = |x: &Option<String>| x.as_deref().map(jstring).unwrap_or_default();
             format!(
-                "moirai-query 1\nname: {}\nconflict definition class={class} base={} ours={} theirs={}\n",
+                "klotho-query 1\nname: {}\nconflict definition class={class} base={} ours={} theirs={}\n",
                 sval(name),
                 s(&sides[0]),
                 s(&sides[1]),
@@ -965,11 +965,11 @@ pub fn encode_query(q: &Query) -> Vec<u8> {
 /// A checkpoint ref row file ([F14 §8]): (ref name, ref kind).
 pub fn parse_refs(b: &[u8]) -> Result<(String, String)> {
     let l = lines_of(b)?;
-    if l.len() != 2 || l[0] != "moirai-refs 1" {
+    if l.len() != 2 || l[0] != "klotho-refs 1" {
         return parse_err(
             Rule::NoProduction,
             0,
-            "a refs file is not `moirai-refs 1` and one row [F14 §8]",
+            "a refs file is not `klotho-refs 1` and one row [F14 §8]",
         );
     }
     let Some(rest) = l[1].strip_prefix("ref ") else {
@@ -994,7 +994,7 @@ pub fn parse_refs(b: &[u8]) -> Result<(String, String)> {
 
 /// Encodes a refs row file.
 pub fn encode_refs(name: &str, kind: &str) -> Vec<u8> {
-    format!("moirai-refs 1\nref {name} kind={kind}\n").into_bytes()
+    format!("klotho-refs 1\nref {name} kind={kind}\n").into_bytes()
 }
 
 /// `meta.moi` ([F14 §14.1]).
@@ -1015,11 +1015,11 @@ pub struct Meta {
 /// Parses `meta.moi`.
 pub fn parse_meta(b: &[u8]) -> Result<Meta> {
     let l = lines_of(b)?;
-    if l.len() < 5 || l[0] != "moirai-meta 1" {
+    if l.len() < 5 || l[0] != "klotho-meta 1" {
         return parse_err(
             Rule::NoProduction,
             0,
-            "a meta file does not begin `moirai-meta 1` with four header lines [F14 §14.1]",
+            "a meta file does not begin `klotho-meta 1` with four header lines [F14 §14.1]",
         );
     }
     let sid = l[1].strip_prefix("store-id: ").filter(|v| is_lhex(v, 32));
@@ -1072,7 +1072,7 @@ pub fn parse_meta(b: &[u8]) -> Result<Meta> {
 /// Encodes `meta.moi`.
 pub fn encode_meta(m: &Meta) -> Vec<u8> {
     let mut l = vec![
-        "moirai-meta 1".to_owned(),
+        "klotho-meta 1".to_owned(),
         format!("store-id: {}", hex(&m.store_id)),
         format!("moi-format: {}", m.moi_format),
         format!("anchor-text: {}", m.anchor_text),
@@ -1085,11 +1085,11 @@ pub fn encode_meta(m: &Meta) -> Vec<u8> {
 /// Parses `aliases/<h1>.moi` ([F14 §14.1]): (uid, #N) rows sorted by uid; `h1` checks the first byte when known.
 pub fn parse_aliases(b: &[u8], h1: Option<u8>) -> Result<Vec<([u8; 16], u64)>> {
     let l = lines_of(b)?;
-    if l.len() < 2 || l[0] != "moirai-aliases 1" {
+    if l.len() < 2 || l[0] != "klotho-aliases 1" {
         return parse_err(
             Rule::NoProduction,
             0,
-            "an aliases file is not `moirai-aliases 1` and at least one row [F14 §14.1]",
+            "an aliases file is not `klotho-aliases 1` and at least one row [F14 §14.1]",
         );
     }
     let mut rows = Vec::with_capacity(l.len() - 1);
@@ -1134,7 +1134,7 @@ pub fn parse_aliases(b: &[u8], h1: Option<u8>) -> Result<Vec<([u8; 16], u64)>> {
 
 /// Encodes an aliases file.
 pub fn encode_aliases(rows: &[([u8; 16], u64)]) -> Vec<u8> {
-    let mut l = vec!["moirai-aliases 1".to_owned()];
+    let mut l = vec!["klotho-aliases 1".to_owned()];
     l.extend(rows.iter().map(|(u, n)| format!("{} #{n}", hex(u))));
     join(&l)
 }
@@ -1142,11 +1142,11 @@ pub fn encode_aliases(rows: &[([u8; 16], u64)]) -> Vec<u8> {
 /// Parses `ops.moi` ([F14 §14.2]); rows are kept in log order.
 pub fn parse_ops(b: &[u8]) -> Result<Vec<String>> {
     let l = lines_of(b)?;
-    if l.first().map(String::as_str) != Some("moirai-ops 1") {
+    if l.first().map(String::as_str) != Some("klotho-ops 1") {
         return parse_err(
             Rule::NoProduction,
             0,
-            "an ops file does not begin `moirai-ops 1` [F14 §14.2]",
+            "an ops file does not begin `klotho-ops 1` [F14 §14.2]",
         );
     }
     let cid = |s: &str| s == "-" || parse_commit_id(s).is_some();
@@ -1205,7 +1205,7 @@ mod tests {
     /// [F14 §17.5] the named-query file and its `q`.
     #[test]
     fn query_example() {
-        let src = "moirai-query 1\nname: lane_ready\nlq: 1\nparams: $scope: node = #u:018f3c2e7a117b3c9d5e4c2f1a0b9e09, $limit: int = 20\nshape: node\nbudget: light\n---\nDEFINE QUERY lane_ready($scope: node = #u:018f3c2e7a117b3c9d5e4c2f1a0b9e09, $limit: int = 20) SHAPE node BUDGET light AS {\n  MATCH (t:task)\n  WHERE t.ready AND t IN subtree($scope)\n  RETURN t ORDER BY t.priority, t.id LIMIT $limit\n}\n";
+        let src = "klotho-query 1\nname: lane_ready\nlq: 1\nparams: $scope: node = #u:018f3c2e7a117b3c9d5e4c2f1a0b9e09, $limit: int = 20\nshape: node\nbudget: light\n---\nDEFINE QUERY lane_ready($scope: node = #u:018f3c2e7a117b3c9d5e4c2f1a0b9e09, $limit: int = 20) SHAPE node BUDGET light AS {\n  MATCH (t:task)\n  WHERE t.ready AND t IN subtree($scope)\n  RETURN t ORDER BY t.priority, t.id LIMIT $limit\n}\n";
         assert_eq!(query_q("lane_ready"), "40cad467926a6dce0d6b5b93a4b8d71c");
         let q = parse_query(src.as_bytes(), Some("40cad467926a6dce0d6b5b93a4b8d71c")).unwrap();
         assert_eq!(encode_query(&q), src.as_bytes());
@@ -1215,16 +1215,16 @@ mod tests {
     /// [F14 §17.7] `meta.moi`; §4 the marker; §8 a refs file.
     #[test]
     fn meta_marker_refs() {
-        let src = "moirai-meta 1\nstore-id: 0123456789abcdef0123456789abcdef\nmoi-format: 1\nanchor-text: full\nlast-export-seq: 4471\nref lane/l5np checkpoint\nref main checkpoint\nref tags/v1 checkpoint\n";
+        let src = "klotho-meta 1\nstore-id: 0123456789abcdef0123456789abcdef\nmoi-format: 1\nanchor-text: full\nlast-export-seq: 4471\nref lane/l5np checkpoint\nref main checkpoint\nref tags/v1 checkpoint\n";
         assert_eq!(
             encode_meta(&parse_meta(src.as_bytes()).unwrap()),
             src.as_bytes()
         );
-        let m = b"moirai-image 1\nobject-format: sha256\nschema-version: 1\n";
+        let m = b"klotho-image 1\nobject-format: sha256\nschema-version: 1\n";
         assert_eq!(encode_marker(&parse_marker(m).unwrap()), m);
-        assert!(parse_marker(b"moirai-image 1\nobject-format: sha1\nschema-version: 3\n").is_err());
+        assert!(parse_marker(b"klotho-image 1\nobject-format: sha1\nschema-version: 3\n").is_err());
         assert_eq!(
-            parse_refs(b"moirai-refs 1\nref main kind=work\n").unwrap(),
+            parse_refs(b"klotho-refs 1\nref main kind=work\n").unwrap(),
             ("main".into(), "work".into())
         );
     }
@@ -1232,20 +1232,20 @@ mod tests {
     /// [F14 §7.1]: rows of each class, a reading that needs JSON, canonical order.
     #[test]
     fn schema_rows() {
-        let src = "moirai-schema 1\nedge spawns class=historical on-dst=tombstone on-src=retain acyclic=none card=many max-depth=0 derivation=none props=none lq=SPAWNS src=* dst=task reading=\"{a} spawns {b}\"\n";
+        let src = "klotho-schema 1\nedge spawns class=historical on-dst=tombstone on-src=retain acyclic=none card=many max-depth=0 derivation=none props=none lq=SPAWNS src=* dst=task reading=\"{a} spawns {b}\"\n";
         let rows = parse_schema_file(src.as_bytes()).unwrap();
         assert_eq!(encode_schema_file(&rows), src.as_bytes());
-        let fields = "moirai-schema 1\nfield task effort type=int class=scalar storage=field decl=29 optional=true index=none coerce=none min=0 max=10\nvalue task effort_level high rank=2\n";
+        let fields = "klotho-schema 1\nfield task effort type=int class=scalar storage=field decl=29 optional=true index=none coerce=none min=0 max=10\nvalue task effort_level high rank=2\n";
         let rows = parse_schema_file(fields.as_bytes()).unwrap();
         assert_eq!(rows.len(), 2);
-        assert!(parse_schema_file(b"moirai-schema 1\nkind x existence=none\n").is_err());
+        assert!(parse_schema_file(b"klotho-schema 1\nkind x existence=none\n").is_err());
     }
 
     /// [F14 §7.1] (spec sync 2b S2B-R-28): `policy <pname> <token>` rows in name order; a value that needs JSON; a
     /// repeated name is a line repeated (§9.2); `pname` is 1–16 lower-case segments of at most 64 bytes, 255 in all.
     #[test]
     fn policy_rows() {
-        let src = "moirai-schema 1\npolicy merge.policy.task delete-wins\npolicy policy.role.developer.fields \"files_owned, title\"\n";
+        let src = "klotho-schema 1\npolicy merge.policy.task delete-wins\npolicy policy.role.developer.fields \"files_owned, title\"\n";
         let rows = parse_schema_file(src.as_bytes()).unwrap();
         assert_eq!(
             rows[1].keys,
@@ -1253,11 +1253,11 @@ mod tests {
         );
         assert_eq!(rows[1].props[0].1, "files_owned, title");
         assert_eq!(encode_schema_file(&rows), src.as_bytes());
-        let swapped = "moirai-schema 1\npolicy policy.self-claim-roles developer\npolicy merge.policy.task delete-wins\n";
+        let swapped = "klotho-schema 1\npolicy policy.self-claim-roles developer\npolicy merge.policy.task delete-wins\n";
         let rows = parse_schema_file(swapped.as_bytes()).unwrap();
         assert_eq!(rows[0].keys[0], "merge.policy.task");
         assert_ne!(encode_schema_file(&rows), swapped.as_bytes());
-        let twice = "moirai-schema 1\npolicy merge.policy.task delete-wins\npolicy merge.policy.task resurrect\n";
+        let twice = "klotho-schema 1\npolicy merge.policy.task delete-wins\npolicy merge.policy.task resurrect\n";
         let e = parse_schema_file(twice.as_bytes()).unwrap_err();
         assert_eq!(e.rule, Some(Rule::LineRepeated));
         for name in ["a", "0x", "policy.role.dev_1.fields", "a-b.c_d"] {
@@ -1283,10 +1283,10 @@ mod tests {
             assert!(!is_pname(name), "{name:?}");
         }
         for bad in [
-            "moirai-schema 1\npolicy Merge.policy x\n",
-            "moirai-schema 1\npolicy merge.policy.task\n",
-            "moirai-schema 1\npolicy merge.policy.task a b\n",
-            "moirai-schema 1\npolicy merge.policy.task %x\n",
+            "klotho-schema 1\npolicy Merge.policy x\n",
+            "klotho-schema 1\npolicy merge.policy.task\n",
+            "klotho-schema 1\npolicy merge.policy.task a b\n",
+            "klotho-schema 1\npolicy merge.policy.task %x\n",
         ] {
             assert_eq!(
                 parse_schema_file(bad.as_bytes()).unwrap_err().rule,
@@ -1300,7 +1300,7 @@ mod tests {
     /// least `rank`, ties by value name bytewise, whatever order the rows come in.
     #[test]
     fn project_initial_status() {
-        let src = "moirai-schema 1\nkind incident derivation=random root-variant=none existence=resurrect\n\
+        let src = "klotho-schema 1\nkind incident derivation=random root-variant=none existence=resurrect\n\
                    value incident status alpha rank=3\nvalue incident status beta rank=0 retired\n\
                    value incident status open rank=1\nvalue incident status new rank=1\n";
         let rows = parse_schema_file(src.as_bytes()).unwrap();
@@ -1316,7 +1316,7 @@ mod tests {
     fn default_shape_and_budget() {
         let file = |shape: &str, budget: &str| {
             format!(
-                "moirai-query 1\nname: q\nlq: 1\nshape: {shape}\nbudget: {budget}\n---\nDEFINE QUERY q() AS {{\n  MATCH (n:note)\n  RETURN n\n}}\n"
+                "klotho-query 1\nname: q\nlq: 1\nshape: {shape}\nbudget: {budget}\n---\nDEFINE QUERY q() AS {{\n  MATCH (n:note)\n  RETURN n\n}}\n"
             )
         };
         assert!(parse_query(file("table", "medium").as_bytes(), None).is_ok());

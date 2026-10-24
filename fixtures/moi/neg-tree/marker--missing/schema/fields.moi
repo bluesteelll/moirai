@@ -1,4 +1,4 @@
-moirai-schema 1
+klotho-schema 1
 value * priority P5 rank=5
 field experiment baseline_commit type=commitref class=scalar storage=field decl=23 optional=true index=none coerce=revision-integer
 field experiment codename type=sym class=scalar storage=field decl=28 optional=false index=none coerce=none flags=ascii,one_line default="unnamed run"

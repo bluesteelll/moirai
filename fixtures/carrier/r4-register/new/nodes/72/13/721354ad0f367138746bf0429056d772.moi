@@ -1,0 +1,11 @@
+klotho-node 1
+uid: 721354ad0f367138746bf0429056d772
+kind: area
+title: root:project
+status: active
+created: c1e26cf836cda835436dbf2c54e7cc795f54bcffcd1da9d38e11f3a5fab690f64 2026-09-21T14:25:20.000Z
+updated: c7ceced131ffc81f21564921fbff77348c90215e4f2dd0143e47cbcd796df930e 2026-09-21T15:14:20.000Z
+field path_moves: <<
+  ["00117309679861760000","explicit","docs/storage/","docs/locking/","sha1:cafe11e0dfd91a0b34786ad5767ab6627e288de6"]
+>>
+field root: project

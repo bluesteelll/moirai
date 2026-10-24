@@ -47,7 +47,7 @@ impl Items {
     /// The commit input C ([F07 §3.1]).
     pub fn input(&self) -> Vec<u8> {
         let mut c = Vec::with_capacity(256);
-        lp(&mut c, b"moirai-commit-v1");
+        lp(&mut c, b"klotho-commit-v1");
         lp(&mut c, self.kind.as_bytes());
         c.extend_from_slice(&(self.parents.len() as u32).to_le_bytes());
         for p in &self.parents {
@@ -83,11 +83,11 @@ impl Items {
 }
 
 /// `changeset_digest` over item-10 entries already encoded and in §10.3 order ([F07 §10.4]):
-/// `BLAKE3-256(lp("moirai-changeset-v1") ‖ entries ‖ u64 n)`.
+/// `BLAKE3-256(lp("klotho-changeset-v1") ‖ entries ‖ u64 n)`.
 pub fn changeset_digest(entries: &[Vec<u8>]) -> [u8; 32] {
     let mut h = blake3::Hasher::new();
     let mut d = Vec::new();
-    lp(&mut d, b"moirai-changeset-v1");
+    lp(&mut d, b"klotho-changeset-v1");
     h.update(&d);
     for e in entries {
         h.update(e);
@@ -370,7 +370,7 @@ pub enum MessageRefusal {
     Encoding,
     /// Longer than 65,535 bytes after normalisation.
     TooLong,
-    /// The last paragraph begins with `Moirai-`.
+    /// The last paragraph begins with `Klotho-`.
     TrailerLike,
 }
 
@@ -391,7 +391,7 @@ pub fn normalise(m: &[u8]) -> Result<String, MessageRefusal> {
     if n.len() > 65_535 {
         return Err(MessageRefusal::TooLong);
     }
-    if last_paragraph(&n).starts_with("Moirai-") {
+    if last_paragraph(&n).starts_with("Klotho-") {
         return Err(MessageRefusal::TrailerLike);
     }
     Ok(n)
@@ -451,7 +451,7 @@ mod tests {
         };
         let c = it.input();
         assert_eq!(c.len(), 196);
-        assert_eq!(&c[..20], b"\x10\x00\x00\x00moirai-commit-v1");
+        assert_eq!(&c[..20], b"\x10\x00\x00\x00klotho-commit-v1");
         assert_eq!(&c[20..32], b"\x08\x00\x00\x00ordinary");
         assert_eq!(it.commit_id(), blake3_256(&c));
     }
@@ -466,7 +466,7 @@ mod tests {
         lp(&mut e, b"none");
         assert_eq!(e.len(), 43);
         let mut input = Vec::new();
-        lp(&mut input, b"moirai-changeset-v1");
+        lp(&mut input, b"klotho-changeset-v1");
         input.extend_from_slice(&e);
         input.extend_from_slice(&1u64.to_le_bytes());
         assert_eq!(input.len(), 74);
@@ -484,19 +484,19 @@ mod tests {
         assert_eq!(normalise(b"\n\nsubject").unwrap(), "\n\nsubject");
         assert_eq!(normalise(b" \t\n").unwrap(), "");
         assert_eq!(
-            normalise(b"done\n\nMoirai-Ref: main"),
+            normalise(b"done\n\nKlotho-Ref: main"),
             Err(MessageRefusal::TrailerLike)
         );
         assert_eq!(
-            normalise(b"done\n\nnote\nMoirai-Ref: main").unwrap(),
-            "done\n\nnote\nMoirai-Ref: main"
+            normalise(b"done\n\nnote\nKlotho-Ref: main").unwrap(),
+            "done\n\nnote\nKlotho-Ref: main"
         );
         assert_eq!(normalise(b"a\0b"), Err(MessageRefusal::Encoding));
         assert_eq!(normalise_import(b"x\xFFy\0\r\n"), "x\u{FFFD}y\u{FFFD}");
-        // [F07 §5.3] native import: steps 1–4 only; the `Moirai-` and length refusals do not apply, step 1 does.
+        // [F07 §5.3] native import: steps 1–4 only; the `Klotho-` and length refusals do not apply, step 1 does.
         assert_eq!(
-            normalise_native(b"done\r\n\r\nMoirai-Ref: main \n").as_deref(),
-            Some("done\n\nMoirai-Ref: main")
+            normalise_native(b"done\r\n\r\nKlotho-Ref: main \n").as_deref(),
+            Some("done\n\nKlotho-Ref: main")
         );
         let long = "x".repeat(70_000);
         assert_eq!(normalise_native(long.as_bytes()), Some(long.clone()));

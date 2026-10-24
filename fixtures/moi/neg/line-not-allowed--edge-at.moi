@@ -1,4 +1,4 @@
-moirai-node 1
+klotho-node 1
 uid: 1a000000000000000000000000000011
 kind: task
 title: Byte-range lock protocol
@@ -33,7 +33,7 @@ label lock protocol
 label storage
 incr reopen_count +1 c9ba66d0ec207a38c14759a57f23fa28e4d81e5e33748f494ea6ade04c04243dc
 incr reopen_count +1 cdef0c39b0aed44ab95fd3be7214b7e151362bcb7a972559fe0133ba80a3b7147
-edge at -> ff62a2c718c52faafc108cf0e945642e
+edge at -> 58bf5caf4b563388042b46cd27dba3da
 edge blocks -> 1a000000000000000000000000000012
 edge cites -> 5d000000000000000000000000000011 pin=ce53e65b9e751e6b6bd37f93e501ec97a4752d361d4e9848c235d462fe3adaad3
 edge discovered_from -> 1a000000000000000000000000000013

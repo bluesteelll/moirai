@@ -1,4 +1,4 @@
-moirai-node 1
+klotho-node 1
 uid: 7f000000000000000000000000000011
 kind: finding
 title: Reader starves behind the flush

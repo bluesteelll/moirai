@@ -254,6 +254,7 @@ renewal, a cursor) are no entries.
 - **Ties.** Entries of one seq come in log order: the commit's key changes first, in [API §5.7]'s row order, then the group's
   other entries in the order of their records ([F05 §4.7]), then the entries of later groups in append order. `ORDER BY seq`
   keeps this order among ties.
+  The marker entries of one `Marker` record come in [F05 §9.5]'s entry order, which no fold changes and `ORDER BY seq` keeps.
 - `relevant_to` of an absent `node` is false.
 
 2.16. **Reserved built-ins (M9–M10)** (spec sync 3; [AR §11] #46). The work-list queries of §4.25 need three built-ins
@@ -565,7 +566,7 @@ built-in for two globs, so overlap is approximated by either glob matching the o
 DEFINE QUERY lane_conflicts($a: node, $b: node) SHAPE table BUDGET medium AS {
   MATCH (la:lane {id: $a}), (lb:lane {id: $b}), (ta:task), (tb:task)
   WHERE ta.claimed AND tb.claimed AND ta <> tb
-    AND ta.lease.branch = la.moirai_branch AND tb.lease.branch = lb.moirai_branch
+    AND ta.lease.branch = la.store_branch AND tb.lease.branch = lb.store_branch
   UNWIND ta.files_owned AS ga
   UNWIND tb.files_owned AS gb
   WITH ta, tb, ga, gb WHERE glob_match(ga, gb) OR glob_match(gb, ga)

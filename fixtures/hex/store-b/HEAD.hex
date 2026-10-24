@@ -4,14 +4,14 @@
 
 # HeadSlot `slotA`: slot_seq 8 ([F04 §3])
 slotA:
-  "MOIR"                                    # magic
+  "KLTH"                                    # magic
   {u16 1}                                   # format
   {u16 0}                                   # flags: quiet=0, fts_tier2=0, readonly=0, retired=0
   {u64 8}                                   # slot_seq
   {u64 0x2718281828459045}                  # epoch
   {u64 126537}                              # committed_lsn
   {u64 126537}                              # durable_lsn
-  9b 7a 72 f8 2d 09 6e 88 ef 80 d4 9c 7b 73 ce 08  # boot_id
+  05 00 2c 7c a5 4a 02 0c 87 dd dc 2b be a2 c0 30  # boot_id
   {u32 0}                                   # config_gen
   {u64 126270}                              # checkpoint_lsn
   {u64 7}                                   # commit_seq
@@ -25,7 +25,7 @@ slotA:
   {u32 3}                                   # segments[0].file_no
   02                                        # segments[0].kind (delta)
   {u64 126270}                              # segments[0].upto_lsn
-  a3 c3 5d 4f e9 73 ab 0d 49 be c4 50 35 ec 18 40  # segments[0].blake3_16
+  24 3c f5 c4 ef 53 06 e0 c2 00 6d 47 97 97 2b f2  # segments[0].blake3_16
   00*29                                     # segments[1]: empty
   00*29                                     # segments[2]: empty
   00*29                                     # segments[3]: empty
@@ -99,14 +99,14 @@ slotA:
   {xxh3_128 slotA..slotA+4080}              # xxh3_128 over [0, 4080) (low64, high64)
 # HeadSlot `slotB`: slot_seq 9 ([F04 §3])
 slotB:
-  "MOIR"                                    # magic
+  "KLTH"                                    # magic
   {u16 1}                                   # format
   {u16 0}                                   # flags: quiet=0, fts_tier2=0, readonly=0, retired=0
   {u64 9}                                   # slot_seq
   {u64 0x2718281828459045}                  # epoch
   {u64 126537}                              # committed_lsn
   {u64 126537}                              # durable_lsn
-  9b 7a 72 f8 2d 09 6e 88 ef 80 d4 9c 7b 73 ce 08  # boot_id
+  05 00 2c 7c a5 4a 02 0c 87 dd dc 2b be a2 c0 30  # boot_id
   {u32 0}                                   # config_gen
   {u64 126270}                              # checkpoint_lsn
   {u64 7}                                   # commit_seq
@@ -120,7 +120,7 @@ slotB:
   {u32 3}                                   # segments[0].file_no
   02                                        # segments[0].kind (delta)
   {u64 126270}                              # segments[0].upto_lsn
-  a3 c3 5d 4f e9 73 ab 0d 49 be c4 50 35 ec 18 40  # segments[0].blake3_16
+  24 3c f5 c4 ef 53 06 e0 c2 00 6d 47 97 97 2b f2  # segments[0].blake3_16
   00*29                                     # segments[1]: empty
   00*29                                     # segments[2]: empty
   00*29                                     # segments[3]: empty

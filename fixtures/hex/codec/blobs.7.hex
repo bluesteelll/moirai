@@ -4,7 +4,7 @@
 
 # SegHdr (120 B, [F09 §2.1])
 seghdr:
-  "MSEG"                                    # magic
+  "KSEG"                                    # magic
   {u16 1}                                   # format
   06                                        # seg_kind 6 `blobs`
   00                                        # tok_ver

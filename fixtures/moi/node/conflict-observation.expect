@@ -9,7 +9,7 @@
 %% note theirs the composite; the six member field lines are omitted.
 %% canonical self
 %% keys
-node 3f9005c0f8753a1a34e0bde2bd1d4e68 artifact
+node 8add86346b66e63e91d9989d86a37615 artifact
   field artifact_kind enum doc
   field origin_path path project "docs/locking/lock.md"
   field root text "project"

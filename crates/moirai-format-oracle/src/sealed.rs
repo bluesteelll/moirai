@@ -683,8 +683,8 @@ pub struct Dict {
 /// `Dictionary_ID` rule needs the file's number: [`check_dict_number`].
 pub fn decode_dict(b: &[u8]) -> Result<Dict> {
     let mut r = Reader::new(b);
-    if b.len() < 32 || r.array::<4>()? != *b"MDIC" {
-        return err(0, "dict header magic is not MDIC [F10 §6.1]");
+    if b.len() < 32 || r.array::<4>()? != *b"KDIC" {
+        return err(0, "dict header magic is not KDIC [F10 §6.1]");
     }
     if r.u64()? != b.len() as u64 {
         return err(4, "dict total_len differs from the file size [F10 §6.1]");
@@ -735,7 +735,7 @@ pub fn check_dict_number(d: &Dict, number: u32) -> Result<()> {
 /// Re-encodes a `dict` file.
 pub fn encode_dict(d: &Dict) -> Vec<u8> {
     let mut w = Writer::new();
-    w.bytes(b"MDIC");
+    w.bytes(b"KDIC");
     w.u64(32 + d.content.len() as u64);
     w.bytes(&blake3_128(&d.content));
     w.zeros(4);
@@ -762,8 +762,8 @@ pub fn decode_gitmap(b: &[u8]) -> Result<Gitmap> {
         return err(0, "a gitmap page is at least 1072 bytes [F10 §7.2]");
     }
     let mut r = Reader::new(b);
-    if r.array::<4>()? != *b"MGMP" {
-        return err(0, "gitmap magic is not MGMP [F10 §7.2]");
+    if r.array::<4>()? != *b"KGMP" {
+        return err(0, "gitmap magic is not KGMP [F10 §7.2]");
     }
     check_format(r.u16()?, 4, "gitmap")?;
     if xxh3_64(&b[..40]) != u64::from_le_bytes(b[40..48].try_into().expect("8")) {
@@ -827,7 +827,7 @@ pub fn encode_gitmap(g: &Gitmap) -> Vec<u8> {
         body.bytes(d);
     }
     let mut w = Writer::new();
-    w.bytes(b"MGMP");
+    w.bytes(b"KGMP");
     w.u16(1);
     w.u8(g.dest);
     w.u8(g.algo.byte());
@@ -1312,9 +1312,9 @@ mod props {
             tail in proptest::collection::vec(any::<u8>(), 0..1_200),
         ) {
             let magic: &[u8] = match kind {
-                0 | 1 => b"MSEG",
-                2 => b"MDIC",
-                _ => b"MGMP",
+                0 | 1 => b"KSEG",
+                2 => b"KDIC",
+                _ => b"KGMP",
             };
             let b = [magic, &tail].concat();
             let back = match kind {

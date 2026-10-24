@@ -71,12 +71,12 @@ fn messages_normalise_by_f07() {
         ("a\rb\t\n", Some("a\nb")),
         ("\n\nsubject", Some("\n\nsubject")),
         (" \t\n", Some("")),
-        ("done\n\nMoirai-Ref: main", None),
+        ("done\n\nKlotho-Ref: main", None),
         (
-            "done\n\nnote\nMoirai-Ref: main",
-            Some("done\n\nnote\nMoirai-Ref: main"),
+            "done\n\nnote\nKlotho-Ref: main",
+            Some("done\n\nnote\nKlotho-Ref: main"),
         ),
-        ("Moirai-Ref: main", None),
+        ("Klotho-Ref: main", None),
         ("a\0b", None),
     ] {
         match (normalize_message(m), want) {
@@ -102,7 +102,7 @@ fn messages_normalise_by_f07() {
     s.refused(
         Cmd::Tx {
             stmts: vec![task("b", "B")],
-            message: "done\n\nMoirai-Ref: main".into(),
+            message: "done\n\nKlotho-Ref: main".into(),
         },
         orch(),
         "bad_value",

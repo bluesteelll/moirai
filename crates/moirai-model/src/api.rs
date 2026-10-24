@@ -1177,7 +1177,7 @@ fn p_cj(v: &P) -> Cj {
 
 /// N(m) of [F07 §5.1] with the refusals of §5.2 (`bad_value`, exit 2): U+0000; CR LF and every remaining CR become
 /// LF; the bytes HT, VT, FF and SP are stripped from the end of every line; every trailing LF is removed; the result is
-/// at most 65,535 bytes and its last paragraph does not begin with `Moirai-`. The empty result is the absent message.
+/// at most 65,535 bytes and its last paragraph does not begin with `Klotho-`. The empty result is the absent message.
 // spec: [F07 §5.1]
 // spec: [F07 §5.2]
 pub fn normalize_message(m: &str) -> Res<String> {
@@ -1787,7 +1787,7 @@ impl Store {
         let mut t: u32 = 0;
         let store_id = loop {
             let id = blake3_128(&[
-                b"moirai-api-store-id-v1",
+                b"klotho-api-store-id-v1",
                 &seed.to_le_bytes(),
                 &t.to_le_bytes(),
             ]);
@@ -2128,7 +2128,7 @@ impl Store {
             let main = self.dag.state_at(main_tip, &self.alloc);
             main.nodes
                 .values()
-                .find(|x| x.live() && x.kind == "lane" && x.text("moirai_branch") == Some(b))
+                .find(|x| x.live() && x.kind == "lane" && x.text("store_branch") == Some(b))
                 .and_then(|x| match x.fields.get("worktree_path") {
                     // A `path` value under root `abs` ([F08 §9.3] `lane`).
                     Some(crate::value::Value::Path(p)) => Some(p.text.clone()),
@@ -2438,7 +2438,7 @@ impl Store {
                 {
                     let st = self.dag.state_at(Some(c.seq), &self.alloc);
                     let x = &st.nodes[&lane];
-                    let full = x.text("moirai_branch").unwrap_or("").to_string();
+                    let full = x.text("store_branch").unwrap_or("").to_string();
                     let dir = match x.fields.get("worktree_path") {
                         Some(crate::value::Value::Path(p)) => p.text.clone(),
                         _ => String::new(),
@@ -4085,7 +4085,7 @@ impl Store {
 
     /// `LaneOpen` ([API §11.5]): one group, in order — a commit on `main` creating the `lane` node (`title` = `name`,
     /// status `active`, `worktree_path` the path value of `worktree` under root `abs`, `git_branch`, `base_sha`,
-    /// `moirai_branch` = `lane/<name>`), which carries the idempotency pair; then `BranchCreate(lane/<name>, from:
+    /// `store_branch` = `lane/<name>`), which carries the idempotency pair; then `BranchCreate(lane/<name>, from:
     /// main)`, which forks the lane from that commit, so the lane holds its own lane node; then `WorktreeBind(worktree,
     /// lane/<name>)` with the designation of [F18 §3.5]. Refusals: `BranchCreate`'s and `WorktreeBind`'s, checked
     /// before anything is written; a `worktree` that is not a tree is usage (exit 2); a `base` that names no commit of
@@ -4173,7 +4173,7 @@ impl Store {
         let mut fields = vec![
             ("title".to_string(), P::Text(name.to_string())),
             ("worktree_path".into(), P::Text(format!("abs:{dir}"))),
-            ("moirai_branch".into(), P::Text(full.clone())),
+            ("store_branch".into(), P::Text(full.clone())),
         ];
         if let Some(g) = git_branch {
             fields.push(("git_branch".into(), P::Text(g.to_string())));
@@ -4271,7 +4271,7 @@ impl Store {
         let (lane, dir) = main_st
             .nodes
             .iter()
-            .find(|(_, x)| x.live() && x.kind == "lane" && x.text("moirai_branch") == Some(&full))
+            .find(|(_, x)| x.live() && x.kind == "lane" && x.text("store_branch") == Some(&full))
             .map(|(n, x)| {
                 let dir = match x.fields.get("worktree_path") {
                     Some(crate::value::Value::Path(p)) => Some(p.text.clone()),

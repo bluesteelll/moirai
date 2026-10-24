@@ -289,7 +289,7 @@ mod tests {
     #[test]
     fn lp_frames_with_a_little_endian_length() {
         let mut v = Vec::new();
-        lp(&mut v, b"moirai-file-v1");
+        lp(&mut v, b"klotho-file-v1");
         assert_eq!(&v[..4], &[0x0E, 0, 0, 0]);
         assert_eq!(hex(&[0xAB, 0x01]), "ab01");
     }

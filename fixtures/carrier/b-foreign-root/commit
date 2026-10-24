@@ -1,16 +1,16 @@
-tree a9157c20e1a31618ac50ce4c6696fa6051931e84202eeaa9502b367194fd6afe
-author moirai/git:alice@example.com <@moirai.invalid> 1789000000 +0000
-committer moirai/git:alice@example.com <@moirai.invalid> 1789000000 +0000
+tree fddb24bf93851842d2cc7c292576839e6869560c33faa795026a421409fb3305
+author klotho/git:alice@example.com <@klotho.invalid> 1789000000 +0000
+committer klotho/git:alice@example.com <@klotho.invalid> 1789000000 +0000
 
 Import backlog from the old tracker
 
 See the tracker export of 2026-09.
 
-Moirai-Commit: ca4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
-Moirai-Kind: ordinary
-Moirai-Ref: lane/tracker
-Moirai-Hlc: 117243904000000000
-Moirai-Actor: git:alice@example.com
-Moirai-Foreign-Git: sha1:33881ca4c0710e4ef0c39fa06904c0cc6494ca6a
-Moirai-Schema: 1
-Moirai-Ops: 6
+Klotho-Commit: c50a13d75db5cc44f2dd416743cf3846047d747cb51bab3074164c253ddd2d7a0
+Klotho-Kind: ordinary
+Klotho-Ref: lane/tracker
+Klotho-Hlc: 117243904000000000
+Klotho-Actor: git:alice@example.com
+Klotho-Foreign-Git: sha1:d299508691dda2c972974271eac38464ae150599
+Klotho-Schema: 1
+Klotho-Ops: 6

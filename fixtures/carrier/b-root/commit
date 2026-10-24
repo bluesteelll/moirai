@@ -1,15 +1,15 @@
-tree 9f97c6ca923bf80705ed2d3bc6a2ce9e4dc21bfbe7d5520817a0796d5d126000
-author moirai/orch <orchestrator@moirai.invalid> 1790000000 +0000
-committer moirai/orch <orchestrator@moirai.invalid> 1790000000 +0000
+tree c4ad0b1ba4fc7ac259f0ed556f4c073c74e872450a91fcf5561171d810c7c971
+author klotho/orch <orchestrator@klotho.invalid> 1790000000 +0000
+committer klotho/orch <orchestrator@klotho.invalid> 1790000000 +0000
 
 plan the storage work
 
-Moirai-Commit: c64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
-Moirai-Kind: ordinary
-Moirai-Ref: main
-Moirai-Hlc: 117309440000000000
-Moirai-Actor: orch
-Moirai-Role: orchestrator
-Moirai-Session: claude:s0
-Moirai-Schema: 1
-Moirai-Ops: 23
+Klotho-Commit: c3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
+Klotho-Kind: ordinary
+Klotho-Ref: main
+Klotho-Hlc: 117309440000000000
+Klotho-Actor: orch
+Klotho-Role: orchestrator
+Klotho-Session: claude:s0
+Klotho-Schema: 1
+Klotho-Ops: 23

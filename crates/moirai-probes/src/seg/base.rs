@@ -1388,12 +1388,12 @@ pub(crate) mod tests {
         let s = spec(3_000);
         assert_eq!(
             xxhash_rust::xxh3::xxh3_64(&build(&s).unwrap()),
-            0x50d0_1c05_37e6_0eb1,
+            0xf023_5f7e_b63f_e51a,
             "build"
         );
         assert_eq!(
             xxhash_rust::xxh3::xxh3_64(&build_with(&s, ready_priority).unwrap()),
-            0xbcbf_336b_0ff2_3cb6,
+            0xcda7_ae5b_fa8d_aed6,
             "build_with(ready_priority)"
         );
     }

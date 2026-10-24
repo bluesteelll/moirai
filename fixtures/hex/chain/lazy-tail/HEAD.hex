@@ -4,14 +4,14 @@
 
 # HeadSlot `slotA`: slot_seq 3 ([F04 §3])
 slotA:
-  "MOIR"                                    # magic
+  "KLTH"                                    # magic
   {u16 1}                                   # format
   {u16 0}                                   # flags: quiet=0, fts_tier2=0, readonly=0, retired=0
   {u64 3}                                   # slot_seq
   {u64 0x5555666677778888}                  # epoch
   {u64 1588}                                # committed_lsn
   {u64 597}                                 # durable_lsn
-  93 1c fe 48 ec 5a d8 55 33 32 51 cd e5 6f 62 c2  # boot_id
+  e0 74 9d e4 a5 4e 66 11 8c 97 eb 99 a4 2f 84 d1  # boot_id
   {u32 0}                                   # config_gen
   {u64 0}                                   # checkpoint_lsn
   {u64 1}                                   # commit_seq
@@ -90,14 +90,14 @@ slotA:
   {xxh3_128 slotA..slotA+4080}              # xxh3_128 over [0, 4080) (low64, high64)
 # HeadSlot `slotB`: slot_seq 4: the second write of the durable publish ([F04 §3])
 slotB:
-  "MOIR"                                    # magic
+  "KLTH"                                    # magic
   {u16 1}                                   # format
   {u16 0}                                   # flags: quiet=0, fts_tier2=0, readonly=0, retired=0
   {u64 4}                                   # slot_seq
   {u64 0x5555666677778888}                  # epoch
   {u64 1588}                                # committed_lsn
   {u64 597}                                 # durable_lsn
-  93 1c fe 48 ec 5a d8 55 33 32 51 cd e5 6f 62 c2  # boot_id
+  e0 74 9d e4 a5 4e 66 11 8c 97 eb 99 a4 2f 84 d1  # boot_id
   {u32 0}                                   # config_gen
   {u64 0}                                   # checkpoint_lsn
   {u64 1}                                   # commit_seq

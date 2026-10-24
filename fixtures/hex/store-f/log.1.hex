@@ -467,7 +467,7 @@ g6.r2.p:
     {uvar 1}                                   # ref_seq
     00                                         # kind `ordinary`
     01                                         # import `native`
-    {u64 0x1a0bf2a10000000}                    # hlc: the Moirai-Hlc it carried, a day before MS0 ([F06 §4.4.4])
+    {u64 0x1a0bf2a10000000}                    # hlc: the Klotho-Hlc it carried, a day before MS0 ([F06 §4.4.4])
     {uvar 3}                                   # actor `dev#2`
     {uvar 1}                                   # role `developer`
     {uvar 0}                                   # session ``

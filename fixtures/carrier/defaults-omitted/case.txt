@@ -9,10 +9,10 @@
 %% note Row normalisation: the exporter's tree; the explicit twin is case defaults-explicit.
 %% destination A sha1 full
 %% class native
-%% git-commit 7ed165bd87fc69b33778074bf710fde5682ee51b
-%% git-tree 5b4e0467f6fe914713c44898bf501060f53bd366
-%% git-parent 018e6a12ce584771b360c194bc69088493ee821e root
-%% trailer-commit 6087a9137cdacdabce3356976e2618f589d1fb0f275a111035b25df69aeebed1
+%% git-commit a88d04c86330c9b78728effc76346210ee3f566f
+%% git-tree 836759d775b8fe253f2b9acc5cd5605f7abae7a3
+%% git-parent 815ecefd3990cfec6fd61fa7e77637f665e88ff1 root
+%% trailer-commit c557d1397882f7ebef2a40c273627122af5d4fe7bedc6d5afc967019fd515cfd
 %% touched-new 1
 %% touched-old 0
 %% p-state
@@ -73,8 +73,8 @@ node a0000000000000000000000000000001 area
 7e000000000000000000000000000001 field unit = text "ms"
 7e000000000000000000000000000001 field value = f64 0000000000000000
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 7e000000000000000000000000000001 existence
 017e0000000000000000000000000000010100010b0000006d6561737572656d656e7400
 ; entry 2: 7e000000000000000000000000000001 field title
@@ -87,10 +87,10 @@ node a0000000000000000000000000000001 area
 ; u64 entry count = 4
 0400000000000000
 %% entry-count 4
-%% changeset-digest cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
+%% changeset-digest 8fb5698f798818daf0b05f1c95a8e02241f23ca606661df8719455b4327fe7de
 %% commit
 kind ordinary
-parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+parent 3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 hlc 01a0c45d3d400000
 actor "tester#1"
 role "tester"
@@ -104,14 +104,14 @@ schema-version 1
 origin -
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 ; item 3: hlc
 0000403d5dc4a001
 ; item 4: actor
@@ -141,8 +141,8 @@ foreign -
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
-%% commit-id 6087a9137cdacdabce3356976e2618f589d1fb0f275a111035b25df69aeebed1
+8fb5698f798818daf0b05f1c95a8e02241f23ca606661df8719455b4327fe7de
+%% commit-id c557d1397882f7ebef2a40c273627122af5d4fe7bedc6d5afc967019fd515cfd
 %% canonical normalisation.cases defaults-omitted commit-id
 %% same-id defaults-explicit
 %% end

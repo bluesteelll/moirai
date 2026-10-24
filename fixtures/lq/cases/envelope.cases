@@ -203,8 +203,8 @@ branch: main | rev 4480 EXCEPT main~5 = rev 4474 (as-of) | 2 rows
 branch: main | rev 4480 | 3 rows | search: 3 terms | titles+abstracts | index
 branch: main | rev 4480 | 14 rows | schema v3
 branch: lane/l5np | rev 4471 | 4 rows | behind main 9
-branch: main | rev 4480 | 50 rows | more: cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8 | view moved +3 commits since page 1
-branch: main | rev 4480 | 50 rows | dropped 50 | more: cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8
+branch: main | rev 4480 | 50 rows | more: cursor k0403400100001a80ge1cqz2m44g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000pcvvwy4w0nxfr | view moved +3 commits since page 1
+branch: main | rev 4480 | 50 rows | dropped 50 | more: cursor k0403400100001a80ge1cqz2m44g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000pcvvwy4w0nxfr
 branch: lane/l5np | rev 4471 -> 4472 | committed c1d972ce5 | key wf:r7/dev1/complete-89 | lease L-18
 branch: lane/l5np | rev 4473 | replayed
 branch: lane/l5np | rev 4471 | tx (dry) | IF TIP ok | would commit 3 changes
@@ -231,10 +231,10 @@ branch: merge/lane/l10/from/main | rev 4481 | staged (read-only) | 1 row
 %% text
 dropped: node keys on 50 rows (use --json or --limit 20)
 budget: work 1,203,441/2,000,000
-12 more | cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8 | run the same query with --cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8
-more | cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8 | moirai q ready scope=88 --cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8
-more | cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8 | call query again with cursor=k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8
-budget: work 2,000,000 exhausted after #812 | continue: run the same query with --cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8 | exit 10
+12 more | cursor k0403400100001a80ge1cqz2m44g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000pcvvwy4w0nxfr | run the same query with --cursor k0403400100001a80ge1cqz2m44g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000pcvvwy4w0nxfr
+more | cursor k0403400100001a80ge1cqz2m44g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000pcvvwy4w0nxfr | moirai q ready scope=88 --cursor k0403400100001a80ge1cqz2m44g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000pcvvwy4w0nxfr
+more | cursor k0403400100001a80ge1cqz2m44g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000pcvvwy4w0nxfr | call query again with cursor=k0403400100001a80ge1cqz2m44g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000pcvvwy4w0nxfr
+budget: work 2,000,000 exhausted after #812 | continue: run the same query with --cursor k0403400100001a80ge1cqz2m44g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000pcvvwy4w0nxfr | exit 10
 fs: 400 units used; 7 links unverified | --budget fs=800 | exit 10
 confirmed blockers in round 2: 0 -> DESIGN APPROVED
 confirmed blockers in round 2: 1 -> continue
@@ -268,28 +268,28 @@ replayed: rev 4473 c4db59edf (key ch:3f9a07c1)
 %% note the invariants line, the target-set digest of the target-set-digest golden, and the apply instruction.
 %% text
 affected: none | invariants ok
-targets: df505c0603f14d46b66a88d2f767999e
-to apply: send the same TX without DRY, with IF TARGETS 'df505c0603f14d46b66a88d2f767999e'; IF TIP c4460cf1c refuses it if lane/l5np moved in between
+targets: 74b686da613ac4427ea38c9a8d935e0e
+to apply: send the same TX without DRY, with IF TARGETS '74b686da613ac4427ea38c9a8d935e0e'; IF TIP c4460cf1c refuses it if lane/l5np moved in between
 %% end
 
 %% case cursor-bytes
 %% source [LQ/envelope §8]
 %% source [LQ/canonical-ast §7.2] cursor query hash
 %% note A pinned cursor after page 1 of MATCH (t:task) WHERE t.status = 'open' RETURN t ORDER BY t.priority on main
-%% note (view commit c161fc8c0e2d79fe6...). Its query hash is H = bdc668698aa3eae102b548db83f0b24e, from the C-AST
+%% note (view commit c161fc8c0e2d79fe6...). Its query hash is H = a9008382cbfc542185f98cd1f7e5c99d, from the C-AST
 %% note (QUERY (PART _ (CLAUSES [(MATCH false [(PATH (NODEP 0 ["task"] [] _) [])] (CMP = (PROP (VAR 0) "status") (ENUM "open")))]
 %% note (RETURN false false [(RITEM (VAR 0) _)] [(SORT (PROP (VAR 0) "priority") false)] _))) [])).
-%% note CursorHead: version 1, flags 0 (pinned), page_rows 50, pages 1, query_hash H[0..8] as u64 LE (0xe1eaa38a6968c6bd),
+%% note CursorHead: version 1, flags 0 (pinned), page_rows 50, pages 1, query_hash H[0..8] as u64 LE (0x2154fccb828300a9),
 %% note now_ms 1790337780000 (2026-09-25T12:03:00Z), work_left 1999000, n_parts 1, n_keys 2; part_commit the view commit's
 %% note id16; keys: priority 1 (tag 3, i64), then the binding identity #93 (tag 6, u32); check XXH3-64 of bytes 0..66.
 %% note The text form is k and the Crockford base-32 of the 74 bytes.
-%% hash xxh3_64 0..66 = 0xf5575c2de0d8871d
+%% hash xxh3_64 0..66 = 0xbf5e01279eefcd2c
 %% text
-k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8
+k0403400100001a80ge1cqz2m44g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000pcvvwy4w0nxfr
 %% hex
 ; CursorHead (36 bytes)
 01 00 3200 01000000
-bd c6 68 69 8a a3 ea e1 ; query_hash
+a9 00 83 82 cb fc 54 21 ; query_hash
 20 89 72 d8 a0 01 00 00 ; now_ms
 98 80 1e 00 00 00 00 00 ; work_left
 01 02 0000 ; n_parts n_keys _reserved
@@ -299,7 +299,7 @@ bd c6 68 69 8a a3 ea e1 ; query_hash
 03 01 00 00 00 00 00 00 00
 06 5d 00 00 00
 ; check = {xxh3_64 0..66} as u64 LE
-1d 87 d8 e0 2d 5c 57 f5
+2c cd ef 9e 27 01 5e bf
 %% end
 
 %% case target-set-digest
@@ -308,9 +308,9 @@ bd c6 68 69 8a a3 ea e1 ; query_hash
 %% note The DRY of Q19: statement 1 (MATCH ... EXPECT 3 SET t.priority = 1) binds t to #90, #93 and #95, whose uids
 %% note are 018f3c2e7a117b3c9d5e4c2f1a0b9e90, ...9e93 and ...9e95; its mutations use t only, so each binding is one
 %% note uid; the bindings are sorted bytewise. The digest is BLAKE3-128 over the bytes below.
-%% hash blake3_256 0..82 first 16 = df505c0603f14d46b66a88d2f767999e
+%% hash blake3_256 0..82 first 16 = 74b686da613ac4427ea38c9a8d935e0e
 %% hex
-14000000 6d 6f 69 72 61 69 2d 6c 71 2d 74 61 72 67 65 74 73 2d 76 31 ; lp("moirai-lq-targets-v1")
+14000000 6b 6c 6f 74 68 6f 2d 6c 71 2d 74 61 72 67 65 74 73 2d 76 31 ; lp("klotho-lq-targets-v1")
 0100 ; lq
 01000000 03000000 ; statement 1, 3 bindings
 01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b 9e 90 ; #90

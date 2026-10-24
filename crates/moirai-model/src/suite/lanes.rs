@@ -118,7 +118,7 @@ fn example_07_lane_merge() {
         (lane.kind.as_str(), lane.status.as_str()),
         ("lane", "active")
     );
-    assert_eq!(lane.text("moirai_branch"), Some("lane/l1"));
+    assert_eq!(lane.text("store_branch"), Some("lane/l1"));
     assert_eq!(lane.text("git_branch"), Some("l1"));
     assert!(
         matches!(lane.fields.get("worktree_path"), Some(Value::Path(p)) if p.root == "abs" && p.text == TREE)

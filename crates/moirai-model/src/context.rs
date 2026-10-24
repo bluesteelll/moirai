@@ -108,7 +108,7 @@ pub fn resolve_branch(heads: &Heads, i: &BranchInputs) -> Target {
 }
 
 /// CX-5 ([API §4.2]): `ctx.tree` → `ctx.meta.sandboxCwd` → `ctx.stamp.cwd` → the `worktree_path` of the lane whose
-/// `moirai_branch` is the presented lease's branch → `ctx.cwd`.
+/// `store_branch` is the presented lease's branch → `ctx.cwd`.
 // spec: [API §4.2] CX-5
 pub fn resolve_tree(
     tree: Option<&str>,

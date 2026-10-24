@@ -103,7 +103,7 @@ fn carried_key(run: &str, task: Option<u32>, kind: &str, title: &str, second: &s
 
 impl Store {
     /// `Apply` ([API §9.4]). The batch branch is `ctx.branch`, else the branch of the run's lane (`run` → `runs_in` →
-    /// lane → `moirai_branch`), else the resolved branch. Every entry's lease must be a lease of the run on the batch
+    /// lane → `store_branch`), else the resolved branch. Every entry's lease must be a lease of the run on the batch
     /// branch (E407, exit 5, before any write). The key is `run:<run>` unless `ctx.key` names another; the payload is
     /// `H` of the expansion.
     // spec: [API §9.4]
@@ -145,7 +145,7 @@ impl Store {
             main.nodes
                 .get(&lane)
                 .or_else(|| view.nodes.get(&lane))
-                .and_then(|x| x.text("moirai_branch").map(str::to_string))
+                .and_then(|x| x.text("store_branch").map(str::to_string))
         });
         let branch = ctx
             .branch

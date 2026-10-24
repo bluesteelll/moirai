@@ -1,4 +1,4 @@
-moirai-query 1
+klotho-query 1
 name: joined_titles
 lq: 1
 params: "$sep: text = '\t', $n: int?"

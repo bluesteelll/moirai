@@ -1762,8 +1762,8 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
             .map_err(io)?;
         guard.files.push("HEAD".into());
         let mut slots = vec![0u8; HEAD_LEN];
-        slots[..4].copy_from_slice(b"MOIR");
-        slots[4_096..4_100].copy_from_slice(b"MOIR");
+        slots[..4].copy_from_slice(b"KLTH");
+        slots[4_096..4_100].copy_from_slice(b"KLTH");
         vfs.write_at(&head, 0, &slots).map_err(io)?;
     }
     let base_rel = rel(BASE_NAME)?;

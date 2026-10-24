@@ -11,7 +11,7 @@
 %% note no title line; implied-root paths; an alias that needs JSON inside the set (a comma).
 %% canonical self
 %% keys
-node d706fcde60f0b6cbf56c23297162b652 artifact
+node 19143eabafc5ec1c2f8ddb102a731ae3 artifact
   field aliases set path 2 project "crates/engine/src/lock.rs" project "crates/engine/src/lock, old.rs"
   field artifact_kind enum source
   field bytes int 18231

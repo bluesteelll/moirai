@@ -1417,7 +1417,7 @@ fn a_tree_outside_the_lease_lane_is_refused() {
             "lane",
             &[
                 ("title", t("x")),
-                ("moirai_branch", t("lane/x")),
+                ("store_branch", t("lane/x")),
                 ("worktree_path", t("abs:C:/work/lane")),
             ],
         )]),

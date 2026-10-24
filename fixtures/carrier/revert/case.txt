@@ -6,14 +6,14 @@
 %% source [F14 §10.5]
 %% source [F14 §12.1]
 %% source [F14 §12.2]
-%% note Gate-0 row revert: Moirai-Origin (item 8) names case ordinary; no git provenance (item 5 empty: the
+%% note Gate-0 row revert: Klotho-Origin (item 8) names case ordinary; no git provenance (item 5 empty: the
 %% note commit without git provenance of row trailers). The ledger of T1 gains `incr reopen_count -1 c<this>`.
 %% destination A sha1 full
 %% class native
-%% git-commit a057d1efe7ff28246a32120f1c3319937cda2ca1
-%% git-tree 0978a9364831c1cba19604e7b87c20210981b7f4
-%% git-parent ccad424446fa053d2897aa44b21b74b9ebf6ad37 ordinary
-%% trailer-commit c425a75cab057fa2c912f9bf61a44d5c87c3df544ebc9d5537ac7283bc6490a4
+%% git-commit ceb089814ad10a05b6c85a57889efb1cf1faf31d
+%% git-tree 8b1121b5afa703e351829db51a5c352544f98d1e
+%% git-parent c0883fc62023054d1e386ddb5d21ead7c16fd3ba ordinary
+%% trailer-commit 6055a9e55df0eb7d00f7de0a97e50be6c876b658d2163c12e18099a1e4c96e78
 %% touched-new 1
 %% touched-old 1
 %% p-state
@@ -27,7 +27,7 @@ node 1a000000000000000000000000000001 task
   counter reopen_count 1
   body "Timeout fires before the lock holder's flush completes."
   edge blocks 1a000000000000000000000000000002
-  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+  edge cites 5d000000000000000000000000000001 pin 3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 node 1a000000000000000000000000000002 task
   parent a0000000000000000000000000000001 "k"
   field estimate int 5
@@ -77,8 +77,8 @@ node a0000000000000000000000000000001 area
 1a000000000000000000000000000001 edge cites 5d000000000000000000000000000001 - = absent
 1a000000000000000000000000000001 body = absent
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 1a000000000000000000000000000001 status
 011a000000000000000000000000000001020000
 ; entry 2: 1a000000000000000000000000000001 field priority
@@ -96,10 +96,10 @@ node a0000000000000000000000000000001 area
 ; u64 entry count = 6
 0600000000000000
 %% entry-count 6
-%% changeset-digest ed59c722eef0907bc2f6d093a6d0e8e6b24d6144fb82bc2b64922c3f5afcc06d
+%% changeset-digest 47aa8212fa4f461e812de057677e0e9ead3adc018757b753e3b3ac858f384c5d
 %% commit
 kind revert
-parent 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+parent 1d8a1ee4895447b71b88afaa573d7253fd2eafdc2a0073e58b36c9973069b553
 hlc 01a0c46be3400000
 actor "dev#1"
 role "developer"
@@ -110,17 +110,17 @@ git-worktree ""
 git-base -
 message "revert the restart of #1"
 schema-version 1
-origin 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+origin 1d8a1ee4895447b71b88afaa573d7253fd2eafdc2a0073e58b36c9973069b553
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 06000000726576657274
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+1d8a1ee4895447b71b88afaa573d7253fd2eafdc2a0073e58b36c9973069b553
 ; item 3: hlc
 000040e36bc4a001
 ; item 4: actor
@@ -144,13 +144,13 @@ foreign -
 ; item 7: schema_version
 01000000
 ; item 8: origin
-20000000163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+200000001d8a1ee4895447b71b88afaa573d7253fd2eafdc2a0073e58b36c9973069b553
 ; item 9: foreign_algo
 00000000
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-ed59c722eef0907bc2f6d093a6d0e8e6b24d6144fb82bc2b64922c3f5afcc06d
-%% commit-id c425a75cab057fa2c912f9bf61a44d5c87c3df544ebc9d5537ac7283bc6490a4
+47aa8212fa4f461e812de057677e0e9ead3adc018757b753e3b3ac858f384c5d
+%% commit-id 6055a9e55df0eb7d00f7de0a97e50be6c876b658d2163c12e18099a1e4c96e78
 %% canonical commits.cases revert commit-id
 %% end

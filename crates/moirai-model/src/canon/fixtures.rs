@@ -1057,7 +1057,7 @@ pub fn git_commit(lines: &[String]) -> GitCommit {
 /// The item-10 input of a case: `lp(domain) ‖ entries ‖ u64(n)`.
 fn digest_input(es: &[Vec<u8>]) -> Vec<u8> {
     let mut v = Vec::new();
-    lp(&mut v, b"moirai-changeset-v1");
+    lp(&mut v, b"klotho-changeset-v1");
     for e in es {
         v.extend_from_slice(e);
     }
@@ -1713,11 +1713,11 @@ fn message_part(m: &[u8]) -> Vec<u8> {
     }
 }
 
-/// The `Moirai-Parent` trailers of a git message: 1-based parent index → the stated id ([F14 §10.4]).
+/// The `Klotho-Parent` trailers of a git message: 1-based parent index → the stated id ([F14 §10.4]).
 fn stated_parents(m: &[u8]) -> BTreeMap<usize, [u8; 32]> {
     String::from_utf8_lossy(m)
         .lines()
-        .filter_map(|l| l.strip_prefix("Moirai-Parent: "))
+        .filter_map(|l| l.strip_prefix("Klotho-Parent: "))
         .map(|v| {
             let (i, id) = v.split_once(' ').expect("an index and an id");
             let id = id.strip_prefix('c').expect("a commit name");
@@ -1726,17 +1726,17 @@ fn stated_parents(m: &[u8]) -> BTreeMap<usize, [u8; 32]> {
         .collect()
 }
 
-/// The `Moirai-Ops` trailer of a git message ([F14 §10.4]), if it has one.
-fn moirai_ops(m: &[u8]) -> Option<String> {
+/// The `Klotho-Ops` trailer of a git message ([F14 §10.4]), if it has one.
+fn klotho_ops(m: &[u8]) -> Option<String> {
     String::from_utf8_lossy(m)
         .lines()
-        .find_map(|l| l.strip_prefix("Moirai-Ops: ").map(str::to_string))
+        .find_map(|l| l.strip_prefix("Klotho-Ops: ").map(str::to_string))
 }
 
-/// The `schema-version:` of the `.moirai-image` marker in a case's tree ([F14 §4]): the case's own new marker file,
+/// The `schema-version:` of the `.klotho-image` marker in a case's tree ([F14 §4]): the case's own new marker file,
 /// or, when its tree kept the marker unchanged, its first git parent's.
 fn marker_schema_version(name: &str, all: &BTreeMap<String, Carrier>) -> u32 {
-    let p = carrier_dir().join(name).join("new/.moirai-image");
+    let p = carrier_dir().join(name).join("new/.klotho-image");
     if let Ok(text) = std::fs::read_to_string(&p) {
         return text
             .lines()
@@ -1785,7 +1785,7 @@ fn check_carrier_case(name: &str, all: &BTreeMap<String, Carrier>) {
         "{name}: the git parents"
     );
     let own = |case: &str| id32(all[case].case.line("commit-id").expect("an id"));
-    // Item 2: a native commit states its parents (its `Moirai-Parent` trailers, else each parent's `Moirai-Commit`);
+    // Item 2: a native commit states its parents (its `Klotho-Parent` trailers, else each parent's `Klotho-Commit`);
     // a foreign or checkpoint commit, and a demoted one by its foreign derivation, names the ids this store holds.
     let stated = stated_parents(&g.message);
     let want: Vec<[u8; 32]> = parent_cases
@@ -1843,7 +1843,7 @@ fn check_carrier_case(name: &str, all: &BTreeMap<String, Carrier>) {
     }
     if class == "demoted" {
         // The native reconstruction over the same item 10 gives an id other than the trailer's, so the commit is
-        // demoted ([F07 §12.5]); its id is the foreign one. A candidate whose `Moirai-Ops` is not its entry count is
+        // demoted ([F07 §12.5]); its id is the foreign one. A candidate whose `Klotho-Ops` is not its entry count is
         // demoted without hashing ([F14 §10.9], §12.1), so its rebuilt id may equal the trailer's.
         let native = crate::value::hex(&commit_id(&header(c.block("native-commit")), &digest));
         assert_eq!(
@@ -1851,7 +1851,7 @@ fn check_carrier_case(name: &str, all: &BTreeMap<String, Carrier>) {
             c.line("native-commit-id"),
             "{name}: native-commit-id"
         );
-        let ops = moirai_ops(&g.message);
+        let ops = klotho_ops(&g.message);
         let count = c.line("entry-count").expect("an entry count");
         if ops.as_deref() == Some(count) {
             assert_ne!(
@@ -1928,8 +1928,8 @@ fn case_set_mismatch(index: &str, dirs: &BTreeSet<String>) -> (Vec<String>, Vec<
 
 /// E3 on `fixtures/carrier/` (its INDEX's acceptance): the case names of its §5 table equal the case directories, and
 /// every case reproduces its item 10, `changeset_digest`, C and `commit_id`; a native case verifies against its
-/// `Moirai-Commit`; a foreign, checkpoint or demoted case's items 1–9 follow from its git commit and its parents' cases;
-/// `foreign-merge`'s item 10 is the typed merge's; a demoted case's native reconstruction fails, or its `Moirai-Ops` is
+/// `Klotho-Commit`; a foreign, checkpoint or demoted case's items 1–9 follow from its git commit and its parents' cases;
+/// `foreign-merge`'s item 10 is the typed merge's; a demoted case's native reconstruction fails, or its `Klotho-Ops` is
 /// not its entry count ([F14 §12.1]); twins share their ids and the cases `canonical` names agree.
 #[test]
 fn every_carrier_case_reproduces_its_id() {

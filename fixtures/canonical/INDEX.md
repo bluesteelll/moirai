@@ -49,7 +49,7 @@ hold bytes outside ASCII; every text inside a block is ASCII, with JSON `\u` esc
 | `merge-rows` | block | Informative: for each key the merge decided, the [RULES/merge-table] row or case that decided it (`ours-only`, `theirs-only`, `MR-009`, …); keys equal on all three sides are not listed |
 | `residue` | block | Informative, `sync` only: the keys of the stored residue (the keys whose merged value differs from what `main`'s window alone yields, [F07 §10.5], [AR §4.6]), rendered as entries |
 | `entries` | block | Informative: the entries of item 10 in their order ([F07 §10.3]), one per line, rendered as §4.1 says |
-| `digest-input` | block, hex | Normative: `lp("moirai-changeset-v1") ‖ E_1 ‖ … ‖ E_n ‖ u64(n)` ([F07 §10.4]), one comment line before each part |
+| `digest-input` | block, hex | Normative: `lp("klotho-changeset-v1") ‖ E_1 ‖ … ‖ E_n ‖ u64(n)` ([F07 §10.4]), one comment line before each part |
 | `entry-count` | line | n |
 | `changeset-digest` | line | BLAKE3-256 of the `digest-input` bytes, 64 hex digits |
 | `git-commit` | block | Foreign and checkpoint cases: the git commit the items are derived from (§4.3) |
@@ -246,7 +246,7 @@ For a foreign or import-checkpoint commit, the git data its items come from ([F0
 | `committer-time <T>` | the committer timestamp in seconds ([F06 §4.4.4]) |
 | `author-email-hex <hex>` | foreign commits: the bytes between `<` and `>` of the author line |
 | `message-hex <hex>` | a foreign commit's whole message; a checkpoint commit's message part before its trailer block (the part [F14] separates) |
-| `marker-schema-version <n>` | the `schema-version:` of the tree's `.moirai-image` marker (item 7) |
+| `marker-schema-version <n>` | the `schema-version:` of the tree's `.klotho-image` marker (item 7) |
 
 ### 4.4 `values.cases`
 
@@ -267,31 +267,31 @@ The commit cases form one history per repository; each case's `p-state` equals i
 
 | Case | File | Kind | Parents | Entries | `commit_id` (first 16 digits) |
 |---|---|---|---|---|---|
-| `root` | `commits.cases` | ordinary | — | 23 | `64930f4cffe947e9` |
-| `ordinary` | `commits.cases` | ordinary | `root` | 6 | `163e88e25904ad16` |
-| `revert` | `commits.cases` | revert | `ordinary` | 6 | `c425a75cab057fa2` |
-| `main-c3` | `commits.cases` | ordinary | `revert` | 3 | `e9e5a7d9c6589968` |
-| `lane-x-1` | `commits.cases` | ordinary | `ordinary` | 7 | `0c356fdc2d0fce91` |
-| `lane-x-2` | `commits.cases` | ordinary | `lane-x-1` | 2 | `1604505e547e1e81` |
-| `lane-z-1` | `commits.cases` | ordinary | `ordinary` | 4 | `cc912a175b764273` |
-| `cherry-pick` | `commits.cases` | cherry-pick | `main-c3` | 4 | `352fde46a717001f` |
-| `merge` | `commits.cases` | merge | `cherry-pick`, `lane-x-2` | 7 | `7a68640429984a83` |
-| `lane-y-1` | `commits.cases` | ordinary | `ordinary` | 3 | `97e3cd7aad4af5cb` |
-| `sync` | `commits.cases` | sync | `lane-y-1`, `main-c3` | 8 | `9fbedf9a38e44590` |
-| `delete` | `tombstones.cases` | ordinary | `ordinary` | 9 | `aaa574fb5321518f` |
-| `undelete` | `tombstones.cases` | revert | `delete` | 9 | `7ee5079d1979589c` |
-| `anchor-full` | `anchors.cases` | ordinary | `root` | 13 | `c2645145d5e8c99c` |
-| `anchor-hash-only` | `anchors.cases` | ordinary | `root` | 13 | `c2645145d5e8c99c` |
-| `anchor-texts-added` | `anchors.cases` | ordinary | `anchor-full` (= `anchor-hash-only`) | 1 | `7d9dab189d18bd33` |
-| `defaults-explicit` | `normalisation.cases` | ordinary | `root` | 4 | `6087a9137cdacdab` |
-| `defaults-omitted` | `normalisation.cases` | ordinary | `root` | 4 | `6087a9137cdacdab` |
-| `foreign-root` | `foreign.cases` | ordinary | — | 6 | `3bc4c8c528527f1a` |
-| `foreign-child` | `foreign.cases` | ordinary | `foreign-root` | 1 | `2f47a25478af482b` |
-| `foreign-clock-behind` | `foreign.cases` | ordinary | `foreign-root` | 1 | `b78e2e4b45ee8dd9` |
-| `foreign-merge` | `foreign.cases` | merge | `foreign-child`, `foreign-clock-behind` | 1 | `1fe97b54e2d3fe24` |
-| `checkpoint-first` | `checkpoint.cases` | checkpoint | — | 24 | `acc5b76f635def90` |
-| `checkpoint-first-sym` | `checkpoint.cases` | checkpoint | — | 24 | `acc5b76f635def90` |
-| `checkpoint-next` | `checkpoint.cases` | checkpoint | `checkpoint-first` (= `checkpoint-first-sym`) | 10 | `263c02ad1f7a2466` |
+| `root` | `commits.cases` | ordinary | — | 23 | `3a76e82c33297e93` |
+| `ordinary` | `commits.cases` | ordinary | `root` | 6 | `1d8a1ee4895447b7` |
+| `revert` | `commits.cases` | revert | `ordinary` | 6 | `6055a9e55df0eb7d` |
+| `main-c3` | `commits.cases` | ordinary | `revert` | 3 | `1fc39939d58ac95c` |
+| `lane-x-1` | `commits.cases` | ordinary | `ordinary` | 7 | `aaecb32434cf0493` |
+| `lane-x-2` | `commits.cases` | ordinary | `lane-x-1` | 2 | `a004f4e517952b0a` |
+| `lane-z-1` | `commits.cases` | ordinary | `ordinary` | 4 | `9a0c73755b87ae60` |
+| `cherry-pick` | `commits.cases` | cherry-pick | `main-c3` | 4 | `27449bab1edabcb7` |
+| `merge` | `commits.cases` | merge | `cherry-pick`, `lane-x-2` | 7 | `1f643aa2122b4649` |
+| `lane-y-1` | `commits.cases` | ordinary | `ordinary` | 3 | `c7a1cc4a1517935f` |
+| `sync` | `commits.cases` | sync | `lane-y-1`, `main-c3` | 8 | `f490ab52cfd7fb87` |
+| `delete` | `tombstones.cases` | ordinary | `ordinary` | 9 | `5979346a32f5e110` |
+| `undelete` | `tombstones.cases` | revert | `delete` | 9 | `9eed960e69d1c82c` |
+| `anchor-full` | `anchors.cases` | ordinary | `root` | 13 | `1e26cf836cda8354` |
+| `anchor-hash-only` | `anchors.cases` | ordinary | `root` | 13 | `1e26cf836cda8354` |
+| `anchor-texts-added` | `anchors.cases` | ordinary | `anchor-full` (= `anchor-hash-only`) | 1 | `1d3849763034f055` |
+| `defaults-explicit` | `normalisation.cases` | ordinary | `root` | 4 | `c557d1397882f7eb` |
+| `defaults-omitted` | `normalisation.cases` | ordinary | `root` | 4 | `c557d1397882f7eb` |
+| `foreign-root` | `foreign.cases` | ordinary | — | 6 | `067dccdf77db3413` |
+| `foreign-child` | `foreign.cases` | ordinary | `foreign-root` | 1 | `71c40e0770385870` |
+| `foreign-clock-behind` | `foreign.cases` | ordinary | `foreign-root` | 1 | `76b1197a7f3becbc` |
+| `foreign-merge` | `foreign.cases` | merge | `foreign-child`, `foreign-clock-behind` | 1 | `0227ca5ff0bdde93` |
+| `checkpoint-first` | `checkpoint.cases` | checkpoint | — | 24 | `b34cd3c4ee2bc4e2` |
+| `checkpoint-first-sym` | `checkpoint.cases` | checkpoint | — | 24 | `b34cd3c4ee2bc4e2` |
+| `checkpoint-next` | `checkpoint.cases` | checkpoint | `checkpoint-first` (= `checkpoint-first-sym`) | 10 | `8df6b58cd7a0aee8` |
 
 Three pairs share an id by design: `anchor-full`/`anchor-hash-only`, `defaults-explicit`/`defaults-omitted` and
 `checkpoint-first`/`checkpoint-first-sym`. The local history is main = `root` → `ordinary` → `revert` → `main-c3` →

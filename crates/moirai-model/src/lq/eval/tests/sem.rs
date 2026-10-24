@@ -479,7 +479,7 @@ fn the_target_set_digest_golden() {
         u.to_vec()
     };
     let d = txrun::digest(&[(1, vec![uid(0x90), uid(0x93), uid(0x95)])]);
-    assert_eq!(crate::value::hex(&d), "df505c0603f14d46b66a88d2f767999e");
+    assert_eq!(crate::value::hex(&d), "74b686da613ac4427ea38c9a8d935e0e");
 }
 
 /// `TX` semantics ([50 §3.10]): `EXPECT` (E401), `ASSERT` (E403), `DRY` with its diff and digest, `IF TARGETS`

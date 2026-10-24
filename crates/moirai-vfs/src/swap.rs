@@ -45,8 +45,8 @@ const fn pad_after(p: usize) -> usize {
 }
 
 impl SwapIntent {
-    /// The magic at offset 0: ASCII `MSWP`.
-    pub const MAGIC: [u8; 4] = *b"MSWP";
+    /// The magic at offset 0: ASCII `KSWP`.
+    pub const MAGIC: [u8; 4] = *b"KSWP";
     /// The format version at offset 4.
     pub const VERSION: u16 = 1;
     /// The fixed header's length.
@@ -175,7 +175,7 @@ mod tests {
         // P = 64 + 19 + 22 + 28 = 133, pad = 3, total = 144.
         assert_eq!(b.len(), 144);
         let want_header = concat!(
-            "4d535750",                         // magic "MSWP"
+            "4b535750",                         // magic "KSWP"
             "0100",                             // version 1
             "0000",                             // flags
             "f0debc9a78563412",                 // a_id.volume, little-endian
@@ -201,13 +201,13 @@ mod tests {
     }
 
     /// The XXH3-64 of the golden intent's first 136 bytes, little-endian.
-    const GOLDEN_SUM: &str = "5327c06623f4dd76";
+    const GOLDEN_SUM: &str = "46f5081544583f4a";
 
     #[test]
     fn the_intent_round_trips_and_rejects_every_damage() {
         let i = sample();
         let b = i.encode().unwrap();
-        assert_eq!(&b[..4], b"MSWP");
+        assert_eq!(&b[..4], b"KSWP");
         assert_eq!(b.len() % 8, 0);
         assert_eq!(u16_at(&b, 56), i.a_path.len());
         assert_eq!(&b[8..16], &0x1234_5678_9ABC_DEF0u64.to_le_bytes());

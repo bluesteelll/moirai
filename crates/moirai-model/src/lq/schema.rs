@@ -470,7 +470,7 @@ const KIND_FIELDS: [&[FieldRow]; 13] = [
         f("base_sha", T::Oid, C::Scalar, true),
         f("tip_sha", T::Oid, C::Scalar, true),
         f("target_dir", T::Path, C::Scalar, true),
-        f("moirai_branch", T::Text, C::Scalar, true),
+        f("store_branch", T::Text, C::Scalar, true),
     ],
     // area
     &[
