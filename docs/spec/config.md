@@ -401,11 +401,11 @@ and names (open point 21; pass 1, A1-39, A1-62).
 | CFG03 | `config_header_malformed` | warning | `config: <file>:<line>: malformed section header; lines <line>-<last> ignored` |
 | CFG04 | `config_unknown_key` | warning | `config: <file>:<line>: unknown key <key> ignored` |
 | CFG05 | `config_invalid_value` | warning | `config: <file>:<line>: invalid <type> for <key>; <source> value <value> used` |
-| CFG06 | `config_wrong_scope` | warning | `config: <file>:<line>: <key> is a <scope> key; ignored here` (for a user-lower key: `…; above the store value, no effect`) |
+| CFG06 | `config_wrong_scope` | warning | `config: <file>:<line>: <key> is a <scope> key; ignored here` (for a user-lower key: `config: <file>:<line>: <key> is a <scope> key; above the store value, no effect`; review pass 2, A2-14) |
 | CFG07 | `config_repeated_key` | notice | `config: <file>:<line>: <key> is set again at line <m>; the last one applies` |
 | CFG08 | `config_init_key_ignored` | warning | `config: <key> is fixed at creation (<value>); the file value is ignored` |
 | CFG09 | `config_constraint` | warning | `config: <constraint> fails; <keys> use their defaults` |
-| CFG10 | `config_retired_key` | warning | `config: <file>:<line>: <key> was removed` or `…: <key> is now <new key>` (§6.4) |
+| CFG10 | `config_retired_key` | warning | `config: <file>:<line>: <key> was removed` or `config: <file>:<line>: <key> is now <new key>` (§6.4; review pass 2, A2-14) |
 | CFG11 | `config_policy_data` | warning | `config: <file>:<line>: <name> is policy data, set by a schema write; ignored` |
 | CFG12 | `config_env_invalid` | warning | `config: <VAR>=<value> is not a valid <type>; ignored` |
 | CFG13 | `config_user_location` | warning | `config: no user configuration location (<reason>); user keys use their defaults` |
