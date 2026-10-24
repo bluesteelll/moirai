@@ -14,7 +14,7 @@ node ab000000000000000000000000000011 run
   field ended int 1790003700
   field expected_artifacts set text 7 "\"q\"" "[x]" "a, b" " lead" "plain" "tab\tin" "{brace}"
   field journal_path path abs "//build01/share/journal.log"
-  field script_path path abs "D:/work/klotho/nightly.ps1"
+  field script_path path abs "D:/work/moirai/nightly.ps1"
   field session_id text "claude:s9"
   field started int 1790000100
   field title text "M0 nightly run"

@@ -10,7 +10,7 @@ field bg_task_id: bg-3
 field ended: 1790003700
 field expected_artifacts: [{brace}, "plain", "tab\tin", "a, b", "\"q\"", "[x]", " lead"]
 field journal_path: abs://build01/share/journal.log
-field script_path: abs:D:/work/klotho/nightly.ps1
+field script_path: abs:D:/work/moirai/nightly.ps1
 field session_id: claude:s9
 field started: 1790000100
 field wf_id: wf-17
