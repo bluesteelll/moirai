@@ -132,7 +132,7 @@ the lane's previous tip first, then the main commit named in the column "Main ab
 
 Each lane has a `lane` node on `main`, created by its `c.lane-<x>-open` commit; the branch is forked from `main`'s tip
 right after that commit, so every lane contains its own lane node. Fields: `git_branch` `u/<x>`, `base_sha` the 40-hex id
-of `g0`, `moirai_branch` `lane/<x>`. No `worktree_path` artifact is registered (open point 2).
+of `g0`, `store_branch` `lane/<x>`. No `worktree_path` artifact is registered (open point 2).
 
 | #N | Handle | Title | Status on `main` at NOW (commit) |
 |---|---|---|---|
