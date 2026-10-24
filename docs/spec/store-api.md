@@ -861,7 +861,7 @@ which names the body that node holds at that revision of the resolved branch (it
 resolves operands to hashes before it builds the command.
 
 **Caller.** Owner-attested only ([RULES/role-write-policy] WT-012; [F06 §8.1] DB-3). Any other call is refused with E406,
-exit 6, before anything else is checked. No MCP tool, hook or `Apply` batch carries the command.
+exit 6, after the refusals of the resolution (§4.3) and before every check of its own. No MCP tool, hook or `Apply` batch carries the command.
 
 **Checks**, in this order, after the caller's: the arguments (`usage`); then each distinct hash (a hash named twice counts
 once), in ascending order: a hash in the store's dropped set ([F06 §8.1] DB-1) goes to `already`, before and whether or
@@ -1882,7 +1882,8 @@ diff, [AR §4.6]):
   live or deleted. This seq is store-local, and the image's `created:` line is [F14 §6.3]'s creating commit K, the least (`gen`,
   id) one among the creating commits that V's history holds ([F14 §1]'s H(c), c the commit V names); for a uid′ that a re-key
   lands ([F12 §7.6]), its creating commits are the merges or `sync`s that re-key it (W3D-SF-7; the orchestrator's ruling R-52
-  of 2026-10-13). They name the same commit when V's first-parent chain holds K. When the chain does not hold K, `created:`
+  of 2026-10-13). `created` and the image's `created:` line name the same commit when V's first-parent chain holds K.
+  When the chain does not hold K, `created:`
   names K and `created` names a commit on the chain: the merge or `sync` that brought n onto the chain (open point 21), or, when
   n also has a creating commit on the chain, that commit. A re-keyed uid′ follows the same rule, so its `created` is the
   re-keying merge or `sync` when the chain holds it;
