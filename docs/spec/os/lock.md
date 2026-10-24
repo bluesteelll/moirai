@@ -5,7 +5,7 @@
 | Title | `os::lock` — lock bytes on `LOCK`, the contract items 1–10, the in-process grant table, the lock order, bounded waits, probes and the `LOCK` identity check |
 | Status | draft, pass 1 pending |
 | Work package | WP-17a (role R-SPEC-P), part 1 of WP-17 |
-| Sources | [80 §2.1] (`os::lock` row, "Threads" rule); [80 §2.2.1] items 1–10; [80 §2.2.2] (per-OS mapping, macOS 14 floor, 64-bit only); [80 §2.2.3] (lock map and order); [80 §2.3.5] item (8); [80 §2.4.3] (which phases take which byte); [80 §2.7.2] (slots); [80 §3.1] X-F1 (lock-byte part), X-F4; [AR §2.2] T2 (G1 wait); [AR §4.1] `LOCK` row; [AR §6.1]; [AR §13] keys `lock.writer-wait-ms`, `lock.flush-wait-ms`; [60 §2.5] protocol decision (j); [90 §4.4] (slot taken lazily, 16-byte hashes); [81] M1, m5, m12; research reports [X18 §2–§6] as cited by [80]; `docs/spec/reviews/a1-P.md` A1P-06; PLAN WP-30 acceptance (grant-table property tests); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the lock-wait thread's name) |
+| Sources | [80 §2.1] (`os::lock` row, "Threads" rule); [80 §2.2.1] items 1–10; [80 §2.2.2] (per-OS mapping, macOS 14 floor, 64-bit only); [80 §2.2.3] (lock map and order); [80 §2.3.5] item (8); [80 §2.4.3] (which phases take which byte); [80 §2.7.2] (slots); [80 §3.1] X-F1 (lock-byte part), X-F4; [AR §2.2] T2 (G1 wait); [AR §4.1] `LOCK` row; [AR §6.1]; [AR §13] keys `lock.writer-wait-ms`, `lock.flush-wait-ms`; [60 §2.5] protocol decision (j); [90 §4.4] (slot taken lazily, 16-byte hashes); [81] M1, m5, m12; research reports [X18 §2–§6] as cited by [80]; `docs/spec/reviews/a1-P.md` A1P-06; PLAN WP-30 acceptance (grant-table property tests); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the lock-wait thread's name); review pass 2: `docs/spec/reviews/P-pass2.md` P2-7 (the `restore` swap in [F16] P-85's order: §6) |
 
 ---
 
@@ -386,7 +386,7 @@ The acquisition sequences of the frozen protocol ([80 §2.4.3], [F16]) all respe
 | Phase 2b (flush and publish) | wait `Flush` → wait `Writer` → release `Writer` → flush → wait `Writer` → release `Writer` → release `Flush` |
 | Boot-change recovery | wait `Flush` → wait `Writer` → release `Writer` → flush → wait `Writer` → release `Writer` → `durable+meta` on `HEAD` → release `Flush` |
 | Maintenance (checkpoint, promotion, rollup, GC) | try `Maintenance` → its durable records by phases 2a/2b → barrier: wait `Writer` for a no-op publish, release, flush `HEAD` outside it → release `Maintenance` |
-| `restore` swap | try `Maintenance` → wait `Writer` → swap → release both |
+| `restore` swap ([F16] P-85) | try `Maintenance` → wait `Writer` → durable publish of `retired` → release both → close every handle into the store → swap |
 | Session server | try `Slot(i)` (the next slot on `Busy`), lazily at the first call carrying its identity ([90 §4.4]) → held to exit |
 | `file mv`, `file rm` | try `Slot(i)` for the intent → phases 2a/2b for `FsIntent` and the commit → release the slot |
 
