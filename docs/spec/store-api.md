@@ -6,7 +6,7 @@
 | Chapter | [API], `docs/spec/store-api.md`; examples in `docs/spec/store-api/examples/*.json` |
 | Status | draft, pass 1 pending |
 | Work package | WP-25 (R-SPEC-F), [PLAN §3.2] item 2 |
-| Sources | [60 §3.1] item 2 and item 9; [60 §4.1]–[60 §4.4] (the model's role, scope, what is out of scope, how engine and model are compared); [60 §3.13] GT2, GT18; [60 §2.5] rows "Store parameters", "Derived-state semantics", "Harness-agnostic interface and pure Rust"; [AR §2.13] (T13: the `Store` API is an M0 deliverable); [AR §2.16] (T16: versioned versus runtime state); [AR §3.1]–[AR §3.6]; [AR §4.5] steps 2–11 (the three-phase write, idempotency order, markers from net ops, the printed result); [AR §4.6] "Not hashed" and "Net changeset = state diff"; [AR §5a.1]–[AR §5a.9]; [AR §5d.1]–[AR §5d.3]; [AR §6.2]–[AR §6.6]; [AR §7.1] (verbs, flags, conventions, exit codes), [AR §7.2] (MCP tools, branch resolution), [AR §7.3], [AR §7.6]; [AR §8.3] row "GT2 differential, runtime tables included"; [50 §3.1], [50 §3.8]–[50 §3.10], [50 §4.2], [50 §4.4]; [90 §4.1]–[90 §4.4], [90 §7.1]–[90 §7.2], [90 §10.1]; [40 §3.2]–[40 §3.7], [40 §8.3.2] (subset consistency); [80 §2.7.1], [80 §2.7.2]; [PLAN §3.2] WP-25 and WP-90, [PLAN §6.2] R4; the delegations of the written chapters: [F05 §8.7] and §9.6 (`Idem.result`), [F06 §4.4.7] (the payload of a verb without a `TX` block), [F06 §5.5] (`pathmove.hlc` under the injected clock), [F08 §5.4.4] (order-key generation), [F11 §8] and its open point 4, [F17 §1.5] SP-1, SP-2 and OP-17-17, [F19 §1.2], §8.2 and its open point 30, [CFG §7.6] and its open point 11, [OS/clock §1], [RULES/status-machines] open point 16 (rows CO-002, CO-003), [RULES/role-write-policy] WS-004, [RULES/pack-classes] NR-001 (the names of the digest parameter); the rules this chapter follows from chapters written after its first draft: [F12 §2.4]–§2.6 (ref-name rules and completion), §3.2 and §3.8 (commit literals and forms), §6.6 (key texts), §9 (staging); [F07 §6.3] (canonical values, defaults absent); [LQ/std §4.15] (the `diff` order) and §7.3 (procedure yields); [LQ/errors §5.7] (code-specific keys); [RULES/role-write-policy] WR-005; [RULES/delete-policy-matrix] DP-003; [OS/clock §7]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the hash-domain strings, the trailer prefix of the message rule, the branch field of the `lane` kind) |
+| Sources | [60 §3.1] item 2 and item 9; [60 §4.1]–[60 §4.4] (the model's role, scope, what is out of scope, how engine and model are compared); [60 §3.13] GT2, GT18; [60 §2.5] rows "Store parameters", "Derived-state semantics", "Harness-agnostic interface and pure Rust"; [AR §2.13] (T13: the `Store` API is an M0 deliverable); [AR §2.16] (T16: versioned versus runtime state); [AR §3.1]–[AR §3.6]; [AR §4.5] steps 2–11 (the three-phase write, idempotency order, markers from net ops, the printed result); [AR §4.6] "Not hashed" and "Net changeset = state diff"; [AR §5a.1]–[AR §5a.9]; [AR §5d.1]–[AR §5d.3]; [AR §6.2]–[AR §6.6]; [AR §7.1] (verbs, flags, conventions, exit codes), [AR §7.2] (MCP tools, branch resolution), [AR §7.3], [AR §7.6]; [AR §8.3] row "GT2 differential, runtime tables included"; [50 §3.1], [50 §3.8]–[50 §3.10], [50 §4.2], [50 §4.4]; [90 §4.1]–[90 §4.4], [90 §7.1]–[90 §7.2], [90 §10.1]; [40 §3.2]–[40 §3.7], [40 §8.3.2] (subset consistency); [80 §2.7.1], [80 §2.7.2]; [PLAN §3.2] WP-25 and WP-90, [PLAN §6.2] R4; the delegations of the written chapters: [F05 §8.7] and §9.6 (`Idem.result`), [F06 §4.4.7] (the payload of a verb without a `TX` block), [F06 §5.5] (`pathmove.hlc` under the injected clock), [F08 §5.4.4] (order-key generation), [F11 §8] and its open point 4, [F17 §1.5] SP-1, SP-2 and OP-17-17, [F19 §1.2], §8.2 and its open point 30, [CFG §7.6] and its open point 11, [OS/clock §1], [RULES/status-machines] open point 16 (rows CO-002, CO-003), [RULES/role-write-policy] WS-004, [RULES/pack-classes] NR-001 (the names of the digest parameter); the rules this chapter follows from chapters written after its first draft: [F12 §2.4]–§2.6 (ref-name rules and completion), §3.2 and §3.8 (commit literals and forms), §6.6 (key texts), §9 (staging); [F07 §6.3] (canonical values, defaults absent); [LQ/std §4.15] (the `diff` order) and §7.3 (procedure yields); [LQ/errors §5.7] (code-specific keys); [RULES/role-write-policy] WR-005; [RULES/delete-policy-matrix] DP-003; [OS/clock §7]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the hash-domain strings, the trailer prefix of the message rule, the branch field of the `lane` kind); the merge and the cut of `HARVEST` ranges (§8.5, §8.8, open point 51): the owner's rulings R-127 of 2026-10-22 (F2-Q8 (b)) and R-139 of 2026-10-23 |
 | Depends on | [F01], [F02], [F05], [F06], [F08]; cites [F03], [F04], [F07], [F11], [F12], [F13], [F14], [F16], [F17], [F18], [F19], [F20], [CFG], [OS/clock], [OS/proc], [OS/path], [LQ/envelope], [LQ/errors], [LQ/std], [LQ/canonical-ast], [LQ/json-ir], [RULES/state-definition], [RULES/status-machines], [RULES/role-write-policy], [RULES/delete-policy-matrix], [RULES/merge-table], [RULES/link-merge-rules], [RULES/pack-classes] |
 
 ## 1. Scope
@@ -821,7 +821,11 @@ streams) and through the two runtime drops below: the commits outside `gc::reach
 (E301). After its inertness move it drops the `MARKERS_OLD` rows whose `hlc` is older than the run's reflog window
 ([F11 §7] "Retention"), then the
 `REFS` rows of expired deleted refs with their entries in the other refs' absorbed vectors ([F11 §3.8]); both drops are
-visible in the runtime snapshot (§15.7 `markers`, `refs`, `absorbed`). A deleted ref's row expires only at a `gc` run and
+visible in the runtime snapshot (§15.7 `markers`, `refs`, `absorbed`). After the run's move drop ([F12 §3.5]), its
+checkpoint fold also merges the adjacent `HARVEST` ranges of a row whose commits are both fixed on `main` ([F11 §13.5],
+§8.8): the merge moves no byte between harvested and not harvested, and it is visible through §15.7's `harvest` member
+from M9–M10, when the runtime snapshot gains it (§8.8; the owner's ruling R-139 of 2026-10-23; review pass 2, P2-11). A
+deleted ref's row expires only at a `gc` run and
 only under [F11 §3.8]'s three conditions (its deleting move older than the reflog window, no marker naming it as origin
 ref, [RULES/state-definition] VR-006, no idempotency entry bound to it in its window), read after the run's own inertness
 move and retention, so neither drop depends on fold timing (spec sync 2b). It also drops expired `IDEM` entries, trash
@@ -909,33 +913,50 @@ file, which byte ranges are done, so a batch run that stops at any point resumes
 | `path` | the file's absolute path when last reported; informative only, machine-local |
 | `head` | BLAKE3-128 of the file's first min(4,096, `seen`) bytes, 32 lower-case hex digits, as the pipeline computed it; it tells a rewritten file from a grown one |
 | `seen` | the file's size in bytes when last reported |
-| `ranges` | the harvested ranges in the order they were added, each `{start, end, commit}`: the half-open byte range [start, end) and the commit of the `Apply` that harvested it |
+| `ranges` | the harvested ranges in the order they were added, a merged range at the place of its first member, each `{start, end, commit}`: the half-open byte range [start, end) and the commit of the `Apply` that harvested it; for a range a `gc` run merged, the commit of its member with the greatest `commit_lsn`, which after a forget cuts the range may have harvested none of the bytes left ([F11 §13.5]) |
 
 The table is not versioned and is no part of `state(ref)`; the image never exports it ([F14]); `backup`, `restore` and
 `repair --rebuild-from-log` keep it as they keep every runtime table. A range is **live** while its commit is reachable
 from a live ref. A range whose commit no live ref reaches any more (its branch deleted, an `undo` past it) is **lost**:
 the records it produced are gone with that commit, so its bytes count as not harvested, and `std.unharvested` lists the
-transcript until a live range covers those bytes again or `HarvestForget` clears the range ([LQ/std §2.16], §4.25).
+transcript until a live range covers those bytes again or `HarvestForget` clears the range ([LQ/std §2.16], §4.25). A
+merged range is live or lost with its members, which share one commit (a batch's merge) or are fixed on `main` (a `gc`
+run's merge), and a cut range keeps its commit, so a range never reads live while a byte in it was harvested by a commit
+that no live ref reaches, nor lost while a byte in it was harvested by a commit that a live ref reaches ([F11 §13.5]
+"Liveness of a merged range"; review pass 2, P2-11).
 
-**Which verb advances it.** Only `Apply` (§9.4), for a result entry whose `harvest` member names a range: the range is
-added by a `Harvest` record in the batch's own group, after its commit, so the records harvested from the range and the
-range become durable together or not at all ([F05 §4.7]). A refused batch adds nothing, and a replayed one (§7.5) adds
-nothing again. A range that overlaps a live range of its row, or another range of the same batch, refuses the whole
-batch with `harvest_overlap` (exit 6), so a batch planned from a stale cursor cannot land twice even under a new
-idempotency key.
+**Which verb advances it.** Only `Apply` (§9.4) adds a range, for a result entry whose `harvest` member names one: the
+range is added by a `Harvest` record in the batch's own group, after its commit, so the records harvested from the
+range and the range become durable together or not at all ([F05 §4.7]). A refused batch adds nothing, and a replayed
+one (§7.5) adds nothing again. The ranges one batch adds to a row merge when **adjacent**, the `end` of one being the
+`start` of the other, at that batch's harvest, and a `gc` run's checkpoint fold merges the adjacent ranges of a row whose
+commits are both fixed on `main` (§8.5); a merged range covers exactly its members' bytes and stands at its first
+member's place, and which commit it keeps is [F11 §13.5]'s (the owner's rulings R-127 of 2026-10-22, F2-Q8 (b), and
+R-139 of 2026-10-23; review pass 2, P2-11). A range that overlaps a live range of its row, or another range of the same
+batch, refuses the whole batch with `harvest_overlap` (exit 6), so a batch planned from a stale cursor cannot land
+twice even under a new idempotency key. The rule holds at the `Apply` that adds a range, not across later ref
+operations: an `undo` that returns a ref to a commit it had left, or an `op restore` that brings back a deleted ref, can
+make a lost range live again beside a later range over the same bytes ([F11 §13.5] "Rules").
 
 **`HarvestMark`** registers a transcript, or reports its growth, before it is harvested, so that the work list holds it.
 Arguments `source`, `path`, `head`, `seen` (each required). It creates the row with no ranges, or updates `path`, `head`
 and `seen`; one `Harvest` record in a group of its own, and nothing when no member changes. Refusals: a member out of its
 form, `usage` (exit 2); `head` different from the row's while the row has a live range, or `seen` below the end of a
-live range, `harvest_changed` (exit 6): the file was rewritten or truncated, and the pipeline forgets it before
-harvesting it again. **Result.** Family W, `branch` null; `data` = `{"source":…,"seen":<int>,"next":<int>}`, `next`
+live range (a merged range's `end` is its last member's, a cut range's the `from` that cut it, [F11 §13.5]),
+`harvest_changed` (exit 6): the file was rewritten or truncated, and the pipeline forgets it before harvesting it again,
+wholly when `head` differs and from `from` = `seen` when only `seen` is below that end (`HarvestForget` below; review
+pass 2, P2-11). **Result.** Family W, `branch` null; `data` = `{"source":…,"seen":<int>,"next":<int>}`, `next`
 being `harvest()`'s ([LQ/std §2.16]).
 
 **`HarvestForget`** rewinds a transcript. Arguments `source` (required) and `from` (int, default 0). It removes every
-range whose `start` is at least `from`, and with `from` 0 the row itself; one `Harvest` record, nothing when there is
-nothing to remove. Refusals: `not_found` (`what` = `transcript`, exit 3) for an unknown `source`. **Result.** Family W,
-`branch` null; `data` = `{"source":…,"removed":<int>}`.
+range whose `start` is at least `from`, cuts a range with `start` < `from` < `end` to [`start`, `from`), which keeps its
+`commit` and its place, and with `from` 0 removes the row itself ([F11 §13.5]; the owner's ruling R-139 of 2026-10-23
+and the orchestrator's ruling R-142 of 2026-10-23; review pass 2, P2-11). A range cut at `from` counts in `removed`, as
+does a range removed whole (the orchestrator's ruling R-157 of 2026-10-24). It writes one `Harvest` record, and nothing
+when there is nothing to remove: `from` is above 0 and no range holds `from` or starts after it (the orchestrator's
+ruling R-159 of 2026-10-24). Refusals: `not_found` (`what` = `transcript`, exit 3) for an unknown `source`.
+**Result.** Family W, `branch` null; `data` = `{"source":…,"removed":<int>}`, `removed` being the count of ranges
+removed or cut.
 
 Both are CLI-only verbs of the orchestrator and the owner: `moirai harvest mark <source> --path P --bytes N --head H` and
 `moirai harvest forget <source> [--from B]` (the role rows are [RULES/role-write-policy]'s); no MCP tool or hook carries
@@ -2478,9 +2499,12 @@ point 29).
     harvest cursor (§8.8) is store-local runtime state rather than versioned data: a transcript is a file of one machine,
     its path means nothing in another clone or in the image, and a range must become durable in the same group as the
     batch that harvested it, which a runtime record in that group gives without a new node kind and its rule rows.
-    Branch operations do not move it; a range whose batch commit no live ref reaches is "lost" and listed again, so a
-    deleted lane never leaves bytes marked done whose records are gone. Only `Apply` advances it, and an overlap refuses
-    the batch, so neither a resumed run nor a retry under a new key harvests a range twice. The curation contract is the
+    Branch operations do not move it: a range whose batch commit no live ref reaches is "lost" and listed again, so a
+    deleted lane never leaves bytes marked done whose records are gone, and a `gc` run's merge of adjacent ranges whose
+    commits are fixed on `main` changes how the ranges are stored, never which bytes are done (§8.5, §8.8). Only `Apply`
+    advances it, by adding a range, and an overlap refuses the batch at that `Apply`, so neither a resumed run nor a
+    retry under a new key harvests a range twice; `HarvestForget` rewinds it, cutting the range that holds its `from`
+    (§8.8; review pass 2, P2-11). The curation contract is the
     bundle (§14.6), `result.v1`'s `curation` member and `Apply` (§9.4); capture and harvest results use `proposals`,
     which GR-019 creates `proposed`, as owner decision #46 requires of pipeline output. `proposals` admits rules and
     decisions only: a note has no `proposed` status ([F08 §9.5]), the format question that [RULES/status-machines] open
