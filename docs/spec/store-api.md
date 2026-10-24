@@ -1014,7 +1014,7 @@ idempotency.
 | a `PATCH` whose removed text is empty or does not occur exactly once in the current body (§9.2; spec sync 3) | E404, its `PATCH` case ([LQ/errors §5.5]) | 6 |
 | an invariant of [F13 §3] or a deferred validator (I2, I4, I5′, I6, I7, I11, `QueryInvalid`, `QueryCycle`) | E405 | 6 |
 | a second live holder of an (root, exact path) key (I-F1) | `path_claimed` | 6 |
-| a restricted delete; a live lease without `release` (I32′); a `replaced_by` that is not live, lies in the deleted set or does not fit a re-pointed edge ([RULES/delete-policy-matrix] DP-005 to DP-007; each case's text is [LQ/errors §5.5]'s) | E409 | 6 |
+| a restricted delete; the delete of a root node ([F08 §11.3]; [RULES/delete-policy-matrix] DP-010; review pass 2, S2-9); a live lease without `release` (I32′); a `replaced_by` that is not live, lies in the deleted set or does not fit a re-pointed edge ([RULES/delete-policy-matrix] DP-005 to DP-007; each case's text is [LQ/errors §5.5]'s) | E409 | 6 |
 | `UNLESS EXISTS` matching more than one node | E410 | 6 |
 | a free-form block under the `unknown` model profile, by a caller with a session identity (CX-4) or with `ctx.door` = `mcp` ([90 §8.1] L2; [RULES/role-write-policy] WR-012 as scoped by spec sync 2b, so example 02's CLI block without a session is not refused) | E411 | 6 |
 | a read-only view (§4.3 row 7) | E305 | 6 |
@@ -1503,7 +1503,7 @@ exit 2); a `commit` that names nothing: E301, exit 3. **Result.** `branch` = the
 |---|---|---|---|
 | `src` | ref | required | the source ref |
 | `into` | ref | the resolved branch | the destination |
-| `policy` | `delete-wins` or `resurrect` | the kinds' existence policies ([F08 §9.1]) | `--policy` ([AR §5a.7]) |
+| `policy` | `delete-wins` or `resurrect` | per kind, `merge.policy.<kind>` ([CFG §10.13]; [RULES/merge-table] `auto-policy`) and the kind's existence policy ([F08 §9.1]) (review pass 2, S2-1) | `--policy` ([AR §5a.7]) |
 | `strict` | bool | `merge.strict` ([CFG]) | conflicts stage too |
 | `base` | commit | none | `--base` overrides the LCA |
 | `message` | string | `""` | the merge commit's message |
