@@ -6,7 +6,7 @@
 | Status | draft, pass 1 pending |
 | Work package | WP-17b (role R-SPEC-P), part 2 of WP-17 ([PLAN §3.2] item 1) |
 | Files of part 2 | `proc.md` (this file), `clock.md`, `mem.md`, `project.md`, `path.md`, `shell.md`, `mapping-appendix.md` |
-| Sources | [80 §1] X5, X6, X9; [80 §2.1] (`os::proc` row); [80 §2.2.3] (slot bytes); [80 §2.7.1] (`ProcId`, `boot_id`, `pidns`, boot clock, `alive`, the boot-identity rule, Unknown-boot mode, the private-API position); [80 §2.7.2] (lock-anchored liveness, the anchor table, "How it works", the MCP server lifetime); [80 §2.9] (child peak); [80 §3.1] X-F1, X-F2; [80 §8.1] M2, M3, m13; [80 §8.7] (the X-F2 amendment); [90 §4.1] (session row), [90 §4.4] (slots per harness, the frozen amendment), [90 §10.1] row "Holder anchor (X-F2)"; [AR §4.2] (`boot_id`, boot check), [AR §6.2] (holder liveness); [AR §8.2] item 22; [60 §2.5] rows `HEAD` (audits), `LOCK`, "Cross-platform", fault-model item (7); [60 §5.2] item 22; for §11–§13: [80 §2.6] (no `gc` child from a foreign PID namespace), [80 §2.8] (IPC endpoint), [80 §2.12] rows "Detached `moirai gc --rollup` child", "Bulk passes", [AR §4.9], [AR §8.2] (GT4 variants), [60 §3.5] M4 gate (the one product spawn), [60 §3.13] GT4; [F01 §3.2, §6.3, §7] (OS tags, `lp()`, hash framing); [F15] FM-7.4; [X18 §8.1] (research input only); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the domain prefix, the boot-identity and IPC domain strings, and the IPC endpoints) |
+| Sources | [80 §1] X5, X6, X9; [80 §2.1] (`os::proc` row); [80 §2.2.3] (slot bytes); [80 §2.7.1] (`ProcId`, `boot_id`, `pidns`, boot clock, `alive`, the boot-identity rule, Unknown-boot mode, the private-API position); [80 §2.7.2] (lock-anchored liveness, the anchor table, "How it works", the MCP server lifetime); [80 §2.9] (child peak); [80 §3.1] X-F1, X-F2; [80 §8.1] M2, M3, m13; [80 §8.7] (the X-F2 amendment); [90 §4.1] (session row), [90 §4.4] (slots per harness, the frozen amendment), [90 §10.1] row "Holder anchor (X-F2)"; [AR §4.2] (`boot_id`, boot check), [AR §6.2] (holder liveness); [AR §8.2] item 22; [60 §2.5] rows `HEAD` (audits), `LOCK`, "Cross-platform", fault-model item (7); [60 §5.2] item 22; for §11–§13: [80 §2.6] (no `gc` child from a foreign PID namespace), [80 §2.8] (IPC endpoint), [80 §2.12] rows "Detached `moirai gc --rollup` child", "Bulk passes", [AR §4.9], [AR §8.2] (GT4 variants), [60 §3.5] M4 gate (the one product spawn), [60 §3.13] GT4; [F01 §3.2, §6.3, §7] (OS tags, `lp()`, hash framing); [F15] FM-7.4; [X18 §8.1] (research input only); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the domain prefix, the boot-identity and IPC domain strings, and the IPC endpoints); review pass 2: `docs/spec/reviews/P-pass2.md` P2-2, with the owner's ruling R-127 of 2026-10-22 (a stalled maintenance job: §11) |
 | Reconciled with | [OS/README] (§3 `os::proc` row, §4.1 `Vfs`, §4.3 `Meter`, §4.4 `Clock`, §5.1 rule 3) |
 
 Citation forms: `[OS/<file> §x]` for `docs/spec/os/`, `[Fnn]` for format chapters (cited by chapter only; their section
@@ -438,7 +438,10 @@ passes").
 
 Lowered priority makes a long maintenance job slower exactly when the machine is busy. It never lengthens the tail: the
 job keeps the maintenance byte and runs the yield checkpoints of [F16] P-98 at its step boundaries, so the bound of
-[F17 §5.2] holds whatever its priority (pass 1, P1-9).
+[F17 §5.2] holds whatever its priority (pass 1, P1-9). That holds while the job runs its steps: a job that stops
+between two boundaries (a pause, [F15] FM-6.1, or a death whose byte stays held, FM-8.1) suspends the bound for as long
+as its byte stays held, and a process that finds the byte busy while C1 of [F17 §5.2] holds reports the stall past
+`maintenance.stall-after` from the job's holder record (`MaintDiag`, [F03 §13]; review pass 2, P2-2).
 
 ## 12. `os::ipc`: the leader's endpoint (built only if the leader is)
 
