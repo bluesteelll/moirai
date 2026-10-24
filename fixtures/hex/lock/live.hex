@@ -25,7 +25,7 @@ wd:
     {u16 0}                                 # _reserved
     {u32 5120}                              # pid
     {u64 0x18d75b9b6c69e800}                # start (ns)
-    {u64 0x55d85aec48fe1c93}                # boot_hash
+    {u64 0x11664ea5e49d74e1}                # boot_hash
     {u64 0}                                 # pidns
   0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash (primary)
   {u16 2}                                   # cmd: fstr<400> length
@@ -45,7 +45,7 @@ lr:
     {u16 0}                                 # _reserved
     {u32 3000}                              # pid
     {u64 0x18d75b8fc82e7400}                # start (ns)
-    {u64 0x55d85aec48fe1c93}                # boot_hash
+    {u64 0x11664ea5e49d74e1}                # boot_hash
     {u64 0}                                 # pidns
   {u16 1}                                   # proto
   01                                        # endpoint_kind 1 (named pipe)
@@ -74,7 +74,7 @@ slot1:
     {u16 0}                                 # _reserved
     {u32 901}                               # pid
     {u64 0x18d75b9953f8ce00}                # start (ns)
-    {u64 0x10aa7fac9868f117}                # boot_hash
+    {u64 0x51f5e6210f97a53f}                # boot_hash
     {u64 0}                                 # pidns
   # parent: ParentRec (16 B, [F03 §5.2])
   {u32 0}                                   # parent.pid
@@ -101,7 +101,7 @@ slot14:
     {u16 0}                                 # _reserved
     {u32 6001}                              # pid
     {u64 0x18d75b921c3a5800}                # start (ns)
-    {u64 0x55d85aec48fe1c93}                # boot_hash
+    {u64 0x11664ea5e49d74e1}                # boot_hash
     {u64 0}                                 # pidns
   # parent: ParentRec (16 B, [F03 §5.2])
   {u32 6000}                                # parent.pid
@@ -128,7 +128,7 @@ slot66:
     {u16 0}                                 # _reserved
     {u32 8003}                              # pid
     {u64 0x18d75b96c4522000}                # start (ns)
-    {u64 0x55d85aec48fe1c93}                # boot_hash
+    {u64 0x11664ea5e49d74e1}                # boot_hash
     {u64 0}                                 # pidns
   # parent: ParentRec (16 B, [F03 §5.2])
   {u32 6001}                                # parent.pid
@@ -155,7 +155,7 @@ slot107:
     {u16 0}                                 # _reserved
     {u32 4101}                              # pid
     {u64 0x1cbe991a08}                      # start (ns)
-    {u64 0x886e092df8727a9b}                # boot_hash
+    {u64 0x0c024aa57c2c0005}                # boot_hash
     {u64 0xeffffffc}                        # pidns
   # parent: ParentRec (16 B, [F03 §5.2])
   {u32 4100}                                # parent.pid
@@ -182,7 +182,7 @@ slot200:
     {u16 0}                                 # _reserved
     {u32 9009}                              # pid
     {u64 0x18d75b88cc0ac800}                # start (ns)
-    {u64 0x55d85aec48fe1c93}                # boot_hash
+    {u64 0x11664ea5e49d74e1}                # boot_hash
     {u64 0}                                 # pidns
   # parent: ParentRec (16 B, [F03 §5.2])
   {u32 9000}                                # parent.pid
@@ -190,7 +190,7 @@ slot200:
   {u64 0}                                   # parent.start
   {u64 0x1a0c450ba200000}                   # acquired_hlc
   00*16                                     # _reserved2
-  {xxh3_64 01010107c80000000600dec006005a5a5637eb371c46a5b31cbab1a59fd6fe3d00000000000000000000000000000000010500003123000000c80acc885bd718 931cfe48ec5ad855000000000000000028230000000000000000000000000000000020ba50c4a00100000000000000000000000000000000}  # xxh3 of the record as another write left it (a different nonce): does not match these bytes
+  {xxh3_64 01010107c80000000600dec006005a5a5637eb371c46a5b31cbab1a59fd6fe3d00000000000000000000000000000000010500003123000000c80acc885bd718 e1749de4a54e6611000000000000000028230000000000000000000000000000000020ba50c4a00100000000000000000000000000000000}  # xxh3 of the record as another write left it (a different nonce): does not match these bytes
 {pad_to 33792}                              # slot records before slot 232: zero (free)
 # SlotRec[232] at offset 33792: Codex server, kind 1, harness 2 (taken at its first _meta.threadId), alias zero ([F03 §8.1])
 slot232:
@@ -209,7 +209,7 @@ slot232:
     {u16 0}                                 # _reserved
     {u32 7002}                              # pid
     {u64 0x18d75b9470463c00}                # start (ns)
-    {u64 0x55d85aec48fe1c93}                # boot_hash
+    {u64 0x11664ea5e49d74e1}                # boot_hash
     {u64 0}                                 # pidns
   # parent: ParentRec (16 B, [F03 §5.2])
   {u32 7000}                                # parent.pid

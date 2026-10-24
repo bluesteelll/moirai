@@ -11,7 +11,7 @@
 # heading with a Markdown scope (a numbered heading: qual holds the stripped numbering)
 # anchor record ([F08 §10.3]): kind `heading`
   {u16 2}                                   # aflags: has_pred=0, has_scope=1, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=0
-  d0 61 76 61 a4 0c 77 63 1e b9 3c 0c 5e 26 6e df  # uid (the edge's discriminator)
+  b1 67 e3 3a 1a cb f6 95 fc e2 e3 4e dd 8a 10 bc  # uid (the edge's discriminator)
   02                                        # kind 2 heading
   01                                        # mode `live`
   01                                        # watch `header`
@@ -46,7 +46,7 @@
 # symbol with a Rust scope: an `impl` with its trait in qual, then the `fn`
 # anchor record ([F08 §10.3]): kind `symbol`
   {u16 10}                                  # aflags: has_pred=0, has_scope=1, has_occurrence=0, has_git=1, has_marker=0, text_unavailable=0
-  0d 7c 97 4f 36 3a 09 11 55 29 16 ab fd 60 ba 56  # uid (the edge's discriminator)
+  c9 54 98 73 44 25 73 0a b0 a8 e5 64 a2 66 d2 5c  # uid (the edge's discriminator)
   03                                        # kind 3 symbol
   02                                        # mode `pinned`
   01                                        # watch `header`
@@ -88,7 +88,7 @@
 # hash-only quote (text_unavailable): digests instead of the quote, prefix and suffix
 # anchor record ([F08 §10.3]): kind `quote`, text-unavailable
   {u16 32}                                  # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=1
-  f5 85 1f 67 7a 83 ac 6e b7 54 bf df 29 bf b5 ac  # uid (the edge's discriminator)
+  4b 23 fc 75 db 54 2f 91 ee b9 4d 41 90 c6 5c 2f  # uid (the edge's discriminator)
   04                                        # kind 4 quote
   01                                        # mode `live`
   02                                        # watch `span`
@@ -109,7 +109,7 @@
 # hash-only range (text_unavailable): end_h too ([40] R-10, review S-04)
 # anchor record ([F08 §10.3]): kind `range`, text-unavailable
   {u16 32}                                  # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=1
-  0d 4f 49 dc 57 41 f8 0e 58 4e 39 53 86 4a bb a8  # uid (the edge's discriminator)
+  d0 1f e9 a6 d7 18 40 b7 90 5e a2 01 2c 65 fd 0b  # uid (the edge's discriminator)
   05                                        # kind 5 range
   01                                        # mode `live`
   02                                        # watch `span`
@@ -131,7 +131,7 @@
 # quote with a predecessor term (has_pred) and an occurrence index (has_occurrence)
 # anchor record ([F08 §10.3]): kind `quote`
   {u16 5}                                   # aflags: has_pred=1, has_scope=0, has_occurrence=1, has_git=0, has_marker=0, text_unavailable=0
-  d6 4d 9f 57 fe 51 17 c9 12 44 88 d4 e1 db 43 43  # uid (the edge's discriminator)
+  66 57 71 db 69 6b a1 a4 b8 c0 10 75 d7 81 d5 3a  # uid (the edge's discriminator)
   04                                        # kind 4 quote
   01                                        # mode `live`
   02                                        # watch `span`
@@ -161,7 +161,7 @@
 # file anchor of a planned target (`link --planned`): blob algo `none`, the single byte 00
 # anchor record ([F08 §10.3]): kind `file`
   {u16 0}                                   # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=0
-  04 ed 8a a7 31 3e 78 f2 20 56 00 dc 54 e9 f6 52  # uid (the edge's discriminator)
+  d0 66 b8 3c 15 d2 d8 38 06 42 73 7d c9 7b 5d 72  # uid (the edge's discriminator)
   01                                        # kind 1 file
   01                                        # mode `live`
   01                                        # watch `header`

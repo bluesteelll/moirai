@@ -178,7 +178,7 @@ g3.r1.p:
       {u16 0}                               # _reserved
       {u32 3300}                            # pid
       {u64 0x11ed8ec200}                    # start (ns)
-      {u64 0x886e092df8727a9b}              # boot_hash
+      {u64 0x0c024aa57c2c0005}              # boot_hash
       {u64 0xeffffffc}                      # pidns
     00                                      # lflags (bit 0 session_role)
 g3.r1.pl:
@@ -249,7 +249,7 @@ g5.r1.p:
     {u32 3}                                 # segments[0].file_no
     02                                      # segments[0].kind (delta)
     {u64 126270}                            # segments[0].upto_lsn
-    a3 c3 5d 4f e9 73 ab 0d 49 be c4 50 35 ec 18 40  # segments[0].blake3_16
+    24 3c f5 c4 ef 53 06 e0 c2 00 6d 47 97 97 2b f2  # segments[0].blake3_16
     {uvar 0}                                # window_start
     {uvar 2}                                # n_refs
     {uvar 0}                                # RefList.ref_id

@@ -1015,23 +1015,23 @@ s_0007:
     3d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
     {u32 6}                                 # id
   # row 6
-    5b d0 e2 9e 6a fc 4a 73 55 7e 4c bd f7 d3 4c 33  # uid
-    {u32 4}                                 # id
+    58 bf 5c af 4b 56 33 88 04 2b 46 cd 27 db a3 da  # uid
+    {u32 5}                                 # id
   # row 7
     5d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
     {u32 8}                                 # id
   # row 8
+    72 13 54 ad 0f 36 71 38 74 6b f0 42 90 56 d7 72  # uid
+    {u32 4}                                 # id
+  # row 9
     7e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
     {u32 10}                                # id
-  # row 9
+  # row 10
     a0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
     {u32 3}                                 # id
-  # row 10
+  # row 11
     f1 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
     {u32 9}                                 # id
-  # row 11
-    ff 62 a2 c7 18 c5 2f aa fc 10 8c f0 e9 45 64 2e  # uid
-    {u32 5}                                 # id
 s_0007.e:
 {align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
 
@@ -1647,12 +1647,12 @@ s_0082:
     {uvar 201}                              # rec: length
     # rec ([F08 §10.3]): kind `range`
       {u16 16}                              # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=1, text_unavailable=0
-      45 1c 99 96 0d 7d 07 05 e2 e5 82 04 dc 59 7f 09  # uid (the edge's discriminator)
+      09 67 1d f7 61 34 86 2a 76 44 c1 c0 51 e1 85 dc  # uid (the edge's discriminator)
       05                                    # kind 5 range
       01                                    # mode `live`
       02                                    # watch `span`
       {u16 1}                               # resolver version
-      ae 12 46 9f 9f d6 46 a9 20 ae ad 70 87 45 96 ad  # captured
+      41 49 a9 4a 03 c4 30 61 dc b4 be 50 72 89 09 92  # captured
       {u32 6}                               # hint_first
       {u32 8}                               # hint_last
       {uvar 11}                             # quote: length 11
@@ -1677,12 +1677,12 @@ s_0082:
     {uvar 173}                              # rec: length
     # rec ([F08 §10.3]): kind `quote`
       {u16 8}                               # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=1, has_marker=0, text_unavailable=0
-      97 51 bb a1 49 34 b0 70 bf 96 54 55 e0 0c d1 7f  # uid (the edge's discriminator)
+      20 18 1b 65 78 a1 1c 10 34 86 13 b2 63 19 bb 8b  # uid (the edge's discriminator)
       04                                    # kind 4 quote
       01                                    # mode `live`
       02                                    # watch `span`
       {u16 1}                               # resolver version
-      5d f7 47 84 41 e0 b5 80 1d 11 4d 7a 39 c0 98 b6  # captured
+      f3 12 2f 33 f9 5e f5 cb c6 4d 59 5f 83 ad 27 56  # captured
       {u32 4}                               # hint_first
       {u32 4}                               # hint_last
       {uvar 41}                             # quote: length 41
@@ -1706,7 +1706,7 @@ s_0082:
     {uvar 60}                               # rec: length
     # rec ([F08 §10.3]): kind `file`
       {u16 0}                               # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=0
-      46 5a e2 d2 07 5d 7f dd c8 29 fd 65 8f 3b c4 1e  # uid (the edge's discriminator)
+      5f 4c a6 8f 97 11 9f e0 12 84 83 12 d2 57 99 11  # uid (the edge's discriminator)
       01                                    # kind 1 file
       02                                    # mode `pinned`
       01                                    # watch `header`
@@ -1722,7 +1722,7 @@ s_0082:
     {uvar 108}                              # rec: length
     # rec ([F08 §10.3]): kind `lines`
       {u16 8}                               # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=1, has_marker=0, text_unavailable=0
-      a5 13 d4 de 36 9f 37 e1 e1 a7 af 0e 19 f3 cb 22  # uid (the edge's discriminator)
+      f4 ae 47 73 6e 1a b2 6b d4 66 07 eb 0a 6c 22 13  # uid (the edge's discriminator)
       06                                    # kind 6 lines
       01                                    # mode `live`
       02                                    # watch `span`
@@ -1747,22 +1747,22 @@ s_0083:
   {u32 4}                                   # n
   {u32 28}                                  # row_w
   # row 0
-    45 1c 99 96 0d 7d 07 05 e2 e5 82 04 dc 59 7f 09  # uid
+    09 67 1d f7 61 34 86 2a 76 44 c1 c0 51 e1 85 dc  # uid
     {u32 2}                                 # src
     {u32 5}                                 # dst
     {u32 1}                                 # anchor
   # row 1
-    46 5a e2 d2 07 5d 7f dd c8 29 fd 65 8f 3b c4 1e  # uid
-    {u32 7}                                 # src
-    {u32 5}                                 # dst
-    {u32 3}                                 # anchor
-  # row 2
-    97 51 bb a1 49 34 b0 70 bf 96 54 55 e0 0c d1 7f  # uid
+    20 18 1b 65 78 a1 1c 10 34 86 13 b2 63 19 bb 8b  # uid
     {u32 2}                                 # src
     {u32 5}                                 # dst
     {u32 2}                                 # anchor
+  # row 2
+    5f 4c a6 8f 97 11 9f e0 12 84 83 12 d2 57 99 11  # uid
+    {u32 7}                                 # src
+    {u32 5}                                 # dst
+    {u32 3}                                 # anchor
   # row 3
-    a5 13 d4 de 36 9f 37 e1 e1 a7 af 0e 19 f3 cb 22  # uid
+    f4 ae 47 73 6e 1a b2 6b d4 66 07 eb 0a 6c 22 13  # uid
     {u32 7}                                 # src
     {u32 5}                                 # dst
     {u32 4}                                 # anchor
@@ -2634,7 +2634,7 @@ s_0207:
     {uvar 2}                                # holder `dev#2`
     # expires: Stamp (24 B, [OS/clock §3.1])
       {u64 0x1a0c45e75c0}                   # wall (ms)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0x55db3677800}                   # mono (boot ns)
     {uvar 900000}                           # ttl_ms
     {uvar 0}                                # run
@@ -2667,11 +2667,11 @@ s_0208:
     {u32 0}                                 # ref_id
     {u32 1}                                 # create_seq
   # row 3
-    5b d0 e2 9e 6a fc 4a 73 55 7e 4c bd f7 d3 4c 33  # uid
+    72 13 54 ad 0f 36 71 38 74 6b f0 42 90 56 d7 72  # uid
     {u32 0}                                 # ref_id
     {u32 1}                                 # create_seq
   # row 4
-    ff 62 a2 c7 18 c5 2f aa fc 10 8c f0 e9 45 64 2e  # uid
+    58 bf 5c af 4b 56 33 88 04 2b 46 cd 27 db a3 da  # uid
     {u32 0}                                 # ref_id
     {u32 1}                                 # create_seq
   # row 5
@@ -2735,23 +2735,23 @@ s_0209:
     3d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
     {u32 6}                                 # n
   # row 6
-    5b d0 e2 9e 6a fc 4a 73 55 7e 4c bd f7 d3 4c 33  # uid
-    {u32 4}                                 # n
+    58 bf 5c af 4b 56 33 88 04 2b 46 cd 27 db a3 da  # uid
+    {u32 5}                                 # n
   # row 7
     5d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
     {u32 8}                                 # n
   # row 8
+    72 13 54 ad 0f 36 71 38 74 6b f0 42 90 56 d7 72  # uid
+    {u32 4}                                 # n
+  # row 9
     7e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
     {u32 10}                                # n
-  # row 9
+  # row 10
     a0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
     {u32 3}                                 # n
-  # row 10
+  # row 11
     f1 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
     {u32 9}                                 # n
-  # row 11
-    ff 62 a2 c7 18 c5 2f aa fc 10 8c f0 e9 45 64 2e  # uid
-    {u32 5}                                 # n
 s_0209.e:
 {align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
 

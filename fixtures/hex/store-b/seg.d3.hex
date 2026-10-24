@@ -1109,7 +1109,7 @@ s_0204:
       {u16 0}                               # _reserved
       {u32 3300}                            # pid
       {u64 0x11ed8ec200}                    # start (ns)
-      {u64 0x886e092df8727a9b}              # boot_hash
+      {u64 0x0c024aa57c2c0005}              # boot_hash
       {u64 0xeffffffc}                      # pidns
     {u32 0}                                 # files_owned: HeapRef.off
     {u32 7}                                 # files_owned: HeapRef.len

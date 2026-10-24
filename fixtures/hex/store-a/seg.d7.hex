@@ -526,7 +526,7 @@ s_0007:
     3b 00 00 00 00 00 00 00 00 00 00 00 00 00 00 16  # uid
     {u32 16}                                # id
   # row 2
-    ff 62 a2 c7 18 c5 2f aa fc 10 8c f0 e9 45 64 2e  # uid
+    58 bf 5c af 4b 56 33 88 04 2b 46 cd 27 db a3 da  # uid
     {u32 5}                                 # id
 s_0007.e:
 {align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
@@ -980,7 +980,7 @@ s_0082:
     {uvar 60}                               # rec: length
     # rec ([F08 §10.3]): kind `file`
       {u16 0}                               # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=0
-      46 5a e2 d2 07 5d 7f dd c8 29 fd 65 8f 3b c4 1e  # uid (the edge's discriminator)
+      5f 4c a6 8f 97 11 9f e0 12 84 83 12 d2 57 99 11  # uid (the edge's discriminator)
       01                                    # kind 1 file
       02                                    # mode `pinned`
       01                                    # watch `header`
@@ -996,7 +996,7 @@ s_0082:
     {uvar 108}                              # rec: length
     # rec ([F08 §10.3]): kind `lines`
       {u16 8}                               # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=1, has_marker=0, text_unavailable=0
-      a5 13 d4 de 36 9f 37 e1 e1 a7 af 0e 19 f3 cb 22  # uid (the edge's discriminator)
+      f4 ae 47 73 6e 1a b2 6b d4 66 07 eb 0a 6c 22 13  # uid (the edge's discriminator)
       06                                    # kind 6 lines
       01                                    # mode `live`
       02                                    # watch `span`
@@ -1021,12 +1021,12 @@ s_0083:
   {u32 2}                                   # n
   {u32 28}                                  # row_w
   # row 0
-    46 5a e2 d2 07 5d 7f dd c8 29 fd 65 8f 3b c4 1e  # uid
+    5f 4c a6 8f 97 11 9f e0 12 84 83 12 d2 57 99 11  # uid
     {u32 7}                                 # src
     {u32 5}                                 # dst
     {u32 3}                                 # anchor
   # row 1
-    a5 13 d4 de 36 9f 37 e1 e1 a7 af 0e 19 f3 cb 22  # uid
+    f4 ae 47 73 6e 1a b2 6b d4 66 07 eb 0a 6c 22 13  # uid
     {u32 7}                                 # src
     {u32 5}                                 # dst
     {u32 4}                                 # anchor
@@ -1689,7 +1689,7 @@ s_0204:
     {u64 0x1b7740}                          # ttl_ms
     # expires: Stamp (24 B, [OS/clock §3.1])
       {u64 0x1a0c46f8cc0}                   # wall (ms)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0x746a5288000}                   # mono (boot ns)
     # anchor: Anchor kind 4 `session-ttl` (32 B, [F03 §10])
       04                                    # kind
@@ -1697,7 +1697,7 @@ s_0204:
       {u16 232}                             # slot
       {u32 0}                               # _reserved
       e8 ae 48 09 05 6b 26 ee e2 77 37 4c a6 77 6d d4  # id: the primary session hash
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
     9a 72 d9 ab 02 67 38 77 f7 0a 5d 92 b6 e5 ae 0e  # bound
     5c 22 e4 e5 78 11 46 39 c7 5c 7b a5 99 9d 07 d2  # root_session
     # proc: ProcId (32 B, [F03 §5.1])
@@ -1706,7 +1706,7 @@ s_0204:
       {u16 0}                               # _reserved
       {u32 8400}                            # pid
       {u64 0x18d75bbbc9759600}              # start (ns)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0}                               # pidns
     {u32 0}                                 # files_owned: HeapRef.off
     {u32 16}                                # files_owned: HeapRef.len
@@ -2020,14 +2020,14 @@ s_0213:
       {u32 0}                               # _reserved
       {u64 0x123456789abcd42}               # id.nonce
       {u64 0xa032f77a5466a90e}              # id.session_hash_lo
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
     # proc: ProcId (32 B, [F03 §5.1])
       01                                    # os
       05                                    # flags (start_known=1, start_boot_relative=0, boot_known=1, pidns_known=0)
       {u16 0}                               # _reserved
       {u32 8003}                            # pid
       {u64 0x18d75b96c4522000}              # start (ns)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0}                               # pidns
     {u64 0x1a0c4528ee00000}                 # hlc
     {u64 12670}                             # closed_lsn
@@ -2050,14 +2050,14 @@ s_0213:
       {u32 0}                               # _reserved
       {u64 0x123456789abcd43}               # id.nonce
       {u64 0}                               # id.session_hash_lo
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
     # proc: ProcId (32 B, [F03 §5.1])
       01                                    # os
       05                                    # flags (start_known=1, start_boot_relative=0, boot_known=1, pidns_known=0)
       {u16 0}                               # _reserved
       {u32 8004}                            # pid
       {u64 0x18d75b96ffecea00}              # start (ns)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0}                               # pidns
     {u64 0x1a0c452b5f00000}                 # hlc
     {u64 12869}                             # closed_lsn

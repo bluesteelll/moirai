@@ -13,7 +13,7 @@ slotA:
   {u64 0x3c6ef372fe94f82b}                   # epoch
   {u64 66029}                                # committed_lsn
   {u64 66029}                                # durable_lsn
-  9b 7a 72 f8 2d 09 6e 88 ef 80 d4 9c 7b 73 ce 08  # boot_id (Linux, as store B)
+  05 00 2c 7c a5 4a 02 0c 87 dd dc 2b be a2 c0 30  # boot_id (Linux, as store B)
   {u32 0}                                    # config_gen
   {u64 65674}                                # checkpoint_lsn
   {u64 2}                                    # commit_seq
@@ -103,7 +103,7 @@ slotB:
   {u64 0x3c6ef372fe94f82b}                   # epoch
   {u64 66029}                                # committed_lsn
   {u64 66029}                                # durable_lsn
-  9b 7a 72 f8 2d 09 6e 88 ef 80 d4 9c 7b 73 ce 08  # boot_id (Linux, as store B)
+  05 00 2c 7c a5 4a 02 0c 87 dd dc 2b be a2 c0 30  # boot_id (Linux, as store B)
   {u32 0}                                    # config_gen
   {u64 65674}                                # checkpoint_lsn
   {u64 2}                                    # commit_seq

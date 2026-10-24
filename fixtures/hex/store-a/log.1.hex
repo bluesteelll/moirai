@@ -561,16 +561,16 @@ g3.r1.p:
       19                                    # ekind 25
       {uvar 5}                              # dst #5
       01                                    # dflag
-      45 1c 99 96 0d 7d 07 05 e2 e5 82 04 dc 59 7f 09  # disc (the anchor uid)
+      09 67 1d f7 61 34 86 2a 76 44 c1 c0 51 e1 85 dc  # disc (the anchor uid)
       04                                    # props.pflags: has_pin=0, flagged=0, anchor=1
       # props.anchor ([F08 §10.3]): kind `range`
         {u16 16}                            # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=1, text_unavailable=0
-        45 1c 99 96 0d 7d 07 05 e2 e5 82 04 dc 59 7f 09  # uid (the edge's discriminator)
+        09 67 1d f7 61 34 86 2a 76 44 c1 c0 51 e1 85 dc  # uid (the edge's discriminator)
         05                                  # kind 5 range
         01                                  # mode `live`
         02                                  # watch `span`
         {u16 1}                             # resolver version
-        ae 12 46 9f 9f d6 46 a9 20 ae ad 70 87 45 96 ad  # captured
+        41 49 a9 4a 03 c4 30 61 dc b4 be 50 72 89 09 92  # captured
         {u32 6}                             # hint_first
         {u32 8}                             # hint_last
         {uvar 11}                           # quote: length 11
@@ -597,16 +597,16 @@ g3.r1.p:
       19                                    # ekind 25
       {uvar 5}                              # dst #5
       01                                    # dflag
-      97 51 bb a1 49 34 b0 70 bf 96 54 55 e0 0c d1 7f  # disc (the anchor uid)
+      20 18 1b 65 78 a1 1c 10 34 86 13 b2 63 19 bb 8b  # disc (the anchor uid)
       04                                    # props.pflags: has_pin=0, flagged=0, anchor=1
       # props.anchor ([F08 §10.3]): kind `quote`
         {u16 8}                             # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=1, has_marker=0, text_unavailable=0
-        97 51 bb a1 49 34 b0 70 bf 96 54 55 e0 0c d1 7f  # uid (the edge's discriminator)
+        20 18 1b 65 78 a1 1c 10 34 86 13 b2 63 19 bb 8b  # uid (the edge's discriminator)
         04                                  # kind 4 quote
         01                                  # mode `live`
         02                                  # watch `span`
         {u16 1}                             # resolver version
-        5d f7 47 84 41 e0 b5 80 1d 11 4d 7a 39 c0 98 b6  # captured
+        f3 12 2f 33 f9 5e f5 cb c6 4d 59 5f 83 ad 27 56  # captured
         {u32 3}                             # hint_first
         {u32 3}                             # hint_last
         {uvar 41}                           # quote: length 41
@@ -648,7 +648,7 @@ g3.r1.p:
       {uvar 94}                             # len of the body
       {uvar 4}                              # id #4
       {uvar 0}                              # prev: 0 (no earlier op of the owner on this ref)
-      5b d0 e2 9e 6a fc 4a 73 55 7e 4c bd f7 d3 4c 33  # uid
+      72 13 54 ad 0f 36 71 38 74 6b f0 42 90 56 d7 72  # uid
       0d                                    # kind
       {uvar 1}                              # c_actor `owner`
       {uvar 1}                              # c_role `orchestrator`
@@ -685,7 +685,7 @@ g3.r1.p:
       {uvar 138}                            # len of the body
       {uvar 5}                              # id #5
       {uvar 0}                              # prev: 0 (no earlier op of the owner on this ref)
-      ff 62 a2 c7 18 c5 2f aa fc 10 8c f0 e9 45 64 2e  # uid
+      58 bf 5c af 4b 56 33 88 04 2b 46 cd 27 db a3 da  # uid
       0a                                    # kind
       {uvar 1}                              # c_actor `owner`
       {uvar 1}                              # c_role `orchestrator`
@@ -810,8 +810,8 @@ g3.r1.p:
       {uvar 8}                              # dst #8
       00                                    # dflag
       01                                    # props.pflags: has_pin=1, flagged=0, anchor=0
-      75 95 f4 08 89 e8 15 e0 40 97 69 9f d2 04 da 2f  # props.pinned_commit (32 B)
-      7f 4c 45 f8 cc 1b 4c ff a3 4b 34 48 d8 d6 b3 40
+      58 3b 80 d0 6d 85 d1 58 f1 81 3e 4f c1 bb 39 03  # props.pinned_commit (32 B)
+      7b ce 86 36 f6 b8 4a 93 f2 81 5c 9c af 65 6f 05
     # op 18: AddEdge
       08                                    # op tag 8 AddEdge
       {uvar 83}                             # len of the body
@@ -820,11 +820,11 @@ g3.r1.p:
       19                                    # ekind 25
       {uvar 5}                              # dst #5
       01                                    # dflag
-      46 5a e2 d2 07 5d 7f dd c8 29 fd 65 8f 3b c4 1e  # disc (the anchor uid)
+      5f 4c a6 8f 97 11 9f e0 12 84 83 12 d2 57 99 11  # disc (the anchor uid)
       04                                    # props.pflags: has_pin=0, flagged=0, anchor=1
       # props.anchor ([F08 §10.3]): kind `file`
         {u16 0}                             # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=0
-        46 5a e2 d2 07 5d 7f dd c8 29 fd 65 8f 3b c4 1e  # uid (the edge's discriminator)
+        5f 4c a6 8f 97 11 9f e0 12 84 83 12 d2 57 99 11  # uid (the edge's discriminator)
         01                                  # kind 1 file
         02                                  # mode `pinned`
         01                                  # watch `header`
@@ -842,11 +842,11 @@ g3.r1.p:
       19                                    # ekind 25
       {uvar 5}                              # dst #5
       01                                    # dflag
-      a5 13 d4 de 36 9f 37 e1 e1 a7 af 0e 19 f3 cb 22  # disc (the anchor uid)
+      f4 ae 47 73 6e 1a b2 6b d4 66 07 eb 0a 6c 22 13  # disc (the anchor uid)
       04                                    # props.pflags: has_pin=0, flagged=0, anchor=1
       # props.anchor ([F08 §10.3]): kind `lines`
         {u16 8}                             # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=1, has_marker=0, text_unavailable=0
-        a5 13 d4 de 36 9f 37 e1 e1 a7 af 0e 19 f3 cb 22  # uid (the edge's discriminator)
+        f4 ae 47 73 6e 1a b2 6b d4 66 07 eb 0a 6c 22 13  # uid (the edge's discriminator)
         06                                  # kind 6 lines
         01                                  # mode `live`
         02                                  # watch `span`
@@ -1034,10 +1034,10 @@ g4.r1.p:
       {u16 14}                              # slot
       {u32 0}                               # _reserved
       0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # id: the primary session hash
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
     # expires: Stamp (24 B, [OS/clock §3.1])
       {u64 0x1a0c45e75c0}                   # wall (ms)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0x55db3677800}                   # mono (boot ns)
     {uvar 900000}                           # ttl_ms
     {uvar 0}                                # run
@@ -1057,7 +1057,7 @@ g4.r1.p:
       {u16 0}                               # _reserved
       {u32 8200}                            # pid
       {u64 0x18d75b88906ffe00}              # start (ns)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0}                               # pidns
     00                                      # lflags (bit 0 session_role)
 g4.r1.pl:
@@ -1092,7 +1092,7 @@ g4.r2.p:
       {uvar 2}                              # holder `dev#2`
       # expires: Stamp (24 B, [OS/clock §3.1])
         {u64 0x1a0c45e75c0}                 # wall (ms)
-        {u64 0x55d85aec48fe1c93}            # boot_hash
+        {u64 0x11664ea5e49d74e1}            # boot_hash
         {u64 0x55db3677800}                 # mono (boot ns)
       {uvar 900000}                         # ttl_ms
       {uvar 0}                              # run
@@ -1390,17 +1390,17 @@ g6.r1.p:
       19                                    # ekind 25
       {uvar 5}                              # dst #5
       01                                    # dflag
-      97 51 bb a1 49 34 b0 70 bf 96 54 55 e0 0c d1 7f  # disc (the anchor uid)
+      20 18 1b 65 78 a1 1c 10 34 86 13 b2 63 19 bb 8b  # disc (the anchor uid)
       # old props
       04                                    # old.pflags: has_pin=0, flagged=0, anchor=1
       # old.anchor ([F08 §10.3]): kind `quote`
         {u16 8}                             # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=1, has_marker=0, text_unavailable=0
-        97 51 bb a1 49 34 b0 70 bf 96 54 55 e0 0c d1 7f  # uid (the edge's discriminator)
+        20 18 1b 65 78 a1 1c 10 34 86 13 b2 63 19 bb 8b  # uid (the edge's discriminator)
         04                                  # kind 4 quote
         01                                  # mode `live`
         02                                  # watch `span`
         {u16 1}                             # resolver version
-        5d f7 47 84 41 e0 b5 80 1d 11 4d 7a 39 c0 98 b6  # captured
+        f3 12 2f 33 f9 5e f5 cb c6 4d 59 5f 83 ad 27 56  # captured
         {u32 3}                             # hint_first
         {u32 3}                             # hint_last
         {uvar 41}                           # quote: length 41
@@ -1421,12 +1421,12 @@ g6.r1.p:
       04                                    # new.pflags: has_pin=0, flagged=0, anchor=1
       # new.anchor ([F08 §10.3]): kind `quote`
         {u16 8}                             # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=1, has_marker=0, text_unavailable=0
-        97 51 bb a1 49 34 b0 70 bf 96 54 55 e0 0c d1 7f  # uid (the edge's discriminator)
+        20 18 1b 65 78 a1 1c 10 34 86 13 b2 63 19 bb 8b  # uid (the edge's discriminator)
         04                                  # kind 4 quote
         01                                  # mode `live`
         02                                  # watch `span`
         {u16 1}                             # resolver version
-        5d f7 47 84 41 e0 b5 80 1d 11 4d 7a 39 c0 98 b6  # captured
+        f3 12 2f 33 f9 5e f5 cb c6 4d 59 5f 83 ad 27 56  # captured
         {u32 4}                             # hint_first
         {u32 4}                             # hint_last
         {uvar 41}                           # quote: length 41
@@ -1550,8 +1550,8 @@ g6.r1.p:
       00                                    # dflag
       # old props
       01                                    # old.pflags: has_pin=1, flagged=0, anchor=0
-      75 95 f4 08 89 e8 15 e0 40 97 69 9f d2 04 da 2f  # old.pinned_commit (32 B)
-      7f 4c 45 f8 cc 1b 4c ff a3 4b 34 48 d8 d6 b3 40
+      58 3b 80 d0 6d 85 d1 58 f1 81 3e 4f c1 bb 39 03  # old.pinned_commit (32 B)
+      7b ce 86 36 f6 b8 4a 93 f2 81 5c 9c af 65 6f 05
       # new props
       01                                    # new.pflags: has_pin=1, flagged=0, anchor=0
       ee a5 5a 17 76 02 41 f0 91 c2 4d 2f bc 90 f0 8e  # new.pinned_commit (32 B)
@@ -1601,7 +1601,7 @@ g7.r1.p:
       {u16 232}                             # slot
       {u32 0}                               # _reserved
       e8 ae 48 09 05 6b 26 ee e2 77 37 4c a6 77 6d d4  # id: the primary session hash
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
 g7.r1.pl:
 g7.tr:
 {xxh3_64 g7..g7.tr seed=g6.tr..g6.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
@@ -3263,7 +3263,7 @@ g22.r1.p:
     {u32 1}                                 # segments[0].file_no
     02                                      # segments[0].kind (delta)
     {u64 11264}                             # segments[0].upto_lsn
-    40 41 7a 32 74 04 6f 2f 5b 56 9a bd 4a 69 1c 01  # segments[0].blake3_16
+    61 2c 35 04 b4 11 8b 61 69 0a 82 f9 cf 77 55 aa  # segments[0].blake3_16
     {uvar 0}                                # window_start
     {uvar 3}                                # n_refs
     {uvar 0}                                # RefList.ref_id
@@ -3560,14 +3560,14 @@ g26.r1.p:
       {u32 0}                               # _reserved
       {u64 0x123456789abcd42}               # id.nonce
       {u64 0xa032f77a5466a90e}              # id.session_hash_lo
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
     # proc: ProcId (32 B, [F03 §5.1])
       01                                    # os
       05                                    # flags (start_known=1, start_boot_relative=0, boot_known=1, pidns_known=0)
       {u16 0}                               # _reserved
       {u32 8003}                            # pid
       {u64 0x18d75b96c4522000}              # start (ns)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0}                               # pidns
     {u64 0x1a0c4528ee00000}                 # hlc
     {uvar 1}                                # n
@@ -3743,14 +3743,14 @@ g28.r1.p:
       {u32 0}                               # _reserved
       {u64 0x123456789abcd43}               # id.nonce
       {u64 0}                               # id.session_hash_lo
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
     # proc: ProcId (32 B, [F03 §5.1])
       01                                    # os
       05                                    # flags (start_known=1, start_boot_relative=0, boot_known=1, pidns_known=0)
       {u16 0}                               # _reserved
       {u32 8004}                            # pid
       {u64 0x18d75b96ffecea00}              # start (ns)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0}                               # pidns
     {u64 0x1a0c452b5f00000}                 # hlc
     {uvar 1}                                # n
@@ -4675,10 +4675,10 @@ g42.r1.p:
       {u16 232}                             # slot
       {u32 0}                               # _reserved
       e8 ae 48 09 05 6b 26 ee e2 77 37 4c a6 77 6d d4  # id: the primary session hash
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
     # expires: Stamp (24 B, [OS/clock §3.1])
       {u64 0x1a0c461aa10}                   # wall (ms)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0x5e96630e800}                   # mono (boot ns)
     {uvar 900000}                           # ttl_ms
     {uvar 0}                                # run
@@ -4692,7 +4692,7 @@ g42.r1.p:
       {u16 0}                               # _reserved
       {u32 8300}                            # pid
       {u64 0x18d75bb97569b200}              # start (ns)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0}                               # pidns
     01                                      # lflags (bit 0 session_role)
 g42.r1.pl:
@@ -4721,7 +4721,7 @@ g43.r1.p:
     {u64 0x1a0c45401f80000}                 # hlc
     # renew_expires: Stamp (24 B, [OS/clock §3.1])
       {u64 0x1a0c45d29b8}                   # wall (ms)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0x65dd0837000}                   # mono (boot ns)
     {uvar 600000}                           # renew_ttl_ms
     # renew_anchor: Anchor kind 0 `none` (32 B, [F03 §10])
@@ -4785,10 +4785,10 @@ g45.r1.p:
       {u16 232}                             # slot
       {u32 0}                               # _reserved
       e8 ae 48 09 05 6b 26 ee e2 77 37 4c a6 77 6d d4  # id: the primary session hash
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
     # expires: Stamp (24 B, [OS/clock §3.1])
       {u64 0x1a0c46f8cc0}                   # wall (ms)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0x746a5288000}                   # mono (boot ns)
     {uvar 1800000}                          # ttl_ms
     {uvar 0}                                # run
@@ -4805,7 +4805,7 @@ g45.r1.p:
       {u16 0}                               # _reserved
       {u32 8400}                            # pid
       {u64 0x18d75bbbc9759600}              # start (ns)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0}                               # pidns
     00                                      # lflags (bit 0 session_role)
 g45.r1.pl:
@@ -4837,11 +4837,11 @@ g46.r1.p:
     {u32 1}                                 # segments[0].file_no
     02                                      # segments[0].kind (delta)
     {u64 11264}                             # segments[0].upto_lsn
-    40 41 7a 32 74 04 6f 2f 5b 56 9a bd 4a 69 1c 01  # segments[0].blake3_16
+    61 2c 35 04 b4 11 8b 61 69 0a 82 f9 cf 77 55 aa  # segments[0].blake3_16
     {u32 7}                                 # segments[1].file_no
     02                                      # segments[1].kind (delta)
     {u64 16660}                             # segments[1].upto_lsn
-    82 e8 fc 69 aa a4 74 9b 27 77 50 88 5e d4 84 26  # segments[1].blake3_16
+    89 26 30 9c 0e bd 6f a4 b4 43 fe 76 55 42 d6 bb  # segments[1].blake3_16
     {uvar 11264}                            # window_start
     {uvar 2}                                # n_refs
     {uvar 0}                                # RefList.ref_id
@@ -4948,7 +4948,7 @@ g47.r3.p:
       01                                    # scope_kind
       00 00 00                              # _reserved
       {u32 1}                               # scope_ref
-      b8 2d 43 7e 69 09 b0 4f 00 f4 3e 86 ac 2f f0 29  # digest
+      b0 b8 a3 34 a9 d1 82 4e 7c 9b a5 63 c3 de 3c 9a  # digest
       {u64 0x1a0c4541d500001}               # hlc
 g47.r3.pl:
 g47.r3.end:
@@ -5421,7 +5421,7 @@ g48.r7.p:
       {uvar 79}                             # row length (vbytes)
       01                                    # op 1 (upsert)
       # ANCHORRES row image ([F11 §2.9]): 78 fixed bytes, then the slices
-        97 51 bb a1 49 34 b0 70 bf 96 54 55 e0 0c d1 7f  # anchor (uid)
+        20 18 1b 65 78 a1 1c 10 34 86 13 b2 63 19 bb 8b  # anchor (uid)
         01                                  # oid.algo
         a9 36 e3 7c 01 d6 43 cb 4e 9d f7 7e 93 ec 3d 4f  # oid: digest
         89 fd 77 ae
@@ -5438,7 +5438,7 @@ g48.r7.p:
       {uvar 79}                             # row length (vbytes)
       01                                    # op 1 (upsert)
       # ANCHORRES row image ([F11 §2.9]): 78 fixed bytes, then the slices
-        45 1c 99 96 0d 7d 07 05 e2 e5 82 04 dc 59 7f 09  # anchor (uid)
+        09 67 1d f7 61 34 86 2a 76 44 c1 c0 51 e1 85 dc  # anchor (uid)
         01                                  # oid.algo
         a9 36 e3 7c 01 d6 43 cb 4e 9d f7 7e 93 ec 3d 4f  # oid: digest
         89 fd 77 ae
@@ -5455,7 +5455,7 @@ g48.r7.p:
       {uvar 79}                             # row length (vbytes)
       02                                    # op 2 (delete)
       # ANCHORRES row image ([F11 §2.9]): 78 fixed bytes, then the slices
-        45 1c 99 96 0d 7d 07 05 e2 e5 82 04 dc 59 7f 09  # anchor (uid)
+        09 67 1d f7 61 34 86 2a 76 44 c1 c0 51 e1 85 dc  # anchor (uid)
         01                                  # oid.algo
         d9 4d b1 af fb 1b dd d9 49 1c d7 66 62 32 df ce  # oid: digest
         91 5c 31 10
@@ -5497,15 +5497,15 @@ g49.r1.p:
     {u32 1}                                 # segments[0].file_no
     02                                      # segments[0].kind (delta)
     {u64 11264}                             # segments[0].upto_lsn
-    40 41 7a 32 74 04 6f 2f 5b 56 9a bd 4a 69 1c 01  # segments[0].blake3_16
+    61 2c 35 04 b4 11 8b 61 69 0a 82 f9 cf 77 55 aa  # segments[0].blake3_16
     {u32 7}                                 # segments[1].file_no
     02                                      # segments[1].kind (delta)
     {u64 16660}                             # segments[1].upto_lsn
-    82 e8 fc 69 aa a4 74 9b 27 77 50 88 5e d4 84 26  # segments[1].blake3_16
+    89 26 30 9c 0e bd 6f a4 b4 43 fe 76 55 42 d6 bb  # segments[1].blake3_16
     {u32 8}                                 # segments[2].file_no
     02                                      # segments[2].kind (delta)
     {u64 16660}                             # segments[2].upto_lsn
-    4f 50 df ed 31 8e 29 49 e5 55 e6 46 4b 23 54 0f  # segments[2].blake3_16
+    ed 9c 01 a6 82 2d c6 f1 b0 67 d3 2c 6e 45 28 49  # segments[2].blake3_16
     {uvar 19475}                            # rt_upto_lsn
     {uvar 1}                                # n_added
     06                                      # added.family 6 blobs
@@ -5541,7 +5541,7 @@ g50.r1.p:
     {u32 10}                                # segments[0].file_no
     01                                      # segments[0].kind (base)
     {u64 16660}                             # segments[0].upto_lsn
-    ef 1d f0 02 6e 3e 90 a0 c8 0c 2c bc 98 24 d4 7d  # segments[0].blake3_16
+    e0 4b 2b e3 ea 64 08 5f 49 75 39 e5 b6 35 62 7d  # segments[0].blake3_16
     {uvar 3}                                # n_released
     04                                      # released.family 4 seg-delta
     {uvar 1}                                # released.file_no
@@ -5601,7 +5601,7 @@ g51.r1.p:
     {u64 1}                                 # token
     # expires: Stamp (24 B, [OS/clock §3.1])
       {u64 0x1a0c461f830}                   # wall (ms)
-      {u64 0x55d85aec48fe1c93}              # boot_hash
+      {u64 0x11664ea5e49d74e1}              # boot_hash
       {u64 0x574fbde6000}                   # mono (boot ns)
     01                                      # cause
     {u64 0x1a0c4543c900000}                 # hlc
