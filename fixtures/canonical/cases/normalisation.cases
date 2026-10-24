@@ -421,10 +421,10 @@ foreign -
 %% function N
 %% input-hex
 646f6e650a0a6b6c6f74686f2d7265663a206d61696e
-%% input-text "done\n\nmoirai-ref: main"
+%% input-text "done\n\nklotho-ref: main"
 %% output-hex
 646f6e650a0a6b6c6f74686f2d7265663a206d61696e
-%% output-text "done\n\nmoirai-ref: main"
+%% output-text "done\n\nklotho-ref: main"
 %% output-length 22
 %% end
 
