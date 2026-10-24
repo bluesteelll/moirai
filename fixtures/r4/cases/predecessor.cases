@@ -9,12 +9,12 @@
 %% note Step 1: a live artifact holds (root, exact path) with status present; nothing is created.
 %% operation register
 %% view
-file f949f8028bc2d74382e6fb520d48ca8e root=project path="docs/plan.md" status=present
+file 6422314f2f6c435683650b7b9bc44ae6 root=project path="docs/plan.md" status=present
 %% arg root "project"
 %% arg path "docs/plan.md"
 %% steps
-step 1: f949f8028bc2d74382e6fb520d48ca8e holds the path with status present
-%% result existing f949f8028bc2d74382e6fb520d48ca8e
+step 1: 6422314f2f6c435683650b7b9bc44ae6 holds the path with status present
+%% result existing 6422314f2f6c435683650b7b9bc44ae6
 %% end
 
 %% case reg-existing-planned
@@ -22,12 +22,12 @@ step 1: f949f8028bc2d74382e6fb520d48ca8e holds the path with status present
 %% note Step 1 also takes status planned.
 %% operation register
 %% view
-file f949f8028bc2d74382e6fb520d48ca8e root=project path="docs/plan.md" status=planned
+file 6422314f2f6c435683650b7b9bc44ae6 root=project path="docs/plan.md" status=planned
 %% arg root "project"
 %% arg path "docs/plan.md"
 %% steps
-step 1: f949f8028bc2d74382e6fb520d48ca8e holds the path with status planned
-%% result existing f949f8028bc2d74382e6fb520d48ca8e
+step 1: 6422314f2f6c435683650b7b9bc44ae6 holds the path with status planned
+%% result existing 6422314f2f6c435683650b7b9bc44ae6
 %% end
 
 %% case reg-fresh
@@ -40,8 +40,8 @@ step 1: f949f8028bc2d74382e6fb520d48ca8e holds the path with status planned
 %% arg path "docs/plan.md"
 %% steps
 step 2: candidates none; q = empty
-step 3: u = uid_file(r, p, q) = f949f8028bc2d74382e6fb520d48ca8e
-%% result new f949f8028bc2d74382e6fb520d48ca8e pred -
+step 3: u = uid_file(r, p, q) = 6422314f2f6c435683650b7b9bc44ae6
+%% result new 6422314f2f6c435683650b7b9bc44ae6 pred -
 %% end
 
 %% case reg-removed-predecessor
@@ -49,13 +49,13 @@ step 3: u = uid_file(r, p, q) = f949f8028bc2d74382e6fb520d48ca8e
 %% note A live node with status removed at p is the predecessor.
 %% operation register
 %% view
-file f949f8028bc2d74382e6fb520d48ca8e root=project path="docs/plan.md" status=removed
+file 6422314f2f6c435683650b7b9bc44ae6 root=project path="docs/plan.md" status=removed
 %% arg root "project"
 %% arg path "docs/plan.md"
 %% steps
-step 2: candidates f949f8028bc2d74382e6fb520d48ca8e; q = f949f8028bc2d74382e6fb520d48ca8e
-step 3: u = uid_file(r, p, q) = af10230b7ad7bb82e9351622a23cbd73
-%% result new af10230b7ad7bb82e9351622a23cbd73 pred f949f8028bc2d74382e6fb520d48ca8e
+step 2: candidates 6422314f2f6c435683650b7b9bc44ae6; q = 6422314f2f6c435683650b7b9bc44ae6
+step 3: u = uid_file(r, p, q) = 9852ba2290aae0c66042b8d73cdbe659
+%% result new 9852ba2290aae0c66042b8d73cdbe659 pred 6422314f2f6c435683650b7b9bc44ae6
 %% end
 
 %% case reg-alias-predecessor
@@ -68,8 +68,8 @@ file fb9890c0f6c31804bb30393b634bcd8e root=project path="docs/plan-v2.md" status
 %% arg path "docs/plan.md"
 %% steps
 step 2: candidates fb9890c0f6c31804bb30393b634bcd8e; q = fb9890c0f6c31804bb30393b634bcd8e
-step 3: u = uid_file(r, p, q) = f9ff56058a81a3d1b19e2531edddddc1
-%% result new f9ff56058a81a3d1b19e2531edddddc1 pred fb9890c0f6c31804bb30393b634bcd8e
+step 3: u = uid_file(r, p, q) = 513ab4cc75620e34ff191a50ba4a8b10
+%% result new 513ab4cc75620e34ff191a50ba4a8b10 pred fb9890c0f6c31804bb30393b634bcd8e
 %% end
 
 %% case reg-greatest-uid
@@ -85,8 +85,8 @@ file f0000000000000000000000000000000 root=project path="docs/other.md" status=p
 %% arg path "docs/plan.md"
 %% steps
 step 2: candidates 11111111111111111111111111111111 f0000000000000000000000000000000; q = f0000000000000000000000000000000
-step 3: u = uid_file(r, p, q) = e51b381aa86a4a771677be5e93a6b39d
-%% result new e51b381aa86a4a771677be5e93a6b39d pred f0000000000000000000000000000000
+step 3: u = uid_file(r, p, q) = c93d0b6f689ab2c3d4e4aa206fc58706
+%% result new c93d0b6f689ab2c3d4e4aa206fc58706 pred f0000000000000000000000000000000
 %% end
 
 %% case reg-tombstone-not-candidate
@@ -96,14 +96,14 @@ step 3: u = uid_file(r, p, q) = e51b381aa86a4a771677be5e93a6b39d
 %% note so step 4 runs once: dead uids are never re-created.
 %% operation register
 %% view
-tombstone f949f8028bc2d74382e6fb520d48ca8e kind=artifact root=project path="docs/plan.md"
+tombstone 6422314f2f6c435683650b7b9bc44ae6 kind=artifact root=project path="docs/plan.md"
 %% arg root "project"
 %% arg path "docs/plan.md"
 %% steps
 step 2: candidates none; q = empty
-step 3: u = uid_file(r, p, q) = f949f8028bc2d74382e6fb520d48ca8e
-step 4: u names a node of V; q = u; u = af10230b7ad7bb82e9351622a23cbd73
-%% result new af10230b7ad7bb82e9351622a23cbd73 pred f949f8028bc2d74382e6fb520d48ca8e
+step 3: u = uid_file(r, p, q) = 6422314f2f6c435683650b7b9bc44ae6
+step 4: u names a node of V; q = u; u = 9852ba2290aae0c66042b8d73cdbe659
+%% result new 9852ba2290aae0c66042b8d73cdbe659 pred 6422314f2f6c435683650b7b9bc44ae6
 %% end
 
 %% case reg-dead-uid-chain
@@ -111,16 +111,16 @@ step 4: u names a node of V; q = u; u = af10230b7ad7bb82e9351622a23cbd73
 %% note Step 4 twice: the first derivation names a tombstone, the second a live node at another path.
 %% operation register
 %% view
-tombstone f949f8028bc2d74382e6fb520d48ca8e kind=artifact root=project path="docs/plan.md"
-file af10230b7ad7bb82e9351622a23cbd73 root=project path="docs/moved-plan.md" status=present
+tombstone 6422314f2f6c435683650b7b9bc44ae6 kind=artifact root=project path="docs/plan.md"
+file 9852ba2290aae0c66042b8d73cdbe659 root=project path="docs/moved-plan.md" status=present
 %% arg root "project"
 %% arg path "docs/plan.md"
 %% steps
 step 2: candidates none; q = empty
-step 3: u = uid_file(r, p, q) = f949f8028bc2d74382e6fb520d48ca8e
-step 4: u names a node of V; q = u; u = af10230b7ad7bb82e9351622a23cbd73
-step 4: u names a node of V; q = u; u = b4c85c5b7ec7b39a357626dc3e83b857
-%% result new b4c85c5b7ec7b39a357626dc3e83b857 pred af10230b7ad7bb82e9351622a23cbd73
+step 3: u = uid_file(r, p, q) = 6422314f2f6c435683650b7b9bc44ae6
+step 4: u names a node of V; q = u; u = 9852ba2290aae0c66042b8d73cdbe659
+step 4: u names a node of V; q = u; u = 506c882d595c8e33c436d1d168d27026
+%% result new 506c882d595c8e33c436d1d168d27026 pred 9852ba2290aae0c66042b8d73cdbe659
 %% end
 
 %% case reg-other-root-ignored
@@ -133,8 +133,8 @@ file 09de2f79a36ccf4d14a106710f1b2770 root=docs_site path="docs/plan.md" status=
 %% arg path "docs/plan.md"
 %% steps
 step 2: candidates none; q = empty
-step 3: u = uid_file(r, p, q) = f949f8028bc2d74382e6fb520d48ca8e
-%% result new f949f8028bc2d74382e6fb520d48ca8e pred -
+step 3: u = uid_file(r, p, q) = 6422314f2f6c435683650b7b9bc44ae6
+%% result new 6422314f2f6c435683650b7b9bc44ae6 pred -
 %% end
 
 %% case reg-exact-bytes
@@ -148,8 +148,8 @@ file 7adf2c589328c503fb66e79a440b4349 root=project path="Docs/Plan.md" status=re
 %% arg path "docs/plan.md"
 %% steps
 step 2: candidates none; q = empty
-step 3: u = uid_file(r, p, q) = f949f8028bc2d74382e6fb520d48ca8e
-%% result new f949f8028bc2d74382e6fb520d48ca8e pred -
+step 3: u = uid_file(r, p, q) = 6422314f2f6c435683650b7b9bc44ae6
+%% result new 6422314f2f6c435683650b7b9bc44ae6 pred -
 %% end
 
 %% case cap-fresh
@@ -162,8 +162,8 @@ step 3: u = uid_file(r, p, q) = f949f8028bc2d74382e6fb520d48ca8e
 %% arg dst d7e09f2c74ffa63419395ac4e264198b
 %% arg selectors kind=quote quote="fn flush(&mut self)" prefix="pub " suffix=" -> io::Result<()> {"
 %% steps
-step 2: captured = 979e81a4e37ef2958b4112dc780b7430; u = uid_anchor(s, captured, empty) = 1fb4da2d86414ad798032f7ad3dc759e
-%% result new 1fb4da2d86414ad798032f7ad3dc759e captured 979e81a4e37ef2958b4112dc780b7430 pred -
+step 2: captured = 979e81a4e37ef2958b4112dc780b7430; u = uid_anchor(s, captured, empty) = c0d11c970f1d99bccc635f05d9b0f6ac
+%% result new c0d11c970f1d99bccc635f05d9b0f6ac captured 979e81a4e37ef2958b4112dc780b7430 pred -
 %% end
 
 %% case cap-dedup
@@ -171,13 +171,13 @@ step 2: captured = 979e81a4e37ef2958b4112dc780b7430; u = uid_anchor(s, captured,
 %% note Step 1: an anchor on (s, f) has equal current selectors: it is reused, nothing is created.
 %% operation capture
 %% view
-anchor 1fb4da2d86414ad798032f7ad3dc759e src=1a000000000000000000000000000002 dst=d7e09f2c74ffa63419395ac4e264198b captured=979e81a4e37ef2958b4112dc780b7430 pred=- kind=quote quote="fn flush(&mut self)" prefix="pub " suffix=" -> io::Result<()> {"
+anchor c0d11c970f1d99bccc635f05d9b0f6ac src=1a000000000000000000000000000002 dst=d7e09f2c74ffa63419395ac4e264198b captured=979e81a4e37ef2958b4112dc780b7430 pred=- kind=quote quote="fn flush(&mut self)" prefix="pub " suffix=" -> io::Result<()> {"
 %% arg src 1a000000000000000000000000000002
 %% arg dst d7e09f2c74ffa63419395ac4e264198b
 %% arg selectors kind=quote quote="fn flush(&mut self)" prefix="pub " suffix=" -> io::Result<()> {"
 %% steps
-step 1: 1fb4da2d86414ad798032f7ad3dc759e has equal current selectors; it is reused
-%% result reuse 1fb4da2d86414ad798032f7ad3dc759e
+step 1: c0d11c970f1d99bccc635f05d9b0f6ac has equal current selectors; it is reused
+%% result reuse c0d11c970f1d99bccc635f05d9b0f6ac
 %% end
 
 %% case cap-after-repin
@@ -187,14 +187,14 @@ step 1: 1fb4da2d86414ad798032f7ad3dc759e has equal current selectors; it is reus
 %% note do not): no reuse, and u collides with its uid, so p = that uid.
 %% operation capture
 %% view
-anchor 1fb4da2d86414ad798032f7ad3dc759e src=1a000000000000000000000000000002 dst=d7e09f2c74ffa63419395ac4e264198b captured=979e81a4e37ef2958b4112dc780b7430 pred=- kind=quote quote="fn flush(&mut self, group: &Group)" prefix="pub " suffix=" -> io::Result<()> {"
+anchor c0d11c970f1d99bccc635f05d9b0f6ac src=1a000000000000000000000000000002 dst=d7e09f2c74ffa63419395ac4e264198b captured=979e81a4e37ef2958b4112dc780b7430 pred=- kind=quote quote="fn flush(&mut self, group: &Group)" prefix="pub " suffix=" -> io::Result<()> {"
 %% arg src 1a000000000000000000000000000002
 %% arg dst d7e09f2c74ffa63419395ac4e264198b
 %% arg selectors kind=quote quote="fn flush(&mut self)" prefix="pub " suffix=" -> io::Result<()> {"
 %% steps
-step 2: captured = 979e81a4e37ef2958b4112dc780b7430; u = uid_anchor(s, captured, empty) = 1fb4da2d86414ad798032f7ad3dc759e
-step 3: u is an anchor on (s, f); p = u; u = 8ef3d186c4c5c3711fb6e4cf38c78310
-%% result new 8ef3d186c4c5c3711fb6e4cf38c78310 captured 979e81a4e37ef2958b4112dc780b7430 pred 1fb4da2d86414ad798032f7ad3dc759e
+step 2: captured = 979e81a4e37ef2958b4112dc780b7430; u = uid_anchor(s, captured, empty) = c0d11c970f1d99bccc635f05d9b0f6ac
+step 3: u is an anchor on (s, f); p = u; u = 1dd821c622ced2500f800bc519cb0550
+%% result new 1dd821c622ced2500f800bc519cb0550 captured 979e81a4e37ef2958b4112dc780b7430 pred c0d11c970f1d99bccc635f05d9b0f6ac
 %% end
 
 %% case cap-predecessor-chain
@@ -202,16 +202,16 @@ step 3: u is an anchor on (s, f); p = u; u = 8ef3d186c4c5c3711fb6e4cf38c78310
 %% note Two repinned anchors with the same captured: step 3 runs twice.
 %% operation capture
 %% view
-anchor 1fb4da2d86414ad798032f7ad3dc759e src=1a000000000000000000000000000002 dst=d7e09f2c74ffa63419395ac4e264198b captured=979e81a4e37ef2958b4112dc780b7430 pred=- kind=quote quote="fn flush(&mut self, group: &Group)" prefix="pub " suffix=" -> io::Result<()> {"
-anchor 8ef3d186c4c5c3711fb6e4cf38c78310 src=1a000000000000000000000000000002 dst=d7e09f2c74ffa63419395ac4e264198b captured=979e81a4e37ef2958b4112dc780b7430 pred=1fb4da2d86414ad798032f7ad3dc759e kind=quote quote="fn flush(&mut self) -> Result" prefix="pub " suffix=" {"
+anchor c0d11c970f1d99bccc635f05d9b0f6ac src=1a000000000000000000000000000002 dst=d7e09f2c74ffa63419395ac4e264198b captured=979e81a4e37ef2958b4112dc780b7430 pred=- kind=quote quote="fn flush(&mut self, group: &Group)" prefix="pub " suffix=" -> io::Result<()> {"
+anchor 1dd821c622ced2500f800bc519cb0550 src=1a000000000000000000000000000002 dst=d7e09f2c74ffa63419395ac4e264198b captured=979e81a4e37ef2958b4112dc780b7430 pred=c0d11c970f1d99bccc635f05d9b0f6ac kind=quote quote="fn flush(&mut self) -> Result" prefix="pub " suffix=" {"
 %% arg src 1a000000000000000000000000000002
 %% arg dst d7e09f2c74ffa63419395ac4e264198b
 %% arg selectors kind=quote quote="fn flush(&mut self)" prefix="pub " suffix=" -> io::Result<()> {"
 %% steps
-step 2: captured = 979e81a4e37ef2958b4112dc780b7430; u = uid_anchor(s, captured, empty) = 1fb4da2d86414ad798032f7ad3dc759e
-step 3: u is an anchor on (s, f); p = u; u = 8ef3d186c4c5c3711fb6e4cf38c78310
-step 3: u is an anchor on (s, f); p = u; u = 9e0452e57da68d6c49d620a760061b85
-%% result new 9e0452e57da68d6c49d620a760061b85 captured 979e81a4e37ef2958b4112dc780b7430 pred 8ef3d186c4c5c3711fb6e4cf38c78310
+step 2: captured = 979e81a4e37ef2958b4112dc780b7430; u = uid_anchor(s, captured, empty) = c0d11c970f1d99bccc635f05d9b0f6ac
+step 3: u is an anchor on (s, f); p = u; u = 1dd821c622ced2500f800bc519cb0550
+step 3: u is an anchor on (s, f); p = u; u = 810e5c2099f958ab637b7f6676d1babb
+%% result new 810e5c2099f958ab637b7f6676d1babb captured 979e81a4e37ef2958b4112dc780b7430 pred 1dd821c622ced2500f800bc519cb0550
 %% end
 
 %% case cap-other-source
@@ -219,11 +219,11 @@ step 3: u is an anchor on (s, f); p = u; u = 9e0452e57da68d6c49d620a760061b85
 %% note An anchor of another referrer on the same file is not on (s, f) and never collides.
 %% operation capture
 %% view
-anchor 96dc7c022b50cb6b07940bf9ba72c461 src=1a000000000000000000000000000009 dst=d7e09f2c74ffa63419395ac4e264198b captured=979e81a4e37ef2958b4112dc780b7430 pred=- kind=quote quote="fn flush(&mut self, group: &Group)" prefix="pub " suffix=" -> io::Result<()> {"
+anchor 9976aa457db060fea628bf24e03553bb src=1a000000000000000000000000000009 dst=d7e09f2c74ffa63419395ac4e264198b captured=979e81a4e37ef2958b4112dc780b7430 pred=- kind=quote quote="fn flush(&mut self, group: &Group)" prefix="pub " suffix=" -> io::Result<()> {"
 %% arg src 1a000000000000000000000000000002
 %% arg dst d7e09f2c74ffa63419395ac4e264198b
 %% arg selectors kind=quote quote="fn flush(&mut self)" prefix="pub " suffix=" -> io::Result<()> {"
 %% steps
-step 2: captured = 979e81a4e37ef2958b4112dc780b7430; u = uid_anchor(s, captured, empty) = 1fb4da2d86414ad798032f7ad3dc759e
-%% result new 1fb4da2d86414ad798032f7ad3dc759e captured 979e81a4e37ef2958b4112dc780b7430 pred -
+step 2: captured = 979e81a4e37ef2958b4112dc780b7430; u = uid_anchor(s, captured, empty) = c0d11c970f1d99bccc635f05d9b0f6ac
+%% result new c0d11c970f1d99bccc635f05d9b0f6ac captured 979e81a4e37ef2958b4112dc780b7430 pred -
 %% end
