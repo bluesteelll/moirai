@@ -922,8 +922,10 @@ replacement text. The codes are LQ codes; [LQ/errors §5.5] owns their bytes, re
 - **Code**: `E411 unknown_model_write`, exit 6, raised by the `tx` binder before any execution ([LQ/errors §5.5]; the
   [PLAN §3.3] gap "unknown-model write error code number").
 - **When**: the caller's model profile, resolved by [90 §4.1]'s Model row and [90 §8.2], is `unknown`,
-  `query.safelist.model.unknown` is `named-only` (the default) or `dry-targets`, and the call is a free-form `TX` — not a
-  named mutation and not a verb. Under `dry-targets` a `TX` that carries `IF TARGETS <digest>` from a `DRY` of the same
+  `query.safelist.model.unknown` is `named-only` (the default) or `dry-targets`, the call is a free-form `TX` — not a
+  named mutation and not a verb — and the caller has a session identity ([API §4.2] CX-4) or `ctx.door` = `mcp`
+  ([API §9.1]; [RULES/role-write-policy] WR-012), so a CLI block without a session is not refused (review pass 2,
+  A2-4). Under `dry-targets` a `TX` that carries `IF TARGETS <digest>` from a `DRY` of the same
   block is admitted. Under `off` nothing is refused ([90 §8.1] L2, [90 §10.8]).
 - **Text** ([LQ/errors §5.5]):
 
