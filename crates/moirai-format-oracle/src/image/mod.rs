@@ -20,7 +20,7 @@ use schema::Schema;
 /// What a conformance check found in one image file.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Parsed {
-    /// `.moirai-image`.
+    /// `.klotho-image`.
     Marker(files::Marker),
     /// A node file.
     Node(Box<node::NodeFile>),
@@ -85,12 +85,12 @@ pub fn check_file(bytes: &[u8], place: Place<'_>, schema: &Schema) -> Result<Che
         .unwrap_or("")
         .trim_end_matches([' ', '\t']);
     let (parsed, reencoded) = match first {
-        "moirai-image 1" => {
+        "klotho-image 1" => {
             let m = files::parse_marker(bytes)?;
             let e = files::encode_marker(&m);
             (Parsed::Marker(m), e)
         }
-        "moirai-node 1" => {
+        "klotho-node 1" => {
             let cx = node::Ctx {
                 schema,
                 path_uid: place.node_uid,
@@ -99,34 +99,34 @@ pub fn check_file(bytes: &[u8], place: Place<'_>, schema: &Schema) -> Result<Che
             let e = node::encode(&n, schema);
             (Parsed::Node(Box::new(n)), e)
         }
-        "moirai-schema 1" => {
+        "klotho-schema 1" => {
             let r = files::parse_schema_file(bytes)?;
             let e = files::encode_schema_file(&r);
             (Parsed::Schema(r), e)
         }
-        "moirai-query 1" => {
+        "klotho-query 1" => {
             let q = files::parse_query(bytes, place.query_q)?;
             let e = files::encode_query(&q);
             (Parsed::Query(q), e)
         }
-        "moirai-refs 1" => {
+        "klotho-refs 1" => {
             let (n, k) = files::parse_refs(bytes)?;
             let e = files::encode_refs(&n, &k);
             (Parsed::Refs(n, k), e)
         }
-        "moirai-meta 1" => {
+        "klotho-meta 1" => {
             let m = files::parse_meta(bytes)?;
             let e = files::encode_meta(&m);
             (Parsed::Meta(m), e)
         }
-        "moirai-aliases 1" => {
+        "klotho-aliases 1" => {
             let a = files::parse_aliases(bytes, place.alias_h1)?;
             let e = files::encode_aliases(&a);
             (Parsed::Aliases(a), e)
         }
-        "moirai-ops 1" => {
+        "klotho-ops 1" => {
             let o = files::parse_ops(bytes)?;
-            let mut e = b"moirai-ops 1\n".to_vec();
+            let mut e = b"klotho-ops 1\n".to_vec();
             for l in &o {
                 e.extend_from_slice(l.as_bytes());
                 e.push(b'\n');
@@ -157,19 +157,19 @@ mod tests {
     fn dispatch() {
         let s = Schema::core();
         let m = check_file(
-            b"moirai-image 1\nobject-format: sha1\nschema-version: 1\n",
+            b"klotho-image 1\nobject-format: sha1\nschema-version: 1\n",
             Place::default(),
             &s,
         )
         .unwrap();
         assert!(m.canonical);
-        assert!(check_file(b"moirai-thing 1\n", Place::default(), &s).is_err());
-        let node = b"moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e40\nkind: task\ntitle: t\ndeleted: cca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7a\n";
+        assert!(check_file(b"klotho-thing 1\n", Place::default(), &s).is_err());
+        let node = b"klotho-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e40\nkind: task\ntitle: t\ndeleted: cca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7a\n";
         let good = Place::of_path("nodes/01/8f/018f3c2e7a117b3c9d5e4c2f1a0b9e40.moi");
         assert!(check_file(node, good, &s).unwrap().canonical);
         let other = Place::of_path("nodes/01/8f/018f3c2e7a117b3c9d5e4c2f1a0b9e41.moi");
         assert!(check_file(node, other, &s).is_err());
-        let crlf = b"moirai-image 1\r\nobject-format: sha1\r\nschema-version: 1\r\n";
+        let crlf = b"klotho-image 1\r\nobject-format: sha1\r\nschema-version: 1\r\n";
         assert!(!check_file(crlf, Place::default(), &s).unwrap().canonical);
     }
 }
@@ -180,14 +180,14 @@ mod props {
     use proptest::prelude::*;
 
     const MAGICS: [&str; 8] = [
-        "moirai-image 1",
-        "moirai-node 1",
-        "moirai-schema 1",
-        "moirai-query 1",
-        "moirai-refs 1",
-        "moirai-meta 1",
-        "moirai-aliases 1",
-        "moirai-ops 1",
+        "klotho-image 1",
+        "klotho-node 1",
+        "klotho-schema 1",
+        "klotho-query 1",
+        "klotho-refs 1",
+        "klotho-meta 1",
+        "klotho-aliases 1",
+        "klotho-ops 1",
     ];
 
     fn line() -> impl Strategy<Value = String> {

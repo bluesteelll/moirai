@@ -1579,7 +1579,7 @@ impl AnchorRec {
 /// `uid_file(r, p, q)` ([F08 §11.2]).
 pub fn uid_file(root: &str, path: &str, pred: Option<&[u8; 16]>) -> [u8; 16] {
     let mut v = Vec::new();
-    crate::prim::lp(&mut v, b"moirai-file-v1");
+    crate::prim::lp(&mut v, b"klotho-file-v1");
     crate::prim::lp(&mut v, root.as_bytes());
     crate::prim::lp(&mut v, path.as_bytes());
     crate::prim::lp(&mut v, pred.map_or(&[][..], |p| &p[..]));
@@ -1589,7 +1589,7 @@ pub fn uid_file(root: &str, path: &str, pred: Option<&[u8; 16]>) -> [u8; 16] {
 /// `uid_root(r)` ([F08 §11.3]).
 pub fn uid_root(root: &str) -> [u8; 16] {
     let mut v = Vec::new();
-    crate::prim::lp(&mut v, b"moirai-root-v1");
+    crate::prim::lp(&mut v, b"klotho-root-v1");
     crate::prim::lp(&mut v, root.as_bytes());
     crate::prim::blake3_128(&v)
 }
@@ -1597,7 +1597,7 @@ pub fn uid_root(root: &str) -> [u8; 16] {
 /// `uid_anchor(s, c, p)` ([F08 §11.4]).
 pub fn uid_anchor(src: &[u8; 16], captured: &[u8; 16], pred: Option<&[u8; 16]>) -> [u8; 16] {
     let mut v = Vec::new();
-    crate::prim::lp(&mut v, b"moirai-anchor-v1");
+    crate::prim::lp(&mut v, b"klotho-anchor-v1");
     crate::prim::lp(&mut v, src);
     crate::prim::lp(&mut v, captured);
     crate::prim::lp(&mut v, pred.map_or(&[][..], |p| &p[..]));
@@ -1783,7 +1783,7 @@ mod tests {
     #[test]
     fn uid_file_input() {
         let want = hexb(
-            "0E000000 6D6F697261692D66696C652D7631 07000000 70726F6A656374 09000000 646F63732F612E6D64 00000000",
+            "0E000000 6B6C6F74686F2D66696C652D7631 07000000 70726F6A656374 09000000 646F63732F612E6D64 00000000",
         );
         assert_eq!(want.len(), 46);
         assert_eq!(

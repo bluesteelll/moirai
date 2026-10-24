@@ -843,11 +843,11 @@ mod tests {
         bad[15] = 1;
         assert!(Reader::new(&bad).fstr(16).is_err());
         let mut out = Vec::new();
-        lp(&mut out, b"moirai-file-v1");
+        lp(&mut out, b"klotho-file-v1");
         assert_eq!(
             out,
             [
-                0x0E, 0, 0, 0, 0x6D, 0x6F, 0x69, 0x72, 0x61, 0x69, 0x2D, 0x66, 0x69, 0x6C, 0x65,
+                0x0E, 0, 0, 0, 0x6B, 0x6C, 0x6F, 0x74, 0x68, 0x6F, 0x2D, 0x66, 0x69, 0x6C, 0x65,
                 0x2D, 0x76, 0x31
             ]
         );

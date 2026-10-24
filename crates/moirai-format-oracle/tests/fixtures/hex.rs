@@ -665,7 +665,7 @@ fn log_references(slot: &HeadSlot, scan: &Scan, head: &str) -> Vec<Reference> {
 /// The rows of a segment's `FILES` section ([F09 §14.4]) and the `promoted_seg` of its `REFS` rows ([F11 §3.1]) as
 /// references, read from the sections alone.
 fn segment_references(name: &str, b: &[u8]) -> Result<Vec<Reference>, String> {
-    if !b.starts_with(b"MSEG") {
+    if !b.starts_with(b"KSEG") {
         return Ok(Vec::new());
     }
     let c = segment::decode_container(b).map_err(|e| format!("{name}: {e}"))?;

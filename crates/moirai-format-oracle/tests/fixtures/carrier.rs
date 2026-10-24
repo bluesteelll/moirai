@@ -2,8 +2,8 @@
 //! the tree rebuilt from the first parent's tree, `old/` and `new/` lists exactly the blobs of `tree.lst` and passes the
 //! image check ([F14 §3]–§9); the classification is the case's `class` ([F14 §10.9]); and items 1–9, re-derived from
 //! the carriers alone ([F14 §12.1]) with item 10 as the case states it, give the case's `c` and `commit-id`
-//! ([F07 §3.1]); a native case verifies against `Moirai-Commit` with the exporter's bytes (§10.1–§10.5); a demoted case
-//! states the id of its failed native reconstruction, which differs from `Moirai-Commit` unless a `Moirai-Ops` that is
+//! ([F07 §3.1]); a native case verifies against `Klotho-Commit` with the exporter's bytes (§10.1–§10.5); a demoted case
+//! states the id of its failed native reconstruction, which differs from `Klotho-Commit` unless a `Klotho-Ops` that is
 //! not the entry count demoted it ([F14 §12.1]).
 
 use std::collections::BTreeMap;
@@ -37,13 +37,13 @@ pub struct Case {
     pub parents: Vec<(Oid, String)>,
     /// `commit-id`: the id the store holds for this git commit.
     pub commit_id: [u8; 32],
-    /// `trailer-commit`: its `Moirai-Commit`, for a native candidate.
+    /// `trailer-commit`: its `Klotho-Commit`, for a native candidate.
     pub trailer: Option<[u8; 32]>,
     /// The `hlc` of its `commit` block.
     pub hlc: u64,
     /// `changeset-digest`.
     pub changeset_digest: [u8; 32],
-    /// `entry-count`: the item-10 entries of its tree diff ([F07 §10.4]), which `Moirai-Ops` states.
+    /// `entry-count`: the item-10 entries of its tree diff ([F07 §10.4]), which `Klotho-Ops` states.
     pub entry_count: u64,
     /// The schema version of its tree's marker (1 when the tree rebuild fails; the case's own check reports that).
     pub schema_version: u32,
@@ -156,7 +156,7 @@ impl Cases {
                 cases
                     .files(&c.name)
                     .ok()
-                    .and_then(|f| f.get(".moirai-image").cloned())
+                    .and_then(|f| f.get(".klotho-image").cloned())
                     .and_then(|m| moirai_format_oracle::image::files::parse_marker(&m).ok())
                     .map_or(1, |m| m.schema_version as u32)
             })
@@ -488,15 +488,15 @@ fn check(c: &Case, cases: &Cases) -> Result<(), String> {
                     hex(&got)
                 ));
             }
-            // [F14 §12.1]: a `Moirai-Ops` that is not the entry count demotes before any id is compared, so the
-            // reconstruction may then equal `Moirai-Commit`; any other demotion is the id check failing (§12.6).
+            // [F14 §12.1]: a `Klotho-Ops` that is not the entry count demotes before any id is compared, so the
+            // reconstruction may then equal `Klotho-Commit`; any other demotion is the id check failing (§12.6).
             let ops_demoted = matches!(
                 icommit::classify(&obj.message),
                 Ok(icommit::Class::Native(t)) if t.ops != Some(n)
             );
             if !ops_demoted && Some(want) == c.trailer {
                 return Err(
-                    "native-commit-id equals trailer-commit, yet Moirai-Ops is the entry count [F14 §12.1]"
+                    "native-commit-id equals trailer-commit, yet Klotho-Ops is the entry count [F14 §12.1]"
                         .into(),
                 );
             }

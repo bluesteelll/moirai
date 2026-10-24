@@ -77,8 +77,8 @@ pub fn decode_container(b: &[u8]) -> Result<Container<'_>> {
         return err(0, "a segment needs a 120-byte SegHdr [F09 §2.1]");
     }
     let mut r = Reader::new(b);
-    if r.array::<4>()? != *b"MSEG" {
-        return err(0, "SegHdr magic is not MSEG [F09 §2.1]");
+    if r.array::<4>()? != *b"KSEG" {
+        return err(0, "SegHdr magic is not KSEG [F09 §2.1]");
     }
     check_format(r.u16()?, 4, "segment")?;
     let hdr_sum = xxh3_64(&b[..112]);
@@ -268,7 +268,7 @@ pub fn encode_container(h: &SegHdr, secs: &[(SecEnt, Vec<u8>)]) -> Vec<u8> {
         pos = start + s.len() as u64;
     }
     let mut w = Writer::new();
-    w.bytes(b"MSEG");
+    w.bytes(b"KSEG");
     w.u16(1);
     w.u8(h.seg_kind);
     w.u8(h.tok_ver);
@@ -3644,7 +3644,7 @@ pub(crate) mod tests {
         let d = decode_segment(&b).unwrap();
         assert_eq!(encode_segment(&d), b);
         assert_eq!(d.hdr.total_len, b.len() as u64);
-        assert_eq!(&b[..4], b"MSEG");
+        assert_eq!(&b[..4], b"KSEG");
         let mut bad = b.clone();
         let last = bad.len() - 1;
         bad[last] ^= 1;
@@ -5107,7 +5107,7 @@ mod props {
         /// [F09 §3], §17.1: decoding arbitrary bytes as a segment never panics (the checksum paths).
         #[test]
         fn segment_decode_never_panics(tail in proptest::collection::vec(any::<u8>(), 0..400)) {
-            let mut b = b"MSEG".to_vec();
+            let mut b = b"KSEG".to_vec();
             b.extend_from_slice(&tail);
             if let Ok(s) = decode_segment(&b) {
                 prop_assert_eq!(encode_segment(&s), b);
