@@ -6,7 +6,7 @@
 | Chapter | [F05], `docs/spec/format/05-log.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-11 (R-SPEC-P), [60 §3.1] item 1 |
-| Sources | [AR §4.1] `log`, `hist`, `cs` and `gitmap` rows and the rules paragraph; [AR §4.2] (the log-derived `HEAD` fields and the table pointers); [AR §4.3] (`RecHdr`, validity, groups, the chain, the record kinds, the commit body's place); [AR §4.4] (the sections records fold into, the `LEASES`, `MARKERS`, `IDEM` rows); [AR §4.5] steps 6, 8, 9, 10 and 12; [AR §4.9] (checkpoint, retirement, pins, GC); [AR §4.10]; [AR §5a.1]–[AR §5a.5] (refs, reflog, client heads, pins, promotion); [AR §5b.6] (`gitmap`, `image_cursor`, last-seen oids); [AR §5d.1] (runtime state); [AR §6.2] (leases, heartbeats, anchors); [AR §6.3] (cursors); [AR §6.4] (idempotency); [AR §6.5] (durability classes); [AR §13] `durability.lazy-kinds`; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.3] (the chain, pending groups, the publish fold); [80 §2.7.2]; [80 §2.11.2] (`OsFileId`, timestamps, `JOURNALCUR`, `DIRMAP`, `TREES`, the `FSINTENT` holder); [80 §3.1] X-F2, X-F3, X-F5, X-F8; [40 §2.6] (every runtime table, the `TreeReg` epoch layout); [40 §2.7] (anchor handles); [40 §2.11] R-6, R-7, R-15, R-18; [40 §3.4], [40 §3.5] (the intent protocol); [50 §8.1] F8, F9, F14, F17; [90 §4.1], [90 §4.3], [90 §4.4], [90 §10.1] (`LEASES` rows); [60 §2.5] the [AR] row "Log", the audit row "Log", the "Protocol decisions" row (decisions (a), (b), (k)), the issue-2 row "Store parameters"; [70 S5], [70 S7], [70 S8], [70 S12]; [71 RAM-M5]; [72 M1], [72 M9]; [73 F4]; `docs/spec/reviews/a1-P.md` A1P-04, A1P-12; [PLAN §3.2] WP-11, [PLAN §3.3] (rotation padding when fewer than 40 B remain; record kinds for lazy `ANCESTRY`, heartbeat and cursor; the stale [60 §2.5] copy of R-7); [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F14 §11.2] (the `BodyDrop` record, spec sync 3); [AR §11] OQ-A-9 with [F01 §8.2] (the symbol class `model`); [AR §11] #46 and OQ-A-10 with [API §8.8], §9.4 and [F11 §13.5] (the reserved `Harvest` record, spec sync 3); `docs/spec/reviews/spec-sync-3.md` (the independent check of spec sync 3) |
+| Sources | [AR §4.1] `log`, `hist`, `cs` and `gitmap` rows and the rules paragraph; [AR §4.2] (the log-derived `HEAD` fields and the table pointers); [AR §4.3] (`RecHdr`, validity, groups, the chain, the record kinds, the commit body's place); [AR §4.4] (the sections records fold into, the `LEASES`, `MARKERS`, `IDEM` rows); [AR §4.5] steps 6, 8, 9, 10 and 12; [AR §4.9] (checkpoint, retirement, pins, GC); [AR §4.10]; [AR §5a.1]–[AR §5a.5] (refs, reflog, client heads, pins, promotion); [AR §5b.6] (`gitmap`, `image_cursor`, last-seen oids); [AR §5d.1] (runtime state); [AR §6.2] (leases, heartbeats, anchors); [AR §6.3] (cursors); [AR §6.4] (idempotency); [AR §6.5] (durability classes); [AR §13] `durability.lazy-kinds`; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.3] (the chain, pending groups, the publish fold); [80 §2.7.2]; [80 §2.11.2] (`OsFileId`, timestamps, `JOURNALCUR`, `DIRMAP`, `TREES`, the `FSINTENT` holder); [80 §3.1] X-F2, X-F3, X-F5, X-F8; [40 §2.6] (every runtime table, the `TreeReg` epoch layout); [40 §2.7] (anchor handles); [40 §2.11] R-6, R-7, R-15, R-18; [40 §3.4], [40 §3.5] (the intent protocol); [50 §8.1] F8, F9, F14, F17; [90 §4.1], [90 §4.3], [90 §4.4], [90 §10.1] (`LEASES` rows); [60 §2.5] the [AR] row "Log", the audit row "Log", the "Protocol decisions" row (decisions (a), (b), (k)), the issue-2 row "Store parameters"; [70 S5], [70 S7], [70 S8], [70 S12]; [71 RAM-M5]; [72 M1], [72 M9]; [73 F4]; `docs/spec/reviews/a1-P.md` A1P-04, A1P-12; [PLAN §3.2] WP-11, [PLAN §3.3] (rotation padding when fewer than 40 B remain; record kinds for lazy `ANCESTRY`, heartbeat and cursor; the stale [60 §2.5] copy of R-7); [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F14 §11.2] (the `BodyDrop` record, spec sync 3); [AR §11] OQ-A-9 with [F01 §8.2] (the symbol class `model`); [AR §11] #46 and OQ-A-10 with [API §8.8], §9.4 and [F11 §13.5] (the reserved `Harvest` record, spec sync 3); `docs/spec/reviews/spec-sync-3.md` (the independent check of spec sync 3); review pass 2: `docs/spec/reviews/P-pass2.md` P2-11, with the owner's rulings R-127 of 2026-10-22 and R-139 of 2026-10-23 and the orchestrator's rulings R-142 of 2026-10-23 and R-157 and R-159 of 2026-10-24 (the `Harvest` fold as [F11 §13.5] states it, the forget's cut and its C-rule: §9.30, §10.3, open point 25) |
 | Depends on | [F01], [F02], [F03], [F04], [F17]; cites [F06], [F09], [F10], [F11], [F13], [F15], [F16], [F18], [F19], [F20], [API], [CFG], [OS/clock], [OS/fs], [OS/proc], [OS/project] |
 
 ## 1. Scope
@@ -1210,7 +1210,7 @@ transcript ([F11 §13.5]). Reserved before the freeze: format-v1 writers append 
 | 6 | `start` | `u64` | `op` = 2 | the first byte of the harvested range [`start`, `end`) |
 | 7 | `end` | `u64` | `op` = 2 | the end of the range; greater than `start` |
 | 8 | `commit` | `cid16` | `op` = 2 | the `id16` of the `Apply` commit whose records the range produced; not zero |
-| 9 | `from` | `u64` | `op` = 3 | remove every range of the row whose `start` is at least `from`; with 0, the row itself |
+| 9 | `from` | `u64` | `op` = 3 | remove every range of the row whose `start` is at least `from`, and cut a range with `start` < `from` < `end` to [`start`, `from`), which keeps its `commit`, `commit_lsn` and place ([F11 §13.5]); with 0, the row itself |
 | 10 | `hlc` | `hlc` | always | HLC at append, drawn from the store's HLC sequence, which the record raises ([F16] P-36) |
 
 Rules:
@@ -1219,7 +1219,8 @@ Rules:
 - C-rules ([F06 §2.4]'s sense; [API §8.8], [F11 §13.5]): a range's `commit` names a `Commit` record earlier in the same
   group; a range overlaps no range of its row whose commit a live ref reaches, nor another range of the same group
   (`harvest_overlap` refuses the batch first); a mark is written only when it changes a member of the row, and a forget
-  only when it removes something.
+  unless `from` is above 0 and no range of the row holds `from` or starts after it (a range it cuts counts as removed,
+  and with `from` 0 the row's removal does; [API §8.8]; the orchestrator's rulings R-157 and R-159 of 2026-10-24).
 - **Group** (§4.7). A `HarvestMark` or `HarvestForget` command's record is a group of its own. An `Apply` batch writes,
   for each result entry with a `harvest` member, a mark when the entry changes its row and then the range, after the
   batch's `Commit` record that the range names, in that commit's group ([API §9.4]); the range and the records harvested
@@ -1228,9 +1229,15 @@ Rules:
   by a command of [API] (`HarvestMark`, `HarvestForget`, `Apply`) that the model executes, and its effect is visible (the
   runtime snapshot's `harvest` member, [API §8.8], from M9–M10); it is not class-I maintenance. So it draws from
   `hlc_seq` and raises it (§10.2), and the engine and the model give a later commit the same `hlc` ([API §6.2] CK-4).
-- **Fold** ([F11 §13.5]; §10.3). `mark` creates the row with no ranges, or sets its `path`, `head` and `seen`; `range`
-  appends `{start, end, commit, commit_lsn}` to the row's ranges, `commit_lsn` being the lsn of the `Commit` record the
-  range names; `forget` removes every range whose `start` is at least `from`, and the row itself when `from` = 0.
+- **Fold** ([F11 §13.5]; §10.3), as [F11 §13.5]'s fold states it. `mark` creates the row with no ranges, or sets its
+  `path`, `head` and `seen`; `range` adds `{start, end, commit, commit_lsn}`, `commit_lsn` being the lsn of the `Commit`
+  record the range names, and the ranges one batch adds to a row merge when adjacent, at that batch's harvest: the `end`
+  of one is the `start` of the other, the merged range runs from the least `start` to the greatest `end` at the place of
+  the first member, and a range adjacent to no range of its batch is appended at the end; `forget` removes every range
+  whose `start` is at least `from`, cuts a range with `start` < `from` < `end` to [`start`, `from`), which keeps its
+  `commit`, `commit_lsn` and place, and removes the row itself when `from` = 0 (review pass 2, P2-11; the owner's ruling
+  R-139 of 2026-10-23; the orchestrator's ruling R-142 of 2026-10-23). A `gc` run's checkpoint fold merges ranges once
+  more ([F11 §13.5] "Merge at a `gc` run"); no record carries that merge.
 - The table is store-local and the image never exports it ([F14 §12.5]). The record changes no existing commit id,
   `changeset_digest` or state digest; only a later commit's `hlc` follows the sequence it raised, as after any semantic
   durable record.
@@ -1295,9 +1302,11 @@ particular:
 - a `BodyDrop` adds a `DROPPED` row ([F11 §13.4]) for each of its hashes, with its `reason`, the record's lsn as
   `drop_lsn` and its `hlc`; a hash that already has a row keeps it (§9.29). From then on the hash is in the dropped set of
   every view that holds the record ([F06 §8.1] DB-1, [F16] P-102);
-- a `Harvest` (reserved, M9–M10) applies its operation to the `HARVEST` row of its `source` ([F11 §13.5]): a mark creates
-  the row or sets `path`, `head` and `seen`, a range appends its range with the lsn of the `Commit` it names, a forget
-  removes the ranges from `from` on, and the row at `from` = 0 (§9.30).
+- a `Harvest` (reserved, M9–M10) applies its operation to the `HARVEST` row of its `source` by [F11 §13.5]'s fold: a
+  mark creates the row or sets `path`, `head` and `seen`; a range adds its range with the lsn of the `Commit` it names
+  and merges with each range of the same batch that it is adjacent to, at that batch's harvest; a forget removes the
+  ranges that start at or after `from`, cuts every range with `start` < `from` < `end` to end at `from`, and removes the
+  row at `from` = 0 (§9.30).
 
 ### 10.4 Runtime records
 
@@ -1483,8 +1492,11 @@ None. No value in this chapter is decided by an M0 measurement. The extent size 
       `u64` sizes and offsets, and a range naming its commit by `id16`; `commit_lsn` ([F11 §13.5]) is not carried,
       since the named `Commit` stands earlier in the same group. It raises the HLC sequence: its effect is visible and the
       model executes its commands, which is the criterion of the sequence ([API §6.2] CK-4). An `Apply` batch's mark and
-      range follow the `Commit` the range names in that commit's group, so a range never outlives or precedes the
-      records harvested from it; a `HarvestMark` or `HarvestForget` record is alone.
+      range follow the `Commit` the range names in that commit's group, so a range that a batch adds never outlives or
+      precedes the records harvested from it; a range that a `gc` run merged ([F11 §13.5] "Merge at a `gc` run") joins
+      members whose commits are fixed on `main`, live or lost together, and keeps the commit of the member with the
+      greatest `commit_lsn` (review pass 2, P2-11; the owner's ruling R-139 of 2026-10-23); a `HarvestMark` or
+      `HarvestForget` record is alone.
     - **Group order.** §4.7's commit-group row listed an import's `BodyDrop` records after the commits although its rule
       put each before the first commit that names its hash; the records cell now lists them first.
     - **Closure check: bytes in an unlanded reservation** (§9.29 "Origin" and "The purge"). "Holds" did not say whether

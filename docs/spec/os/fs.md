@@ -5,7 +5,7 @@
 | Title | `os::fs` — store-file operations, durability classes, renames, sharing modes and error mapping |
 | Status | draft, pass 1 pending |
 | Work package | WP-17a (role R-SPEC-P), part 1 of WP-17 |
-| Sources | [80 §2.1] (`os::fs` row, boundary rules); [80 §2.3.1] (classes and calls); [80 §2.3.2] (protocol points, owned by [F16]); [80 §2.3.3] (extent creation); [80 §2.3.4] (flush failure); [80 §2.3.5] items (2), (3), (5), (8), (10), (12); [80 §2.5] rule 2 (seal); [80 §2.12] rows "Bulk passes", "Store files' sharing", "Temporary files", "Store `config` rewrite"; [80 §3.1] X-F5; [AR §2.8] T8; [AR §4.1] rules paragraph; [AR §4.10]; [AR §6.5]; [40 §3.4] step 3 (errors 5/32, `--retry-ms`); [60 §2.5] fault-model row items (5), (8), protocol decisions (a), (c), (f), (h); [60 §5.1] "Counts"; [90 §5.4] (store-directory ACE); PLAN §6.1 #3 (`MOVEFILE_WRITE_THROUGH`); `docs/spec/reviews/a1-P.md` A1P-07; research reports [X17 §3.1–§3.8], [13 §1.4], [05 §6] as cited by [80]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the swap intent's magic) |
+| Sources | [80 §2.1] (`os::fs` row, boundary rules); [80 §2.3.1] (classes and calls); [80 §2.3.2] (protocol points, owned by [F16]); [80 §2.3.3] (extent creation); [80 §2.3.4] (flush failure); [80 §2.3.5] items (2), (3), (5), (8), (10), (12); [80 §2.5] rule 2 (seal); [80 §2.12] rows "Bulk passes", "Store files' sharing", "Temporary files", "Store `config` rewrite"; [80 §3.1] X-F5; [AR §2.8] T8; [AR §4.1] rules paragraph; [AR §4.10]; [AR §6.5]; [40 §3.4] step 3 (errors 5/32, `--retry-ms`); [60 §2.5] fault-model row items (5), (8), protocol decisions (a), (c), (f), (h); [60 §5.1] "Counts"; [90 §5.4] (store-directory ACE); PLAN §6.1 #3 (`MOVEFILE_WRITE_THROUGH`); `docs/spec/reviews/a1-P.md` A1P-07; research reports [X17 §3.1–§3.8], [13 §1.4], [05 §6] as cited by [80]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the swap intent's magic); review pass 2: `docs/spec/reviews/P-pass2.md` P2-7 (the `restore` swap in [F16] P-85's order: §2's protocol-point row, §4.9) |
 
 ---
 
@@ -413,7 +413,7 @@ pub struct DurabilityFailure { pub class: DurabilityClass, pub call: &'static st
 | `HEAD` barrier before a deletion, retirement or recycling | (no-op publish under the writer byte) → `sync(DataAndMeta)` on `HEAD` outside the writer byte → `unlink` → `sync_dir` |
 | Boot-change recovery | re-write with `write_at` → `sync(Data)` on the log → publish → `sync(DataAndMeta)` on `HEAD` |
 | Store `config` rewrite | `create_new(tmp/…)` → `write_at` → `sync(DataAndMeta)` → `rename_replace` onto `config` → `sync_dir(store root)` (and of `tmp/`) |
-| `restore` swap | `swap_dirs` (§4.9), under the writer and maintenance bytes |
+| `restore` swap | `swap_dirs` (§4.9), after `retired` is durable, both bytes are released and every handle into the store is closed ([F16] P-85 step 2) |
 | `backup` | per copied file `create_new` → `write_at`… → `sync(DataAndMeta)`; then `sync_dir` of the backup directory; then the durable `Backup` record. Copies are by read and write only: never reflink, `clonefile` or `CopyFileW` block cloning ([80 §2.3.2]) |
 | Image export | pack and idx `sync(DataAndMeta)` → `rename_noreplace` into `objects/pack/` → `sync_dir`; a loose object `sync(DataAndMeta)` → `rename_noreplace` into `objects/<xx>/` (an existing name is success) → `sync_dir` of `objects/<xx>/` and, when created, of `objects/` ([F16] P-100); `packed-refs.lock` `sync(DataAndMeta)` → `rename_replace` onto `packed-refs` → `sync_dir` (loose `<ref>.lock` → `<ref>` likewise); only then the `gitmap` commit |
 
@@ -510,8 +510,9 @@ parents** ([80 §2.3.2], X-F5), or one `sync_group` on macOS.
 ### 4.9 `swap_dirs`, `swap_recover` and the swap intent
 
 `swap_dirs(a_parent, a, b_parent, b, retry)` exchanges two directories on one volume: afterwards the name `a` holds what
-`b` held, and `b` what `a` held. `restore` uses it to put a restored store in place under the writer and maintenance bytes
-([AR §4.10]); `a` and `b` are single components (`RelPath` of one component).
+`b` held, and `b` what `a` held. `restore` uses it to put a restored store in place after it has made `retired` durable
+under the writer and maintenance bytes, released both and closed every handle into the store ([F16] P-85; [AR §4.10]);
+`a` and `b` are single components (`RelPath` of one component).
 
 ```rust
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -606,11 +607,12 @@ followed by `sync_dir` of the parents involved (one directory or two, decided as
 **Accepted limit (FM-10).** The row "`I` unreadable" cannot tell a pre-rename state from an intent that an external
 actor corrupted after step 6 (`A` and `B` present, `T` absent): such an intent is removed with result `NothingDone`
 instead of `Completed`, although the directories are already exchanged (`A` holds what `B` held, and the old store at
-`B` has no `HEAD.retired` yet). Both implementations behave so; an external rewrite of a store-adjacent file is covered
-for detection only ([F15] FM-10, crash gates), and here nothing detects it.
+`B` carries the `HEAD.retired` that `restore` made durable before the swap, [F16] P-85 step 2, [F02 §3.6]). Both
+implementations behave so; an external rewrite of a store-adjacent file is covered for detection only ([F15] FM-10,
+crash gates), and here nothing detects it.
 
-After `Completed` the caller runs the remaining `restore` steps (the old store, now at `B`, gets `HEAD.retired`, [AR §4.10],
-[F16]); after `RolledBack` the restore did not happen and `B` holds the restored copy intact.
+After `Completed` the swap is done: the old store, now at `B`, keeps the `HEAD.retired` that [F16] P-85 step 2 set before
+it ([AR §4.10]); after `RolledBack` the restore did not happen and `B` holds the restored copy intact.
 
 ### 4.10 `file_size`, `identity`, `root_identity`, `path_identity`
 

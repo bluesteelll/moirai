@@ -6,7 +6,7 @@
 | Chapter | [F16], `docs/spec/format/16-protocol.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-16b, the protocol part of WP-16 ([PLAN §3.2] item 1), author role R-SPEC-P |
-| Sources | [60 §2.5]: the issue-2 row "Protocol decisions" (decisions (a)–(f), (j)–(m)) and the paragraph after the audit-rows table that restates (a)–(c) and adds (g)–(i); the audit rows "`HEAD`", "Log", "`Vfs`/`ProjectFs`" and "Cross-platform" (X-F2–X-F6, protocol part); [60 §3.1] items 3 and 4 (the seeded-bug list) and the exit criteria; [60 §3.13] GT1, GT3, GT4; [60 §4.4] item 4. [80 §2.2.1] items 2–5, 7, 9; [80 §2.2.3]; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.2] (choice D and why positions are not enough); [80 §2.4.3] (the whole protocol, "Invariants" and "Costs"); [80 §2.4.4]; [80 §2.5] rules 1–6 and 8; [80 §2.6]; [80 §2.7.1] (boot-identity rule, Unknown-boot mode); [80 §3.1] X-F2–X-F6. [AR §2.8]; [AR §4.1] "Rules"; [AR §4.2] (durable bound, boot check, two-slot barrier, `retired`); [AR §4.3] (validity, groups, bulk commits); [AR §4.5] steps 1–12 and "Flush grouping"; [AR §4.7]; [AR §4.9]; [AR §4.10]; [AR §6.1]; [AR §6.2] (claims, fencing, holder liveness); [AR §6.4]; [AR §6.5]. [40 §3.4] (the `file mv` protocol and its recovery table, step 5's re-barrier), [40 §3.5]. [72 B1], [72 M1], [72 M2], [72 M3], [72 M8], [72 M9]; [61 B2]; [81 B1], [81 M6], [81 M7], [81 m4]. Reviews: `a1-P.md` A1P-01, A1P-02, A1P-06; `a1-S.md` S-06; `a1-dispositions.md` FS-4 and the chapter-16 rows. [PLAN §3.2] WP-16 and WP-40; [PLAN §3.3] (the `MOVEFILE_WRITE_THROUGH` gap); [PLAN §6.1] #3 and #14; [PLAN §7] E4; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the backup manifest's domain string) |
+| Sources | [60 §2.5]: the issue-2 row "Protocol decisions" (decisions (a)–(f), (j)–(m)) and the paragraph after the audit-rows table that restates (a)–(c) and adds (g)–(i); the audit rows "`HEAD`", "Log", "`Vfs`/`ProjectFs`" and "Cross-platform" (X-F2–X-F6, protocol part); [60 §3.1] items 3 and 4 (the seeded-bug list) and the exit criteria; [60 §3.13] GT1, GT3, GT4; [60 §4.4] item 4. [80 §2.2.1] items 2–5, 7, 9; [80 §2.2.3]; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.2] (choice D and why positions are not enough); [80 §2.4.3] (the whole protocol, "Invariants" and "Costs"); [80 §2.4.4]; [80 §2.5] rules 1–6 and 8; [80 §2.6]; [80 §2.7.1] (boot-identity rule, Unknown-boot mode); [80 §3.1] X-F2–X-F6. [AR §2.8]; [AR §4.1] "Rules"; [AR §4.2] (durable bound, boot check, two-slot barrier, `retired`); [AR §4.3] (validity, groups, bulk commits); [AR §4.5] steps 1–12 and "Flush grouping"; [AR §4.7]; [AR §4.9]; [AR §4.10]; [AR §6.1]; [AR §6.2] (claims, fencing, holder liveness); [AR §6.4]; [AR §6.5]. [40 §3.4] (the `file mv` protocol and its recovery table, step 5's re-barrier), [40 §3.5]. [72 B1], [72 M1], [72 M2], [72 M3], [72 M8], [72 M9]; [61 B2]; [81 B1], [81 M6], [81 M7], [81 m4]. Reviews: `a1-P.md` A1P-01, A1P-02, A1P-06; `a1-S.md` S-06; `a1-dispositions.md` FS-4 and the chapter-16 rows. [PLAN §3.2] WP-16 and WP-40; [PLAN §3.3] (the `MOVEFILE_WRITE_THROUGH` gap); [PLAN §6.1] #3 and #14; [PLAN §7] E4; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the backup manifest's domain string); review pass 2: `docs/spec/reviews/P-pass2.md` P2-2 and P2-8, with the owner's ruling R-127 of 2026-10-22 (the maintenance holder record and the stall report: P-76, P-98; a purge's three explicit runs: P-76, open point 31), P2-5 (P-35's pointer to P-37's fallback) and P2-6 (the fault-model items of P-29, P-48, P-50 and P-101 step 8), N-P7 and P2-11, with the owner's ruling R-127 of 2026-10-22 (open points 12 and 30; the A lens's open point 4, `docs/spec/reviews/A-pass2.md`) and the orchestrator's ruling R-142 of 2026-10-23 (the rebuild keeps `HARVEST`: §13.3) |
 | Depends on | [F01], [F02], [F03], [F04], [F05], [F13], [F15], [F17]; cites [F06], [F07], [F09], [F10], [F11], [F12], [F14], [F18], [F19], [F20], [API], [CFG], [OS/fs], [OS/lock], [OS/map], [OS/env], [OS/proc], [OS/clock], [OS/project] |
 
 ## 1. Scope
@@ -198,16 +198,16 @@ valid one S (P-61). Then, in this order:
 
 **P-29 (the scan goes to the end of the valid log).** The appender scans from its L0, with the chain value it remembered
 there, to the end E_v of the valid log by the chain rule (§7). The scan does not stop at the published `committed_lsn`:
-groups beyond it (pending groups, and groups whose publish an OS crash lost) are part of the valid log. At the first
-invalid group, at boundary p: if p ≥ S.`durable_lsn`, p is the end of the log; if p < S.`durable_lsn`, the store is
-corrupt and the process exits 7 `store_corrupt` naming `moirai repair`, and nothing below `durable_lsn` is ever
+groups beyond it (pending groups, and groups whose publish an OS crash lost, [F15] FM-1.1) are part of the valid log. At
+the first invalid group, at boundary p: if p ≥ S.`durable_lsn`, p is the end of the log; if p < S.`durable_lsn`, the
+store is corrupt and the process exits 7 `store_corrupt` naming `moirai repair`, and nothing below `durable_lsn` is ever
 overwritten ([F05 §5.3], decision (b)). A missing next extent is such an invalid group at its first byte, so below
 `durable_lsn` it is corruption too. A failed read is not an invalid group: at any position it stops the appender by
-P-92, which then appends nothing. If the valid log ends at a boundary p with S.`durable_lsn` ≤ p < S.`committed_lsn`
-(a lazy tail lost after a crash or a failed flush), the appender first publishes (P-48) `committed_lsn` = p (P-49),
-under the same holding, and restarts at P-28. Until that publish other appenders would treat a refill of the hole as
-already published, so their allocators and HLC maxima would miss it (I1, I43′) and a reader could see an uncovered
-durable group (I-G2).
+P-92, which then appends nothing. If the valid log ends at a boundary p with S.`durable_lsn` ≤ p < S.`committed_lsn` (a
+lazy tail lost after a crash, [F15] FM-1.1 and FM-1.5, or after a failed flush, FM-3.6), the appender first publishes
+(P-48) `committed_lsn` = p (P-49), under the same holding, and restarts at P-28 (review pass 2, P2-6). Until that
+publish other appenders would treat a refill of the hole as already published, so their allocators and HLC maxima would
+miss it (I1, I43′) and a reader could see an uncovered durable group (I-G2).
 
 **P-30 (pending groups go only to a scratch layer).** Groups up to the published `committed_lsn` are applied to the
 process's overlay. Groups beyond it are replayed into a scratch layer that is discarded when the writer byte is released.
@@ -253,7 +253,9 @@ appended after a `BodyDrop` carries a body it drops ([F13] I-D1 (a); spec sync 3
 encoding — an inline commit that now exceeds `store.commit.inline-max-bytes` releases the writer byte and re-runs
 phase 1 on the bulk path (bulk-class verbs; this counts as one of P-34's re-runs) or is refused with E501 (agent verbs);
 and W3 is re-checked — a group that no extent can hold is refused with exit 7 `commit_too_large` ([F06 §4.6]). In every
-refusal nothing is appended.
+refusal nothing is appended. Before any of these outcomes, P-37's fallback applies: a re-check of W1 or W3 that fails
+with the known locators and passes with every locator unknown writes every locator unknown, and the commit goes on
+(review pass 2, P2-5).
 
 **P-36 (the HLC is assigned at append, one sequence over the semantic records).** Every append-time HLC of the group is
 assigned here, in group order, by [OS/clock §7]'s rule `hlc_next(wall_ms, h) = max((max(0, wall_ms) as u64) << 16,
@@ -367,7 +369,8 @@ is made under the writer byte: read both slots, select the newest valid slot S b
 into the slot that does not hold S ([F04 §9.1]). `slot_seq` = S.`slot_seq` + 1. `boot_id` is copied from S except by
 P-66. No publisher writes a slot from a state it read before the current holding of the writer byte. A publisher that
 would write a slot failing [F04 §7] check 4 or 5 (for example `committed_lsn` < `durable_lsn`, when after a failed flush
-its own scan reads a shorter log than it flushed) writes nothing and exits 7 `store_corrupt`.
+its own scan reads a shorter log than it flushed, [F15] FM-3.2) writes nothing and exits 7 `store_corrupt` (review
+pass 2, P2-6).
 
 **P-49 (`committed_lsn`).** A publish sets `committed_lsn` to the end of the valid log as the publisher scanned it at
 publish time, stopping before the first pending durable group that its flush does not cover (a publish without a flush
@@ -375,15 +378,15 @@ covers none). Lazy groups appended during a flush are therefore published with i
 valid log ends below it (a lazy tail lost after a crash or a failed flush), and then to that end ([80 §2.4.3], I-G6).
 
 **P-50 (the fold).** A publish folds the `HEAD` effects of every group between S.`durable_lsn` and the new
-`committed_lsn`, in log order, by [F05 §10.2] (a group S already folded changes nothing: every field takes the maximum or
-advances). It starts at `durable_lsn`, not `committed_lsn`: after a crash `HEAD` can revert to a slot whose
-`committed_lsn` covers a lazy tail that was lost and refilled before the crash, and a fold from `committed_lsn` would
-miss the refill (repeated counters and HLCs, I1, I43′). The fold: counters take the maximum; the table pointers advance
-to the newest covered record of their kind; a covered `Checkpoint` sets the segment set, `checkpoint_lsn`, `active_log`,
-`flags` bit 1 and `next_file_no`; a covered `GitMap` advances `image_cursor`; `seq_ring` gains the covered commits;
-`hlc_seq` and `hlc_commit` take the maximum over the covered semantic records and commits (P-36). Fields kept in `HEAD`
-([F04 §6]) are copied unless the publish is the one that changes them. No field decreases except by P-49, so no publish
-can republish an older segment set.
+`committed_lsn`, in log order, by [F05 §10.2] (a group S already folded changes nothing: every field takes the maximum
+or advances). It starts at `durable_lsn`, not `committed_lsn`: after a crash `HEAD` can revert to a slot ([F15] FM-1.1)
+whose `committed_lsn` covers a lazy tail that was lost (FM-3.6) and refilled before the crash, and a fold from
+`committed_lsn` would miss the refill (repeated counters and HLCs, I1, I43′; review pass 2, P2-6). The fold: counters
+take the maximum; the table pointers advance to the newest covered record of their kind; a covered `Checkpoint` sets the
+segment set, `checkpoint_lsn`, `active_log`, `flags` bit 1 and `next_file_no`; a covered `GitMap` advances
+`image_cursor`; `seq_ring` gains the covered commits; `hlc_seq` and `hlc_commit` take the maximum over the covered
+semantic records and commits (P-36). Fields kept in `HEAD` ([F04 §6]) are copied unless the publish is the one that
+changes them. No field decreases except by P-49, so no publish can republish an older segment set.
 
 ### 5.5 Phase 3
 
@@ -656,21 +659,29 @@ before it writes `HEAD`: a rebuilt store holds no byte of a body its log drops.
 **P-76 (one maintenance holder).** Every delta checkpoint, runtime-only fold, tiered fold, promotion, retirement, rollup,
 GC, orphan sweep, spare-extent preparation (P-96), intent recovery (P-71), backup (P-87) and body purge (P-101) runs
 under the maintenance byte, taken by `try_acquire` only: `Busy` makes an automatic trigger skip its work and an explicit
-verb exit 7 `maintenance_busy` ([F19 §10.2]; pass 1, P1-31; `BodyDrop`'s purge excepted, P-101). Its durable records
+verb exit 7 `maintenance_busy` ([F19 §10.2]; pass 1, P1-31; `BodyDrop`'s purge excepted, P-101). Every holder of the
+byte, these and those of P-68 and P-85 included, writes its holder record `MaintDiag` right after its grant and at each
+step boundary of a long job (P-98), and zeroes it before its orderly release ([F03 §13.3] MD-1, MD-3). An automatic
+trigger that finds the byte `Busy` while C1 of [F17 §5.2] holds still skips its work, reads that record once and
+reports the stall ([F19]) when the record is valid and its last recorded step is older than `maintenance.stall-after`
+([F17 §5.2], P36); an absent or torn record, or one within the bound, gives no report, and nothing else decides on the
+record ([F03 §13.3] MD-4, MD-5; review pass 2, P2-2; the owner's ruling R-127 of 2026-10-22). Its durable records
 go through phases 2a and 2b. A new segment set becomes visible only with the publish that covers its `Checkpoint`;
 readers keep the old set until then ([AR §4.5] step 12, [80 §2.4.3] "Maintenance").
-No automatic trigger ([F17 §5], P-51) runs a body purge, whatever the number of active extents: a purge is a long job of
-a rollup's size (P-98), which no CLI, hook or MCP process runs (P-51, [F17 §6.2]), and no trigger spawns a detached run
-for it (a `gc` run spawned for a rollup finishes it as every `gc` run does, [F17 §11.2]). A purge is left pending only
-when `BodyDrop` found the maintenance byte busy, a run was cut short, or bulk commits kept it from publishing (P-101);
-`BodyDrop`, `gc` and `backup` finish it (P-101), and until then `doctor` reports it (`purge_pending`, [F19],
+No automatic trigger ([F17 §5], P-51) runs a body purge, whatever the number of active extents, and no hook or MCP
+process runs one: a purge is a long job of a rollup's size (P-98, [F17 §6.2]), and no trigger spawns a detached run for
+it (a `gc` run spawned for a rollup finishes it as every `gc` run does, [F17 §11.2]). A purge has three explicit runs:
+`BodyDrop`, `gc` and `backup` (P-101, P-87; review pass 2, P2-8). A purge is left pending only when `BodyDrop` found the
+maintenance byte busy, a run was cut short, or bulk commits kept it from publishing (P-101); one of those three runs
+finishes it, and until then `doctor` reports it (`purge_pending`, [F19],
 [API §8.6]) and more than `store.log-active-extents` extents may stay active ([F17 §4.2]).
 
 **P-98 (a long holding keeps the tail bounded).** A **long job** — a rollup, a GC rewrite of `hist`, `blobs` or `gitmap`
 files, a `backup` copy, a body purge's rewrites (P-101) — divides its work into **steps** of at most one output file
-written and sealed, or one file copied. At every step boundary it evaluates C1 of [F17 §5.2] over the current tail with
-m = 1 (and the quiet cap of [F17 §5.3] while quiet mode is on), and when C1 holds it runs one **yield checkpoint** under
-its own holding before its next step: a delta checkpoint over the segment set of the newest slot that folds the tail up to the
+written and sealed, or one file copied. At every step boundary it writes its holder record ([F03 §13.3] MD-1), then
+evaluates C1 of [F17 §5.2] over the current tail with m = 1 (and the quiet cap of [F17 §5.3] while quiet mode is on),
+and when C1 holds it runs one **yield checkpoint** under its own holding before its next step: a delta checkpoint over
+the segment set of the newest slot that folds the tail up to the
 published `committed_lsn`, by phases 2a and 2b, and does nothing else — no promotion, retirement, rollup or GC, and no
 tiered fold except of the yield deltas of the same holding, which it folds into its own new delta and releases. It
 therefore never releases a file the job reads or copies (the job's inputs are the set of the slot it started from, which
@@ -833,8 +844,8 @@ The steps, in this order:
    it retired (P-14, P-77, the grace excepted: the grace only spares a reader a retry, and a reader that loses the race
    re-reads `HEAD`, P-59, P-89). The files of a released reservation whose `Reserve` record lies at or after
    (m − 1)·E wait until its extent is retired (P-77 condition 2), as a deletion still due ([F13] I-D1 (c)). The purge is
-   then **complete** (`purged`, [API §8.7]). A deletion that fails, or a crash, leaves the file to the next maintenance
-   run (P-77, P-79).
+   then **complete** (`purged`, [API §8.7]). A deletion that fails ([F15] FM-8.2, FM-8.3), or a crash that loses it
+   ([F15] FM-2.3), leaves the file to the next maintenance run (P-77, P-79; review pass 2, P2-6).
 
 Steps 3 to 6 run in that order because a `BlobRef` names a `blobs` file's offsets and a `cs_ref` names a `cs.<n>`'s length
 and digest; the yield checkpoints between them (P-98) release no file the purge reads (only earlier yield deltas of the
@@ -908,7 +919,9 @@ as held (spec sync 3).
    `doctor`. A failure of kind `FlushFailed` (a flush embedded in the swap failed, [OS/fs §4.1]) exits 7 at once in
    either case: `restore` issues no further call, and the intent and `retired` stay for `doctor`.
 
-`repair --rebuild-from-log` builds its rebuilt store beside the store and puts it in place by steps 2–4. Plain `repair` of
+`repair --rebuild-from-log` builds its rebuilt store beside the store and puts it in place by steps 2–4; it keeps
+`HARVEST` as it keeps every runtime table, as `backup` and `restore` do ([API §8.8]; review pass 2, P2-11; the
+orchestrator's ruling R-142 of 2026-10-23). Plain `repair` of
 a store with no valid `HEAD` slot, or with a fatal slot (treated as absent, and the other slot is not trusted either;
 P-61), holds the maintenance and flush bytes throughout (`Busy` on the maintenance byte:
 exit 7 `maintenance_busy`) and rebuilds the slot state from the extent heads (P-97; [F04 §8.1], [F05 §4.5], §9.28):
@@ -1385,6 +1398,8 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
 12. **A reader that cannot run boot-change recovery** (P-60). A read-only principal after a reboot cannot write the store.
     It reads under the Unknown-boot rules, whose documented loss ([80 §2.7.1]) is that a commit acknowledged before the
     crash stays invisible until a writer runs. X5 would prefer a mark; the review decides whether [F19] adds a notice.
+    **Review pass 2 (the A lens's open point 4, `docs/spec/reviews/A-pass2.md`): closed** by the owner's ruling R-127 of
+    2026-10-22: [F19] adds a notice for such a reader; its code and text are [F19]'s.
 13. **`durable_lsn` is a lower bound after a crash.** An OS crash can leave a `HEAD` slot older than the durable log
     ([72 B1]), and a failed `HEAD` flush can do the same (FM-3). `durable_lsn` then understates the durable end. A
     persistent read error ([F15] FM-12) in `(durable_lsn, true end]` ends the log there (P-92), and the next append would
@@ -1466,7 +1481,8 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
     namespace model, and the toy's own checks are kept honest by R-HARN-S's review), named `doctor --verify` in the
     `model` bullet for the toy, and said in P-65 that the `Marker` records carry the holder-set and flag changes of
     ME-001 to ME-011, not the storage moves of ME-012 and ME-013. The owner's decision of 2026-10-06, OQ-A-2 (a), adds
-    the detector rule to PLAN's S4; §17.2 now states the amended S4.
+    the detector rule to PLAN's S4; §17.2 now states the amended S4. **Review pass 2 (N-P7): accepted.** The owner's
+    ruling R-127 of 2026-10-22 accepts the masked-bug dispositions above as written; no §17.3 row changes.
 31. **Spec sync 3** ([AR §11] #33, OQ-A-7 (a), decided 2026-10-06; [F06 §8.1] DB-8). The protocol of a body drop:
     - **The record.** `BodyDrop` ([F05 §9.29]) is a semantic durable record (P-36, P-6): it is a command's record, the
       model executes it, and it raises the HLC sequence as every other such record does. A `BodyDrop` command writes it
@@ -1524,9 +1540,10 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
         text [F19] may widen). Step 7 releases no file that a live `BlobRef`, `cs_ref` or `FILES` row names.
       - *No automatic purge* (P-76). Of the check's two options (run a pending purge from the automatic retirement
         trigger once more than 2 × P02 extents are active, or state that nothing automatic runs one), the second is
-        taken: the purge is a long job of a rollup's size, which no CLI, hook or MCP process runs (P-51), and starting
-        it detached would need a verb [API] does not define. With import records out of the pending test, only a busy
-        maintenance byte at `BodyDrop`, a crash or the bound above leaves a purge pending; `BodyDrop`, `gc` and
+        taken: the purge is a long job of a rollup's size, which no automatic trigger, hook or MCP process runs (P-51;
+        review pass 2, P2-8: the `BodyDrop` command, the verb `moirai body drop`, runs one, P-101, [API §8.7]), and
+        starting it detached would need a verb [API] does not define. With import records out of the pending test, only
+        a busy maintenance byte at `BodyDrop`, a crash or the bound above leaves a purge pending; `BodyDrop`, `gc` and
         `backup` finish it, and `doctor`'s `purge_pending` ([F19], [API §8.6], a finding for R-SPEC-F) names it.
       - *`Harvest`.* The reserved record kind 30 of the harvest cursor ([F05 §9.30]) is durable (P-6), a semantic
         record of the HLC sequence (P-36: its commands are executed by the model and its effect is visible), applied at

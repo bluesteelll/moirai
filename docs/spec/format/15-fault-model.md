@@ -6,7 +6,7 @@
 | Status | draft, pass 1 pending |
 | Work package | WP-16a (the fault-model part of WP-16, `docs/m0/PLAN.md` §3.2 item 1), author role R-SPEC-P |
 | Freezes | The `Vfs` fault model, items (1)–(12), in the amended form; the four durability classes with `sync_dir` and `sync_group` and their per-OS calls; the semantics of `rename_noreplace`, `rename_replace` and `swap_dirs` |
-| Sources (normative) | [60 §2.5]: the "`Vfs` fault model" row (items (1)–(12)), the audits' "`Vfs`/`ProjectFs`" row, the "Cross-platform" row, the protocol-decision row and its restatement paragraph (decisions (a), (c), (h)); [60 §3.1] scope items 3–5 and exit criteria; [60 §3.13] GT1, GT3, GT4, GT15; [60 §4.4] items 1 and 4; [60 §5.2] rows 12, 17, 18, 22; [80 §1] X2, X5, X8; [80 §2.1]; [80 §2.2.1] items 2, 5, 6, 9, 10; [80 §2.2.2] "Release after the holder dies" row; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.3]; [80 §2.4.4]; [80 §2.5] rules 1–6 and 8; [80 §2.6]; [80 §2.7.1]; [80 §2.11.1] `rename_noreplace` row; [80 §2.11.4] rules 6 and 7; [80 §2.12] "Store files' sharing" row; [80 §3.1] X-F2, X-F4, X-F5, X-F6; [80 §3.2] "The `Vfs` and `ProjectFs` simulators" row; [AR §2.8]; [AR §4.1] "Rules" paragraph; [AR §4.2]; [AR §4.10]; [AR §6.5]; [AR §8.2] items 12, 17, 18, 22 and the first "Correctness gates" bullet; [AR §10] risk 17; [AR §14] per-OS table; [40 §3.4], [40 §3.5], [40 §8.3.5] |
+| Sources (normative) | [60 §2.5]: the "`Vfs` fault model" row (items (1)–(12)), the audits' "`Vfs`/`ProjectFs`" row, the "Cross-platform" row, the protocol-decision row and its restatement paragraph (decisions (a), (c), (h)); [60 §3.1] scope items 3–5 and exit criteria; [60 §3.13] GT1, GT3, GT4, GT15; [60 §4.4] items 1 and 4; [60 §5.2] rows 12, 17, 18, 22; [80 §1] X2, X5, X8; [80 §2.1]; [80 §2.2.1] items 2, 5, 6, 9, 10; [80 §2.2.2] "Release after the holder dies" row; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.3]; [80 §2.4.4]; [80 §2.5] rules 1–6 and 8; [80 §2.6]; [80 §2.7.1]; [80 §2.11.1] `rename_noreplace` row; [80 §2.11.4] rules 6 and 7; [80 §2.12] "Store files' sharing" row; [80 §3.1] X-F2, X-F4, X-F5, X-F6; [80 §3.2] "The `Vfs` and `ProjectFs` simulators" row; [AR §2.8]; [AR §4.1] "Rules" paragraph; [AR §4.2]; [AR §4.10]; [AR §6.5]; [AR §8.2] items 12, 17, 18, 22 and the first "Correctness gates" bullet; [AR §10] risk 17; [AR §14] per-OS table; [40 §3.4], [40 §3.5], [40 §8.3.5]; review pass 2: `docs/spec/reviews/P-pass2.md` P2-7 (§5.6's `restore` in [F16] P-85's order) |
 | Sources (evidence and history) | [61 B2]; [72 M1], [72 M2], [72 M3], [72 M8]; [81 B1], [81 m5], [81 m6]; [X17 §3.1], [X17 §3.4]–[X17 §3.8]; the approval checklist, item V7 (`docs/architecture-approval-ru/15-approval-checklist.md`); `docs/m0/PLAN.md` §3.2 (WP-16, WP-31, WP-32, WP-57), §3.3, §6.1 #3 and #14 |
 | Consumers | WP-30 (`moirai-vfs`), WP-31 (`moirai-vfs-sim`), WP-32 (crash enumerator), WP-33 (`moirai-os`), WP-40 (toy log), the rest of WP-16 ([F16], [F17], [F13]), the FL-2 `ProjectFs` simulator (M6), M1's `Vfs` conformance suite |
 
@@ -805,8 +805,9 @@ The design sources are [80 §2.3.1], [AR §2.8] and [AR §4.10].
 ### 5.6 `swap_dirs(a, b)`
 
 - **Postcondition, identical on every OS.** `a` and `b` are existing directories on one volume. Afterwards, `a` names
-  the directory `b` named, and `b` names the directory `a` named. Its one use, `restore`, holds the writer and
-  maintenance bytes of the store being swapped ([80 §2.3.2], [AR §4.10]).
+  the directory `b` named, and `b` names the directory `a` named. Its one use, `restore`, runs it after it has made
+  `retired` durable under the writer and maintenance bytes of the store being swapped, released both and closed every
+  handle it holds into that store ([F16] P-85 step 2; [80 §2.3.2], [AR §4.10]; review pass 2, P2-7).
 - **Native form** (Linux `renameat2(RENAME_EXCHANGE)`; macOS `renamex_np(RENAME_SWAP)`).
   - One operation, atomic for observers and at a crash.
   - Durable after `sync_dir` of each parent.

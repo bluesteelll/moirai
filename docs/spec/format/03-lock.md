@@ -6,7 +6,7 @@
 | Chapter | [F03], `docs/spec/format/03-lock.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-11 (R-SPEC-P), [60 §3.1] item 1 |
-| Sources | [80 §3.1] X-F1 (the `LOCK` layout v1 and the lock bytes) and X-F2 (`ProcId`, `Anchor`, the liveness rules, the boot-identity rule, Unknown-boot mode); [80 §2.2.1] items 1, 6, 9; [80 §2.2.3] (the lock map and order); [80 §2.7.1] (the `ProcId` table, `boot_id`, `boot_hash` in anchors); [80 §2.7.2] (the anchor table, "How it works", race windows, slot choice, the MCP server lifetime); [80 §2.8] (`LeaderRec`); [80 §8.7] (the X-F2 amendment); [90 §4.1] (the session and actor rows of the caller-context resolver, harness detection); [90 §4.4] (slots per harness, the frozen amendment, slot pressure); [90 §10.1] row "Holder anchor (X-F2)" and row "`LEASES` runtime rows"; [AR §4.1] `LOCK` row; [AR §6.1] (processes and locks); [AR §6.2] (holder liveness, lease kinds and anchors); [AR §4.4] `LEASES` row (the anchor); [40 §2.6] `FSINTENT` row, [40 §3.4] step 5; [60 §2.5] the [AR] row "`LOCK`", the audit row "`LOCK`", the "Cross-platform" row and the "Harness-agnostic interface" row; `docs/spec/reviews/a1-P.md` (no `LOCK` finding; §4 checks); [PLAN §3.2] WP-11, [PLAN §3.3]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the `LOCK` header's magic) |
+| Sources | [80 §3.1] X-F1 (the `LOCK` layout v1 and the lock bytes) and X-F2 (`ProcId`, `Anchor`, the liveness rules, the boot-identity rule, Unknown-boot mode); [80 §2.2.1] items 1, 6, 9; [80 §2.2.3] (the lock map and order); [80 §2.7.1] (the `ProcId` table, `boot_id`, `boot_hash` in anchors); [80 §2.7.2] (the anchor table, "How it works", race windows, slot choice, the MCP server lifetime); [80 §2.8] (`LeaderRec`); [80 §8.7] (the X-F2 amendment); [90 §4.1] (the session and actor rows of the caller-context resolver, harness detection); [90 §4.4] (slots per harness, the frozen amendment, slot pressure); [90 §10.1] row "Holder anchor (X-F2)" and row "`LEASES` runtime rows"; [AR §4.1] `LOCK` row; [AR §6.1] (processes and locks); [AR §6.2] (holder liveness, lease kinds and anchors); [AR §4.4] `LEASES` row (the anchor); [40 §2.6] `FSINTENT` row, [40 §3.4] step 5; [60 §2.5] the [AR] row "`LOCK`", the audit row "`LOCK`", the "Cross-platform" row and the "Harness-agnostic interface" row; `docs/spec/reviews/a1-P.md` (no `LOCK` finding; §4 checks); [PLAN §3.2] WP-11, [PLAN §3.3]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the `LOCK` header's magic); review pass 2: `docs/spec/reviews/P-pass2.md` P2-2, with the owner's ruling R-127 of 2026-10-22 (the maintenance holder record `MaintDiag`: §2.2, §2.3, §11, §12, §13, open points 1 and 15) |
 | Depends on | [F01]; cites [F02], [F04], [F05], [F11], [F15], [F16], [F17], [F19], [OS/lock], [OS/proc], [OS/clock], [OS/fs] |
 
 ## 1. Scope
@@ -56,7 +56,8 @@ Offsets are relative to the start of the file. Integers are little-endian ([F01 
 | 0 | 64 | `LockHdr` | `hdr` | the header, §4 |
 | 64 | 1984 | `[1984]u8` | `_reserved_a` | reserved, **ignored on read** ([F01 §10] rule 4); writers write zero |
 | 2048 | 512 | `WriterDiag` | `writer_diag` | the writer diagnostics, §6 |
-| 2560 | 512 | `[512]u8` | `_reserved_b` | reserved, ignored on read; writers write zero |
+| 2560 | 128 | `MaintDiag` | `maint_diag` | the maintenance holder record, §13; all zero until a holder writes it, and after an orderly release |
+| 2688 | 384 | `[384]u8` | `_reserved_b` | reserved, ignored on read; writers write zero |
 | 3072 | 512 | `LeaderRec` | `leader` | the leader record, §7; all zero unless the optional leader is built and running |
 | 3584 | 512 | `[512]u8` | `_reserved_c` | reserved, ignored on read; writers write zero |
 | 4096 | 32768 | `[256]SlotRec` | `slots` | the liveness-slot records, §8; `SlotRec[i]` at `4096 + 128 × i` |
@@ -67,8 +68,9 @@ bytes no record uses would give no protection. `doctor --fsck` reports non-zero 
 
 ### 2.3 Initial content
 
-`init` and `restore` write `LockHdr` (§4) at offset 0 and zero bytes everywhere else. An all-zero `WriterDiag`,
-`LeaderRec` or `SlotRec` fails its checksum and therefore reads as absent (§6.3, §7.3, §8.6). The durability steps of
+`init` and `restore` write `LockHdr` (§4) at offset 0 and zero bytes everywhere else, `MaintDiag` (§13) included. An
+all-zero `WriterDiag`, `MaintDiag`, `LeaderRec` or `SlotRec` fails its checksum and therefore reads as absent (§6.3,
+§13.3, §7.3, §8.6). The durability steps of
 creation (`durable+meta` on `LOCK`, `durable-name` on the store directory) and their place in the `init` and `restore`
 sequences are [F16]'s.
 
@@ -498,6 +500,7 @@ checksum covers its own field ([F01 §7.4]).
 |---|---|---|---|
 | `LockHdr` | `xxh3` at 56 | `LockHdr` bytes `[0, 56)` | `LOCK` is damaged: exit 7 (LH-2) |
 | `WriterDiag` | `xxh3` at 504 | `WriterDiag` bytes `[0, 504)` | the holder is not recorded (WD-4); so is a matching record with a bad field |
+| `MaintDiag` | `xxh3` at 120 | `MaintDiag` bytes `[0, 120)` | the maintenance holder is not recorded (MD-4), so no stall is reported; so is a matching record with a bad field |
 | `LeaderRec` | `xxh3` at 504 | `LeaderRec` bytes `[0, 504)` | no leader record (§7.3); so is a matching record with a bad field |
 | `SlotRec[i]` | `xxh3` at 120 | `SlotRec[i]` bytes `[0, 120)` | the record is absent (§8.5) |
 
@@ -510,8 +513,122 @@ every such read into "absent" or "not recorded", never into a wrong holder.
 - This is safe because every record is interpreted only together with a lock byte that its writer holds: after a process
   crash the byte is released and the record matches nothing; after an OS crash every byte is released and every record
   matches nothing; a torn record fails its checksum.
+- `MaintDiag` is read by readers that hold no byte (MD-4): a process reads it only while its try of the maintenance
+  byte answers `Busy`, and `doctor` only beside its own probe of that byte, which names the record of an ended holding as
+  one. After a process crash the holder's byte stays held until the OS releases it ([F15 §3.8] FM-8.1), and meanwhile
+  the record rightly names a holder that runs no step; after that the next try is granted and reads nothing. After an OS
+  crash every byte is free. A read that meets a concurrent write (fault-model item (4)) reads as absent, and a lost
+  `lazy` write leaves at most an earlier holding's record (MD-5). Either way the record decides only whether a stall is
+  reported and what `doctor` prints, so no flush is needed (review pass 2, P2-2).
 - `LockHdr` is made durable once, by the creating `init` or `restore` ([F16]).
 - Store files other than `LOCK` never depend on `LOCK`'s record bytes.
+
+## 13. `MaintDiag`
+
+The maintenance holder record names the holder of the maintenance byte and the last step it recorded, so that a process
+that finds the byte busy while the tail is past its bound can report a stalled holder ([F17 §5.2]; review pass 2, P2-2;
+the owner's ruling R-127 of 2026-10-22). It is diagnostics only: no decision other than that report reads it (MD-4).
+
+### 13.1 Layout (128 B at offset 2560)
+
+| offset | width | type | name | meaning |
+|---|---|---|---|---|
+| 0 | 8 | `u64` | `seq` | the holding client's acquisition counter of the maintenance byte: 1 at its first acquisition, incremented by 1 at each later one. `(proc, seq)` names one holding |
+| 8 | 32 | `ProcId` | `proc` | the holder process (§5.1) |
+| 40 | 16 | `b16` | `session_hash` | the primary session hash of the holder's session identity (§9); zero when the holder has none |
+| 56 | 8 | `u64` | `grant_hlc` | the time of the grant, on the store's HLC (MD-6) |
+| 64 | 8 | `u64` | `step_hlc` | the time of the holder's last recorded step, on the store's HLC: its grant, or the last step boundary it passed (MD-1, MD-6) |
+| 72 | 4 | `u32` | `steps` | the step boundaries the holding has passed; 0 at the grant |
+| 76 | 1 | `u8` | `job` | the job the holder runs, §13.2 |
+| 77 | 43 | `[43]u8` | `_reserved` | reserved-zero |
+| 120 | 8 | `u64` | `xxh3` | XXH3-64, seed 0, over bytes `[0, 120)` of the record |
+| total | 128 | | | |
+
+### 13.2 `job`
+
+Every holder of the maintenance byte that [F16] names has a value:
+
+| value | name | holding |
+|---|---|---|
+| 1 | `checkpoint` | a delta checkpoint ([F16] P-76, P-80) |
+| 2 | `runtime-fold` | a runtime-only fold ([F17 §5.4]) |
+| 3 | `tiered-fold` | a tiered fold ([F17 §6.1]) |
+| 4 | `promotion` | a promotion ([F17 §7]) |
+| 5 | `retirement` | a retirement ([F16] P-73) |
+| 6 | `rollup` | a rollup ([F16] P-98) |
+| 7 | `gc` | the GC of a `gc` run ([F17 §11]) |
+| 8 | `orphan-sweep` | the orphan sweep ([F16] P-79) |
+| 9 | `spare-extent` | a spare-extent preparation ([F16] P-96) |
+| 10 | `intent-recovery` | intent recovery ([F16] P-71) |
+| 11 | `backup` | `backup` ([F16] P-87) |
+| 12 | `purge` | a body purge ([F16] P-101) |
+| 13 | `restore` | `restore` on the live store ([F16] P-85 steps 2 and 4) |
+| 14 | `rebuild` | `repair --rebuild-from-log` on the live store ([F16] P-85) |
+| 15 | `repair` | plain `repair` ([F16] P-85) |
+| 16 | `set-rebuild` | the rebuild of a segment set that names a missing file ([F16] P-68) |
+
+Values 0 and 17–255 are invalid. One holding can run several jobs in turn (a `gc` run first finishes a pending purge,
+[F16] P-101; a checkpoint may retire and promote); `job` names the job the holder started at its last write.
+
+### 13.3 Rules
+
+- **MD-1 (who writes, when).** Only the holder of the maintenance byte writes `MaintDiag`: once immediately after the
+  grant and before any other step under the byte (`steps` 0, `step_hlc` = `grant_hlc`), and at each step boundary of a
+  long job ([F16] P-98), before it evaluates C1 there (`steps` + 1, `step_hlc` the boundary's time, `job` the job of its
+  next step). `seq`, `proc`, `session_hash` and `grant_hlc` stay those of the holding. It writes all 128 bytes in one
+  `write_at` of class `lazy` ([F15 §4.1]); it never flushes them (§12). A holding that passes no step boundary (a short
+  job, or one without steps such as the set rebuild of [F16] P-68) writes at its grant only. **Cost** (in WD-1's form):
+  one positional write of 128 B to a page of `LOCK` that stays in the page cache at the grant, one at the clear (MD-3),
+  and one per step boundary of a long job, whose steps each write and seal a whole file or copy one; nothing on the
+  commit path. The grant write is needed because a holding that passes no step boundary would otherwise be recorded
+  under an earlier holding (MD-5).
+- **MD-2 (failure).** A failed write of `MaintDiag` is not an error of the job, as for `WriterDiag` (WD-2); the holder
+  continues. Until a later write of the holding succeeds, the record names an earlier holding (MD-5) or, when the failed
+  write left its range torn ([F15 §3.5] FM-5.2), reads as absent (MD-4), and a stall of the holding meanwhile goes
+  unreported.
+- **MD-3 (clearing).** Before an orderly release of the maintenance byte the holder writes 128 zero bytes over the
+  record, by one `write_at` of class `lazy`, and then releases the byte (SR-5's order). The zeros read as absent (§2.3).
+  A holder that dies leaves its record, and its byte stays held until the OS releases it ([F15 §3.8] FM-8.1). Without
+  the clear, a `Busy` met after an orderly release (a Windows probe's, [OS/lock §8], or a new holder's before its first
+  write) would read the last holder's record and report a stall that is none. WD-3's "no clearing" stays the writer
+  record's rule.
+- **MD-4 (reading).** Two readers read the record, each by one `read_at` of the 128 bytes at offset 2560, holding no
+  lock byte for it:
+  1. a process whose `try_acquire` of the maintenance byte answers `Busy` while C1 of [F17 §5.2] holds (in quiet mode,
+     the cap of [F17 §5.3]), once per such try;
+  2. `doctor`, beside its own probe of the maintenance byte ([OS/lock §8]).
+
+  The record is valid when its checksum matches, `_reserved` is zero and `job` is 1–16; a `proc` that cannot be
+  interpreted (§5.1) prints `?` and leaves it valid. Any other content, the all-zero form and a torn read included, is
+  absent ("holder not recorded"): never an error, and it never makes `LOCK` invalid. The first reader runs no
+  maintenance whatever it reads. When the record is valid and the age of its `step_hlc` (MD-6) exceeds
+  `maintenance.stall-after` ([F17 §5.2], P36), it reports the stall ([F19]) with `proc`, `session_hash`, `job`, `steps`,
+  `grant_hlc`, `step_hlc` and the age, once per holding `(proc, seq)` in one process; otherwise it reports nothing. It
+  never re-reads and never waits. The report comes after the process has printed its result ([F16] P-51) or between
+  the MCP server's requests, outside every result's `data`, and it never changes an exit code; its form is [F19]'s.
+  `doctor` prints a valid record as the last recorded holding, by its `(proc, seq)`, never as the current holder,
+  together with its probe's answer; on `Free` it says that the holding ended without its clear (a holder that died
+  after the OS released its byte, a failed clear, or a `LOCK` that `backup` copied while its run held the byte,
+  [F16] P-87). Nothing else decides on the record: `Busy` and `Held` are never read as alive ([F15 §3.8]), and a report
+  never reads the holder as dead. It says only that the byte was busy while C1 held and that the last recorded step is
+  older than the bound, which a holding that passes no step boundary and lasts past the bound (MD-1) meets as well.
+  **Cost:** one positional read of 128 B from a page of `LOCK` in the page cache per `Busy` try while C1 holds; nothing
+  on the commit path.
+- **MD-5 (an earlier holding).** A valid record names an earlier holding, one that died without its clear or whose
+  clear failed, between a grant and the holder's first write, after a failed write (MD-2), and, on Windows, while a
+  probe holds the byte for a moment ([OS/lock §8]) after such a holder has lost its byte to the OS. A reader in that
+  window may report the earlier holding's stall; the report names it as the last recorded holding by its `(proc, seq)`,
+  never as the current holder. Since every holding writes before any other step (MD-1), the first window lasts one
+  positional write unless the new holder pauses there ([F15 §3.6] FM-6.1), which is itself a stall. Nothing decides on
+  it.
+- **MD-6 (clock).** `grant_hlc` and `step_hlc` are the holder's `now` at that instant by [F16] P-89's window rule,
+  `max(wall_ms << 16, hlc_seq, hlc_commit)`, over the maxima the holder knows then (the wall term alone when it knows
+  none, as plain `repair` of a store without a valid slot, [F16] P-85). The reader measures the age as [F17 §1.6]
+  measures a window: `hlc_ms(now) − hlc_ms(step_hlc)`, its own `now` by the same rule, a negative age read as 0. A lead
+  of the store's maxima over the wall clock is in both terms. A backward step of the wall clock pauses the age and can
+  delay a report; a forward step, or a raise of the maxima after the holder's last write (a commit whose `hlc` lies
+  ahead of the wall clock, [OS/clock §7]), lengthens it and can make a report early ([F15 §3.7] FM-7.1). The report
+  decides nothing, so neither changes a result.
 
 ## Coverage
 
@@ -541,7 +658,8 @@ source of `boot_hash`. Measurement 22 checks `LOCK` v1's bytes on NTFS ([60 §5.
 1. **Fixed record sizes and ignored gaps** (§2.2). X-F1 gives `WriterDiag` and `LeaderRec` as "≤ 512 B"; this chapter
    fixes each at exactly 512 bytes, so every checksum range is a constant. The three gaps between records are reserved
    and ignored on read (an explicit [F01 §10] rule-4 exception): refusing a store over bytes no record uses would protect
-   nothing. `doctor --fsck` reports them.
+   nothing. `doctor --fsck` reports them. `MaintDiag` (§13) takes the first 128 bytes of the second gap, so three gaps
+   stay: `_reserved_a`, the 384 bytes of `_reserved_b` after `MaintDiag`, and `_reserved_c` (review pass 2, P2-2).
 2. **`cmd` is `fstr<400>` with option names only** (§6.2; closes [F01] open point 11). "cmd ≤ 400 B" is read as the
    field's width, so the text is at most 398 bytes. Option values are never written: a command line can carry node text,
    paths or keys, and `LOCK` is copied by `backup`. The review may prefer values for a fixed allow-list of options
@@ -594,3 +712,21 @@ source of `boot_hash`. Measurement 22 checks `LOCK` v1's bytes on NTFS ([60 §5.
 14. **Checksum-valid records with bad fields** (spec sync 2b, WP-95 review). WD-4 and LR-2 now check the enumerations,
     `fstr` fields and the nonce as well as the reserved bytes; a record that matches its checksum but fails them is "holder
     not recorded" or absent, and never makes `LOCK` invalid.
+15. **The maintenance holder record** (§13; review pass 2, P2-2; the owner's ruling R-127 of 2026-10-22). A paused or
+    dead maintenance holder suspended the tail bound of [F17 §5.2], and nothing named it, because `Busy` and `Held`
+    never mean alive ([F15 §3.8]). `MaintDiag` takes the first 128 bytes of `_reserved_b`; `init` and `restore` write it
+    zero, as they wrote that range before, and its all-zero form reads as absent, so no `LOCK` fixture changes, and no
+    other offset, lock byte or `LockHdr` field moves. It keeps the review's fields (the holder's `ProcId`, its job and
+    the hlc of its last step) and adds `WriterDiag`'s holding id `(proc, seq)`, the session hash, the time of the grant
+    and a step count. Two write points go beyond the review's "at each step boundary": the holder writes at its grant,
+    since a holding that passes no step boundary would otherwise be recorded under an earlier one, and it zeroes the
+    record before an orderly release, since a `Busy` met afterwards would otherwise report the last holder's stall
+    (MD-1, MD-3). An absent or torn record gives no report, no re-read and no wait; no rule makes an absent record a
+    stall (MD-4). The earlier-holding window of WD-5's kind shrinks to the instants of MD-5 and is accepted: the report
+    names the record's `(proc, seq)` as the last recorded holding. The time fields are on the store's HLC and the age is
+    measured as [F17 §1.6] measures a window (MD-6). This departs from `WriterDiag.hlc`'s raw wall form, so that a lead
+    of the store's maxima over the wall clock cannot make a healthy holder look stalled; the field stays the review's
+    "hlc of its last step". §11's row and §12's argument cover readers that hold no byte. The report's code and text are
+    [F19]'s, the bound `maintenance.stall-after` is [F17 §5.2]'s (P36), and the toy log (WP-40b) carries the seeded bug
+    of this protocol. If open point 12's `doctor --fsck --repair-lock` is adopted, it adds a value to §13.2 before the
+    freeze.

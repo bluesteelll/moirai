@@ -5,7 +5,7 @@
 | Title | OS layer specification, part 2: the wall, monotonic and boot clocks; stamps and lease deadlines; which rule uses which clock |
 | Status | draft, pass 1 pending |
 | Work package | WP-17b (role R-SPEC-P), part 2 of WP-17 ([PLAN §3.2] item 1) |
-| Sources | [80 §2.3.5] item (7); [80 §2.7.1] (boot clock row, "Lease deadlines", "Verification"); [80 §2.11.3] (racy threshold from a file-system timestamp); [80 §3.1] X-F2; [80 §3.2] row "HLC and timestamps"; [60 §2.5] `Vfs` fault-model item (7) and protocol decision (e); [60 §3.1] item 2 (the Store API's injected clock); [60 §5.2] item 22; [AR §4.3] (`hlc`, `append_hlc`), [AR §4.9] (GC grace), [AR §6.2] (lease deadlines, renewal), [AR §6.4] (idempotency windows), [AR §8.2] item 22, [AR §8.3] GT4 clock-step variant, [AR §13] (duration keys); [40 §4.2] (quiescence), [40 §4.3] (E7, G4 window, copy rule); [90 §4.4] (`session-ttl` renewal); review `a1-S.md` S-17 (clock domains) |
+| Sources | [80 §2.3.5] item (7); [80 §2.7.1] (boot clock row, "Lease deadlines", "Verification"); [80 §2.11.3] (racy threshold from a file-system timestamp); [80 §3.1] X-F2; [80 §3.2] row "HLC and timestamps"; [60 §2.5] `Vfs` fault-model item (7) and protocol decision (e); [60 §3.1] item 2 (the Store API's injected clock); [60 §5.2] item 22; [AR §4.3] (`hlc`, `append_hlc`), [AR §4.9] (GC grace), [AR §6.2] (lease deadlines, renewal), [AR §6.4] (idempotency windows), [AR §8.2] item 22, [AR §8.3] GT4 clock-step variant, [AR §13] (duration keys); [40 §4.2] (quiescence), [40 §4.3] (E7, G4 window, copy rule); [90 §4.4] (`session-ttl` renewal); review `a1-S.md` S-17 (clock domains); the orchestrator's ruling R-138 of 2026-10-23 (the Coverage row's id, as `COVERAGE.md` names it) |
 | Reconciled with | [OS/README §4.4] (the `Clock` signature, fixed there and unchanged here), [OS/proc] (boot identity), [F15 §3.7] (FM-6, FM-7), [F20 §1.2, §5.1, §5.12.1] (time comparisons, `SKEW`, the racy threshold), [F01 §5.7] (the HLC layout) |
 
 ---
@@ -303,7 +303,7 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 | `60-I2-FM(7)` (fault-model item (7)) | the clocks under the fault model and the simulator's obligations; Unknown-boot mode is [OS/proc §5]'s | §5 |
 | `60-I2-PD(e)` (protocol decision (e)) | which clock each rule uses; the HLC rule | §6, §7 |
 | `60-AU-Seg-leases` (audit row "Segments": `LEASES`) | the 24 B `Stamp` deadline; the row is [F11 §6]'s | §3 |
-| `F14` ([50] F14: `append_hlc`) | the HLC rule; the header field is [F06]'s | §7 |
+| `R5-F14` ([50] F14: `append_hlc`) | the HLC rule; the header field is [F06]'s | §7 |
 | `X-F2` ([80] X-F2) | the `Stamp` deadline; evaluation, renewal, grace. `ProcId`, the boot identity and liveness are [OS/proc]'s | §3, §4 |
 
 ## Holes

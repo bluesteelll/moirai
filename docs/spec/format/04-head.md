@@ -6,7 +6,7 @@
 | Chapter | [F04], `docs/spec/format/04-head.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-11 (R-SPEC-P), [60 §3.1] item 1 |
-| Sources | [AR §4.2] (the `HeadSlot` G18 layout, the durable bound, the boot check, the two-slot barrier, `retired`); [AR §4.1] `HEAD` row; [AR §4.5] steps 1, 6, 10 (read, scan, publish); [AR §4.7] (open path); [AR §4.9], [AR §4.10]; [AR §5a.2] (refs), [AR §5a.3] (pins, promotion), [AR §5b.6] (`image_cursor`), [AR §6.3] (`seq_ring`), [AR §6.6] (quiet mode), [AR §13] (`config_gen`); [80 §2.3.2] (the `HEAD` publish and barrier rows), [80 §2.3.5] items (1), (3), (7); [80 §2.4.3] (the publish, boot-change recovery, readers, I-G6); [80 §2.7.1] (`boot_id`, Unknown-boot mode); [80 §3.1] X-F2, X-F3; [40 §2.11] R-6; [60 §2.5] the [AR] row "`HEAD`", the audit row "`HEAD`", the issue-2 row "Store parameters", the "Protocol decisions" row (decisions (c), (d), (g), (k)), the "Cross-platform" row; [72 B1], [72 M2]; [F02] open points 2, 4, 14; [F15] OP-1; [F17 §2] and OP-17-06, OP-17-21; [PLAN §3.2] WP-11, [PLAN §3.3] (the `HeadSlot` order and `SegRef` padding; the home of `init`-scope parameters); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the `HEAD` slot's magic, and the dictionary header's magic that `SegRef` names) |
+| Sources | [AR §4.2] (the `HeadSlot` G18 layout, the durable bound, the boot check, the two-slot barrier, `retired`); [AR §4.1] `HEAD` row; [AR §4.5] steps 1, 6, 10 (read, scan, publish); [AR §4.7] (open path); [AR §4.9], [AR §4.10]; [AR §5a.2] (refs), [AR §5a.3] (pins, promotion), [AR §5b.6] (`image_cursor`), [AR §6.3] (`seq_ring`), [AR §6.6] (quiet mode), [AR §13] (`config_gen`); [80 §2.3.2] (the `HEAD` publish and barrier rows), [80 §2.3.5] items (1), (3), (7); [80 §2.4.3] (the publish, boot-change recovery, readers, I-G6); [80 §2.7.1] (`boot_id`, Unknown-boot mode); [80 §3.1] X-F2, X-F3; [40 §2.11] R-6; [60 §2.5] the [AR] row "`HEAD`", the audit row "`HEAD`", the issue-2 row "Store parameters", the "Protocol decisions" row (decisions (c), (d), (g), (k)), the "Cross-platform" row; [72 B1], [72 M2]; [F02] open points 2, 4, 14; [F15] OP-1; [F17 §2] and OP-17-06, OP-17-21; [PLAN §3.2] WP-11, [PLAN §3.3] (the `HeadSlot` order and `SegRef` padding; the home of `init`-scope parameters); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the `HEAD` slot's magic, and the dictionary header's magic that `SegRef` names); review pass 2: `docs/spec/reviews/P-pass2.md` P2-6 (the fault-model items of §9.1 step 2) |
 | Depends on | [F01], [F02], [F03], [F05], [F17]; cites [F09], [F10], [F11], [F15], [F16], [F19], [OS/proc], [OS/clock], [OS/fs] |
 
 ## 1. Scope
@@ -429,8 +429,8 @@ Every change of `HEAD` is a publish, made under the writer byte ([80 §2.4.3], X
    `committed_lsn`, in log order ([F05 §10.2], [F16] P-50; a group S already folded changes nothing), the new
    `committed_lsn` and, after a flush, `durable_lsn` = max(S.`durable_lsn`, the flushed end); or the one field kept in
    `HEAD` that this publish changes (§6). The fold starts at S.`durable_lsn`, not at S.`committed_lsn`: after a crash S
-   can be an older slot whose `committed_lsn` covers a lazy tail that was lost and refilled, and a fold from there would
-   miss the refill ([F16] P-50).
+   can be an older slot ([F15] FM-1.1) whose `committed_lsn` covers a lazy tail that was lost (FM-3.6) and refilled, and
+   a fold from there would miss the refill ([F16] P-50; review pass 2, P2-6).
 3. `slot_seq` = S.`slot_seq` + 1. Recompute `xxh3_128`.
 4. `write_at` S′ into the slot that does **not** hold S (slot B when S is in slot A, and conversely), 4,096 bytes at its
    offset. Never write the slot that holds S.
