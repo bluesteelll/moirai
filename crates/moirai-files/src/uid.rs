@@ -40,11 +40,11 @@ impl fmt::Debug for Uid {
 }
 
 /// The domain string of file uids ([F08 §11.1]).
-pub const FILE_DOMAIN: &str = "moirai-file-v1";
+pub const FILE_DOMAIN: &str = "klotho-file-v1";
 /// The domain string of root-node uids ([F08 §11.1]).
-pub const ROOT_DOMAIN: &str = "moirai-root-v1";
+pub const ROOT_DOMAIN: &str = "klotho-root-v1";
 /// The domain string of anchor uids ([F08 §11.1]).
-pub const ANCHOR_DOMAIN: &str = "moirai-anchor-v1";
+pub const ANCHOR_DOMAIN: &str = "klotho-anchor-v1";
 
 /// Why a derivation is refused.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -107,7 +107,7 @@ fn opt(u: Option<&Uid>) -> &[u8] {
     u.map_or(&[], |u| &u.0[..])
 }
 
-/// `uid_file(r, p, q) = BLAKE3-128(lp("moirai-file-v1") ‖ lp(r) ‖ lp(p) ‖ lp(q or empty))` ([F08 §11.2],
+/// `uid_file(r, p, q) = BLAKE3-128(lp("klotho-file-v1") ‖ lp(r) ‖ lp(p) ‖ lp(q or empty))` ([F08 §11.2],
 /// [40 §2.3]): r the root name, p the registration path (exact bytes, without its root), q the predecessor uid.
 ///
 /// # Errors
@@ -121,7 +121,7 @@ pub fn uid_file(root: &str, path: &str, pred: Option<&Uid>) -> Result<Uid, UidEr
         .finish_uid()
 }
 
-/// `uid_root(r) = BLAKE3-128(lp("moirai-root-v1") ‖ lp(r))` ([F08 §11.3], [40 §2.3], R-5).
+/// `uid_root(r) = BLAKE3-128(lp("klotho-root-v1") ‖ lp(r))` ([F08 §11.3], [40 §2.3], R-5).
 ///
 /// # Errors
 /// [`UidError::ArgumentTooLong`] for a name of 4 GiB or more; [`UidError::Zero`] for an all-zero result.
@@ -319,7 +319,7 @@ pub fn captured(c: &Capture<'_>) -> Result<[u8; 16], UidError> {
         .finish128())
 }
 
-/// `uid_anchor(s, c, p) = BLAKE3-128(lp("moirai-anchor-v1") ‖ lp(s) ‖ lp(c) ‖ lp(p or empty))` ([F08 §11.4],
+/// `uid_anchor(s, c, p) = BLAKE3-128(lp("klotho-anchor-v1") ‖ lp(s) ‖ lp(c) ‖ lp(p or empty))` ([F08 §11.4],
 /// [40 §2.7]): s the referrer's uid, c = `captured`, p the predecessor term.
 ///
 /// # Errors
@@ -388,7 +388,7 @@ mod tests {
         // [F08 §11.2]'s informative input for root `project`, path `docs/a.md` and no predecessor: 46 bytes.
         let mut want = Vec::new();
         want.extend_from_slice(&[0x0E, 0, 0, 0]);
-        want.extend_from_slice(b"moirai-file-v1");
+        want.extend_from_slice(b"klotho-file-v1");
         want.extend_from_slice(&[0x07, 0, 0, 0]);
         want.extend_from_slice(b"project");
         want.extend_from_slice(&[0x09, 0, 0, 0]);
@@ -416,7 +416,7 @@ mod tests {
     fn root_and_anchor_uids() {
         let mut want = Vec::new();
         want.extend_from_slice(&[0x0E, 0, 0, 0]);
-        want.extend_from_slice(b"moirai-root-v1");
+        want.extend_from_slice(b"klotho-root-v1");
         want.extend_from_slice(&[5, 0, 0, 0]);
         want.extend_from_slice(b"notes");
         assert_eq!(uid_root("notes"), Ok(b3_128(&want)));
@@ -425,7 +425,7 @@ mod tests {
         let c = [2u8; 16];
         let mut want = Vec::new();
         want.extend_from_slice(&[16, 0, 0, 0]);
-        want.extend_from_slice(b"moirai-anchor-v1");
+        want.extend_from_slice(b"klotho-anchor-v1");
         want.extend_from_slice(&[16, 0, 0, 0]);
         want.extend_from_slice(&src.0);
         want.extend_from_slice(&[16, 0, 0, 0]);
@@ -631,16 +631,16 @@ mod tests {
     fn pinned_digests() {
         let hex = |u: Uid| u.to_string();
         let u0 = uid_file("project", "docs/a.md", None).unwrap();
-        assert_eq!(hex(u0), "d8253f84275a6c5b2fe5dbdb2bc28532");
+        assert_eq!(hex(u0), "2c8d2fb241fb9807569743e304bbe0d7");
         assert_eq!(
             hex(uid_file("project", "docs/a.md", Some(&u0)).unwrap()),
-            "1911e72f0dc27f230f6e8a66a125dca9"
+            "7cec57d477b3d03609017b576883341e"
         );
         let root = uid_root("project").unwrap();
-        assert_eq!(hex(root), "5bd0e29e6afc4a73557e4cbdf7d34c33");
+        assert_eq!(hex(root), "721354ad0f367138746bf0429056d772");
         assert_eq!(
             hex(uid_root("notes").unwrap()),
-            "780761a1ade83a9bcb0d80b111176710"
+            "978056c47c8c284886d350ca3842f7e8"
         );
         let c = captured(&Capture {
             file_uid: &u0,
@@ -654,12 +654,12 @@ mod tests {
             window: b"",
         })
         .unwrap();
-        assert_eq!(hex(Uid(c)), "64652d9777b12e1d5ecef031a8bd1835");
+        assert_eq!(hex(Uid(c)), "f3b1687540ac98cb25f5a20e7c93bda7");
         let a0 = uid_anchor(&root, &c, None).unwrap();
-        assert_eq!(hex(a0), "ce9340d68ca25c35a25a4d480ef29271");
+        assert_eq!(hex(a0), "0196e24b7590309934b95b81d7aa03a7");
         assert_eq!(
             hex(uid_anchor(&root, &c, Some(&a0)).unwrap()),
-            "8b82dc3ef4301b8d987d49a6e11524b3"
+            "5fed92882d13cb5d2799babbd3c5b09a"
         );
     }
 
