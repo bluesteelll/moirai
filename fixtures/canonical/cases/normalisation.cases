@@ -84,8 +84,8 @@ node a0000000000000000000000000000001 area
 7e000000000000000000000000000001 field unit = text "ms"
 7e000000000000000000000000000001 field value = f64 0000000000000000
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 7e000000000000000000000000000001 existence
 017e0000000000000000000000000000010100010b0000006d6561737572656d656e7400
 ; entry 2: 7e000000000000000000000000000001 field title
@@ -98,12 +98,12 @@ node a0000000000000000000000000000001 area
 ; u64 entry count = 4
 0400000000000000
 %% entry-count 4
-%% changeset-digest cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
+%% changeset-digest 8fb5698f798818daf0b05f1c95a8e02241f23ca606661df8719455b4327fe7de
 %% message-input-hex
 7265636f72642074686520666c7573682070393920200d0a0d0a090d0a
 %% commit
 kind ordinary
-parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+parent 3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 hlc 01a0c45d3d400000
 actor "tester#1"
 role "tester"
@@ -117,14 +117,14 @@ schema-version 1
 origin -
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 ; item 3: hlc
 0000403d5dc4a001
 ; item 4: actor
@@ -154,8 +154,8 @@ foreign -
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
-%% commit-id 6087a9137cdacdabce3356976e2618f589d1fb0f275a111035b25df69aeebed1
+8fb5698f798818daf0b05f1c95a8e02241f23ca606661df8719455b4327fe7de
+%% commit-id c557d1397882f7ebef2a40c273627122af5d4fe7bedc6d5afc967019fd515cfd
 %% end
 
 %% case defaults-omitted
@@ -220,8 +220,8 @@ node a0000000000000000000000000000001 area
 7e000000000000000000000000000001 field unit = text "ms"
 7e000000000000000000000000000001 field value = f64 0000000000000000
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 7e000000000000000000000000000001 existence
 017e0000000000000000000000000000010100010b0000006d6561737572656d656e7400
 ; entry 2: 7e000000000000000000000000000001 field title
@@ -234,12 +234,12 @@ node a0000000000000000000000000000001 area
 ; u64 entry count = 4
 0400000000000000
 %% entry-count 4
-%% changeset-digest cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
+%% changeset-digest 8fb5698f798818daf0b05f1c95a8e02241f23ca606661df8719455b4327fe7de
 %% message-input-hex
 7265636f72642074686520666c75736820703939
 %% commit
 kind ordinary
-parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+parent 3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 hlc 01a0c45d3d400000
 actor "tester#1"
 role "tester"
@@ -253,14 +253,14 @@ schema-version 1
 origin -
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 ; item 3: hlc
 0000403d5dc4a001
 ; item 4: actor
@@ -290,8 +290,8 @@ foreign -
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
-%% commit-id 6087a9137cdacdabce3356976e2618f589d1fb0f275a111035b25df69aeebed1
+8fb5698f798818daf0b05f1c95a8e02241f23ca606661df8719455b4327fe7de
+%% commit-id c557d1397882f7ebef2a40c273627122af5d4fe7bedc6d5afc967019fd515cfd
 %% end
 
 %% case n-crlf-trailing
@@ -347,8 +347,8 @@ cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
 %% source [F07 §5.4] row 5
 %% function N
 %% input-hex
-646f6e650a0a4d6f697261692d5265663a206d61696e
-%% input-text "done\n\nMoirai-Ref: main"
+646f6e650a0a4b6c6f74686f2d5265663a206d61696e
+%% input-text "done\n\nKlotho-Ref: main"
 %% refused message-trailer
 %% end
 
@@ -356,11 +356,11 @@ cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
 %% source [F07 §5.4] row 6
 %% function N
 %% input-hex
-646f6e650a0a6e6f74650a4d6f697261692d5265663a206d61696e
-%% input-text "done\n\nnote\nMoirai-Ref: main"
+646f6e650a0a6e6f74650a4b6c6f74686f2d5265663a206d61696e
+%% input-text "done\n\nnote\nKlotho-Ref: main"
 %% output-hex
-646f6e650a0a6e6f74650a4d6f697261692d5265663a206d61696e
-%% output-text "done\n\nnote\nMoirai-Ref: main"
+646f6e650a0a6e6f74650a4b6c6f74686f2d5265663a206d61696e
+%% output-text "done\n\nnote\nKlotho-Ref: main"
 %% output-length 27
 %% end
 
@@ -417,13 +417,13 @@ cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
 
 %% case n-trailer-lower-case
 %% source [F07 §5.2]
-%% note The Moirai- test is case-sensitive.
+%% note The Klotho- test is case-sensitive.
 %% function N
 %% input-hex
-646f6e650a0a6d6f697261692d7265663a206d61696e
+646f6e650a0a6b6c6f74686f2d7265663a206d61696e
 %% input-text "done\n\nmoirai-ref: main"
 %% output-hex
-646f6e650a0a6d6f697261692d7265663a206d61696e
+646f6e650a0a6b6c6f74686f2d7265663a206d61696e
 %% output-text "done\n\nmoirai-ref: main"
 %% output-length 22
 %% end
@@ -433,18 +433,18 @@ cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
 %% note A message without an empty line is its own last paragraph.
 %% function N
 %% input-hex
-4d6f697261692d5265663a206d61696e0a
-%% input-text "Moirai-Ref: main\n"
+4b6c6f74686f2d5265663a206d61696e0a
+%% input-text "Klotho-Ref: main\n"
 %% refused message-trailer
 %% end
 
 %% case n-trailer-after-normalisation
 %% source [F07 §5.2]
-%% note The test applies to N(m): trailing empty and blank lines are gone, so Moirai-X: y begins the last paragraph.
+%% note The test applies to N(m): trailing empty and blank lines are gone, so Klotho-X: y begins the last paragraph.
 %% function N
 %% input-hex
-646f6e650d0a0d0a4d6f697261692d583a20790d0a0d0a20200d0a
-%% input-text "done\r\n\r\nMoirai-X: y\r\n\r\n  \r\n"
+646f6e650d0a0d0a4b6c6f74686f2d583a20790d0a0d0a20200d0a
+%% input-text "done\r\n\r\nKlotho-X: y\r\n\r\n  \r\n"
 %% refused message-trailer
 %% end
 
@@ -453,11 +453,11 @@ cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
 %% note Only the last paragraph counts.
 %% function N
 %% input-hex
-4d6f697261692d583a20790a0a646f6e65
-%% input-text "Moirai-X: y\n\ndone"
+4b6c6f74686f2d583a20790a0a646f6e65
+%% input-text "Klotho-X: y\n\ndone"
 %% output-hex
-4d6f697261692d583a20790a0a646f6e65
-%% output-text "Moirai-X: y\n\ndone"
+4b6c6f74686f2d583a20790a0a646f6e65
+%% output-text "Klotho-X: y\n\ndone"
 %% output-length 17
 %% end
 
@@ -546,14 +546,14 @@ cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
 
 %% case imp-trailer-kept
 %% source [F07 §5.3]
-%% note N_imp never refuses; the Moirai- rule does not apply.
+%% note N_imp never refuses; the Klotho- rule does not apply.
 %% function N_imp
 %% input-hex
-646f6e650a0a4d6f697261692d5265663a206d61696e0a
-%% input-text "done\n\nMoirai-Ref: main\n"
+646f6e650a0a4b6c6f74686f2d5265663a206d61696e0a
+%% input-text "done\n\nKlotho-Ref: main\n"
 %% output-hex
-646f6e650a0a4d6f697261692d5265663a206d61696e
-%% output-text "done\n\nMoirai-Ref: main"
+646f6e650a0a4b6c6f74686f2d5265663a206d61696e
+%% output-text "done\n\nKlotho-Ref: main"
 %% output-length 22
 %% end
 

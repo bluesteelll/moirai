@@ -1,6 +1,6 @@
 # Canonical-form fixtures (WP-21, R-FIX). Format: fixtures/canonical/INDEX.md section 2.
 # Written from docs/spec/format/07-canonical-form.md and the chapters it cites; every value is synthetic.
-# Gate-0 row foreign: commits imported without a Moirai-Commit trailer. The items come from the git commit
+# Gate-0 row foreign: commits imported without a Klotho-Commit trailer. The items come from the git commit
 # (block git-commit): item 1 by parent count, item 3 by [F06 §4.4.4], item 4 git:<email>, item 6 N_imp of the
 # whole message, item 7 the marker's schema-version, item 9 the object format and the commit's own oid.
 
@@ -26,8 +26,8 @@ node 3d000000000000000000000000000001 note
 3d000000000000000000000000000001 field title = text "Tracker export format"
 3d000000000000000000000000000001 body = hash 1ee74db152a279ea3916cecb56b7b51e
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 2c000000000000000000000000000001 existence
 012c000000000000000000000000000001010001040000007461736b00
 ; entry 2: 2c000000000000000000000000000001 field priority
@@ -45,7 +45,7 @@ node 3d000000000000000000000000000001 note
 ; u64 entry count = 6
 0600000000000000
 %% entry-count 6
-%% changeset-digest 456e1480a95711af868ba9ea2348812eb78692d06c4deb0e9573e5b3ef9d3a0f
+%% changeset-digest 4ca4ddef3808290ad776c279515493d6b9a8352524319f50cc80ab5ac68d8fa4
 %% git-commit
 object-format sha1
 oid bae50c46ff91e557201517d58f135c0d02385a75
@@ -68,8 +68,8 @@ schema-version 1
 origin -
 foreign sha1 bae50c46ff91e557201517d58f135c0d02385a75
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
@@ -104,8 +104,8 @@ foreign sha1 bae50c46ff91e557201517d58f135c0d02385a75
 ; item 9: foreign_oid
 14000000bae50c46ff91e557201517d58f135c0d02385a75
 ; item 10: changeset_digest
-456e1480a95711af868ba9ea2348812eb78692d06c4deb0e9573e5b3ef9d3a0f
-%% commit-id 3bc4c8c528527f1aec16a79900217fee406b41a50107b12dca171963389e753c
+4ca4ddef3808290ad776c279515493d6b9a8352524319f50cc80ab5ac68d8fa4
+%% commit-id 067dccdf77db3413f6ada443a2d00223e00831a185f3d416a43705d6f960d27f
 %% end
 
 %% case foreign-child
@@ -130,25 +130,25 @@ node 3d000000000000000000000000000001 note
 %% entries
 2c000000000000000000000000000001 status = done completed
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 2c000000000000000000000000000001 status
 012c00000000000000000000000000000102000104000000646f6e6509000000636f6d706c65746564
 ; u64 entry count = 1
 0100000000000000
 %% entry-count 1
-%% changeset-digest ac1028320c88471fe4efa014265ccc35192d0126f1a818c1db28ff7b2e8ac945
+%% changeset-digest ae0dc3cf254c0e8a0cd5734943f8dad97c1596686d96683456b501793a98d1f6
 %% git-commit
 object-format sha1
 oid a90fbf14ad67a2805437c630249c0701a71ec820
-parent 3bc4c8c528527f1aec16a79900217fee406b41a50107b12dca171963389e753c hlc 01a088b5a2000000
+parent 067dccdf77db3413f6ada443a2d00223e00831a185f3d416a43705d6f960d27f hlc 01a088b5a2000000
 committer-time 1789000600
 author-email-hex 626f62406578616d706c652e636f6d
 message-hex 436c6f736520ff2074686520696d706f72746572207461736b0a
 marker-schema-version 1
 %% commit
 kind ordinary
-parent 3bc4c8c528527f1aec16a79900217fee406b41a50107b12dca171963389e753c
+parent 067dccdf77db3413f6ada443a2d00223e00831a185f3d416a43705d6f960d27f
 hlc 01a088bec9c00000
 actor "git:bob@example.com"
 role ""
@@ -162,14 +162,14 @@ schema-version 1
 origin -
 foreign sha1 a90fbf14ad67a2805437c630249c0701a71ec820
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-3bc4c8c528527f1aec16a79900217fee406b41a50107b12dca171963389e753c
+067dccdf77db3413f6ada443a2d00223e00831a185f3d416a43705d6f960d27f
 ; item 3: hlc
 0000c0c9be88a001
 ; item 4: actor
@@ -199,8 +199,8 @@ foreign sha1 a90fbf14ad67a2805437c630249c0701a71ec820
 ; item 9: foreign_oid
 14000000a90fbf14ad67a2805437c630249c0701a71ec820
 ; item 10: changeset_digest
-ac1028320c88471fe4efa014265ccc35192d0126f1a818c1db28ff7b2e8ac945
-%% commit-id 2f47a25478af482bd30b011810fb808fc6b8b1de434d3a80f9a2fb141e2dfa7a
+ae0dc3cf254c0e8a0cd5734943f8dad97c1596686d96683456b501793a98d1f6
+%% commit-id 71c40e0770385870a7da2ef92f668e311766d5784aef8e3e5460e1a6f70c393d
 %% end
 
 %% case foreign-clock-behind
@@ -225,25 +225,25 @@ node 3d000000000000000000000000000001 note
 %% entries
 3d000000000000000000000000000001 body = hash 4d42bbdffd76ce78b2ee4727e1226514
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 3d000000000000000000000000000001 body
 013d0000000000000000000000000000010800014d42bbdffd76ce78b2ee4727e1226514
 ; u64 entry count = 1
 0100000000000000
 %% entry-count 1
-%% changeset-digest 551133192a82213abf0bfaaefd960ed98ef5eba8a4ab9fe686fe14deb0f51251
+%% changeset-digest 78992142e59ae9ccb507e4436f98b7ac03bfccb87214b0c1b79955e7ad8b7ca2
 %% git-commit
 object-format sha1
 oid 2a574fe62cbae228b64cdf69856bd43b33d3d1a5
-parent 3bc4c8c528527f1aec16a79900217fee406b41a50107b12dca171963389e753c hlc 01a088b5a2000000
+parent 067dccdf77db3413f6ada443a2d00223e00831a185f3d416a43705d6f960d27f hlc 01a088b5a2000000
 committer-time 1788999000
 author-email-hex 7a6fc3ab406578616d706c652e636f6d
 message-hex 446573637269626520746865206578706f727420636f6c756d6e730a
 marker-schema-version 1
 %% commit
 kind ordinary
-parent 3bc4c8c528527f1aec16a79900217fee406b41a50107b12dca171963389e753c
+parent 067dccdf77db3413f6ada443a2d00223e00831a185f3d416a43705d6f960d27f
 hlc 01a088b5a2000001
 actor "git:zo\u00eb@example.com"
 role ""
@@ -257,14 +257,14 @@ schema-version 1
 origin -
 foreign sha1 2a574fe62cbae228b64cdf69856bd43b33d3d1a5
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-3bc4c8c528527f1aec16a79900217fee406b41a50107b12dca171963389e753c
+067dccdf77db3413f6ada443a2d00223e00831a185f3d416a43705d6f960d27f
 ; item 3: hlc
 010000a2b588a001
 ; item 4: actor
@@ -294,8 +294,8 @@ foreign sha1 2a574fe62cbae228b64cdf69856bd43b33d3d1a5
 ; item 9: foreign_oid
 140000002a574fe62cbae228b64cdf69856bd43b33d3d1a5
 ; item 10: changeset_digest
-551133192a82213abf0bfaaefd960ed98ef5eba8a4ab9fe686fe14deb0f51251
-%% commit-id b78e2e4b45ee8dd9999eef92fcfdc2f497dffa1141edf06778c21e133e64d533
+78992142e59ae9ccb507e4436f98b7ac03bfccb87214b0c1b79955e7ad8b7ca2
+%% commit-id 76b1197a7f3becbc3111d97e6b0af32febdf564a900b73bfa88a82cd60c695c4
 %% end
 
 %% case foreign-merge
@@ -340,27 +340,27 @@ node 3d000000000000000000000000000001 note
 %% entries
 3d000000000000000000000000000001 body = hash 4d42bbdffd76ce78b2ee4727e1226514
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 3d000000000000000000000000000001 body
 013d0000000000000000000000000000010800014d42bbdffd76ce78b2ee4727e1226514
 ; u64 entry count = 1
 0100000000000000
 %% entry-count 1
-%% changeset-digest 551133192a82213abf0bfaaefd960ed98ef5eba8a4ab9fe686fe14deb0f51251
+%% changeset-digest 78992142e59ae9ccb507e4436f98b7ac03bfccb87214b0c1b79955e7ad8b7ca2
 %% git-commit
 object-format sha1
 oid fc3e9bb3c84fd4a5e1c65dde0ea8f4a693beeb81
-parent 2f47a25478af482bd30b011810fb808fc6b8b1de434d3a80f9a2fb141e2dfa7a hlc 01a088bec9c00000
-parent b78e2e4b45ee8dd9999eef92fcfdc2f497dffa1141edf06778c21e133e64d533 hlc 01a088b5a2000001
+parent 71c40e0770385870a7da2ef92f668e311766d5784aef8e3e5460e1a6f70c393d hlc 01a088bec9c00000
+parent 76b1197a7f3becbc3111d97e6b0af32febdf564a900b73bfa88a82cd60c695c4 hlc 01a088b5a2000001
 committer-time 1789001200
 author-email-hex 626f62406578616d706c652e636f6d
 message-hex 4d65726765206272616e636820276e6f746573270a
 marker-schema-version 1
 %% commit
 kind merge
-parent 2f47a25478af482bd30b011810fb808fc6b8b1de434d3a80f9a2fb141e2dfa7a
-parent b78e2e4b45ee8dd9999eef92fcfdc2f497dffa1141edf06778c21e133e64d533
+parent 71c40e0770385870a7da2ef92f668e311766d5784aef8e3e5460e1a6f70c393d
+parent 76b1197a7f3becbc3111d97e6b0af32febdf564a900b73bfa88a82cd60c695c4
 hlc 01a088c7f1800000
 actor "git:bob@example.com"
 role ""
@@ -374,16 +374,16 @@ schema-version 1
 origin -
 foreign sha1 fc3e9bb3c84fd4a5e1c65dde0ea8f4a693beeb81
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 050000006d65726765
 ; item 2: n_parents
 02000000
 ; item 2: parent 1
-2f47a25478af482bd30b011810fb808fc6b8b1de434d3a80f9a2fb141e2dfa7a
+71c40e0770385870a7da2ef92f668e311766d5784aef8e3e5460e1a6f70c393d
 ; item 2: parent 2
-b78e2e4b45ee8dd9999eef92fcfdc2f497dffa1141edf06778c21e133e64d533
+76b1197a7f3becbc3111d97e6b0af32febdf564a900b73bfa88a82cd60c695c4
 ; item 3: hlc
 000080f1c788a001
 ; item 4: actor
@@ -413,6 +413,6 @@ b78e2e4b45ee8dd9999eef92fcfdc2f497dffa1141edf06778c21e133e64d533
 ; item 9: foreign_oid
 14000000fc3e9bb3c84fd4a5e1c65dde0ea8f4a693beeb81
 ; item 10: changeset_digest
-551133192a82213abf0bfaaefd960ed98ef5eba8a4ab9fe686fe14deb0f51251
-%% commit-id 1fe97b54e2d3fe249dae5ee2ff3e1b3052ebd4f52b1ac09bafd2355a9f91b42b
+78992142e59ae9ccb507e4436f98b7ac03bfccb87214b0c1b79955e7ad8b7ca2
+%% commit-id 0227ca5ff0bdde93f6a1e72a82926640bc42491cba501f737fb9a5c7d914652f
 %% end
