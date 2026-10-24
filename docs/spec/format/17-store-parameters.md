@@ -6,13 +6,13 @@
 | Chapter | [F17], `docs/spec/format/17-store-parameters.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-16c, the store-parameter part of WP-16 ([PLAN §3.2] item 1), author role R-SPEC-P |
-| Sources | [60 §2.5]: the rows "`HEAD`" and "Log" of the [AR] rows, the row "Store parameters" of the issue-2 rows, the audit rows "Commit body", "Segments" and "Ref table", and the paragraph "New store parameters" that follows the audit rows; [60 §3.1] "Decisions fixed at M0 exit"; [60 §4.3]; [60 §4.4] items 1, 2 and 8; [60 §5.1]; [60 §5.2] rows 2, 3, 5, 6, 8, 10, 12 and 14. [AR §2.2] (quiet cap), [AR §2.3] (promotion), [AR §2.5] (the `suspect` budget), [AR §2.11] (FTS tier 2), [AR §2.15] (loose/pack), [AR §3.5] (`suspect`), [AR §4.1] (files, extents, `hist`, `cs`, `dict`, the deletion grace), [AR §4.2] (`HEAD` flags), [AR §4.3] (commit size bound), [AR §4.5] steps 4, 7 and 12, [AR §4.7], [AR §4.9], [AR §5a.3], [AR §5a.7] step 6, [AR §5b.6], [AR §6.4], [AR §6.6], [AR §8.1]–[AR §8.3] (RAM and SPEED rows), [AR §13] (tables "Store parameters", "Durability, quiet mode, maintenance, locks, leases, retention", "Memory", "Queries and `TX`", and "Never a key"). [74 §5.1] item 5 (A10); [71] RAM-B1, RAM-M5, RAM-M6, RAM-m3; [70] S1, S9, S15; [20] G10, G16, G26; [80 §2.2.1], [80 §2.2.3], [80 §2.3.3], [80 §2.4.3], [80 §3] X-F3 and X-F11; [50 §5.8], [50 §5.10], [50 §8.1] F12, F15, F16; [90 §11.3]; [F10 §3.4] and `store.hist-codec` (P35, §4.5): the owner's ruling R-43 of 2026-10-13, OI-1b, the orchestrator's ruling R-69 of 2026-10-14 and the orchestrator's ruling R-74 of 2026-10-15; `suspect` without its pinned clause (§8.2, §12 TP-4, OP-17-27): the owner's ruling R-90 of 2026-10-19; review pass 2: `docs/spec/reviews/P-pass2.md` P2-2, with the owner's ruling R-127 of 2026-10-22 (the staleness bound `maintenance.stall-after`: §3 P36, §5.2, §10) |
+| Sources | [60 §2.5]: the rows "`HEAD`" and "Log" of the [AR] rows, the row "Store parameters" of the issue-2 rows, the audit rows "Commit body", "Segments" and "Ref table", and the paragraph "New store parameters" that follows the audit rows; [60 §3.1] "Decisions fixed at M0 exit"; [60 §4.3]; [60 §4.4] items 1, 2 and 8; [60 §5.1]; [60 §5.2] rows 2, 3, 5, 6, 8, 10, 12 and 14. [AR §2.2] (quiet cap), [AR §2.3] (promotion), [AR §2.5] (the `suspect` budget), [AR §2.11] (FTS tier 2), [AR §2.15] (loose/pack), [AR §3.5] (`suspect`), [AR §4.1] (files, extents, `hist`, `cs`, `dict`, the deletion grace), [AR §4.2] (`HEAD` flags), [AR §4.3] (commit size bound), [AR §4.5] steps 4, 7 and 12, [AR §4.7], [AR §4.9], [AR §5a.3], [AR §5a.7] step 6, [AR §5b.6], [AR §6.4], [AR §6.6], [AR §8.1]–[AR §8.3] (RAM and SPEED rows), [AR §13] (tables "Store parameters", "Durability, quiet mode, maintenance, locks, leases, retention", "Memory", "Queries and `TX`", and "Never a key"). [74 §5.1] item 5 (A10); [71] RAM-B1, RAM-M5, RAM-M6, RAM-m3; [70] S1, S9, S15; [20] G10, G16, G26; [80 §2.2.1], [80 §2.2.3], [80 §2.3.3], [80 §2.4.3], [80 §3] X-F3 and X-F11; [50 §5.8], [50 §5.10], [50 §8.1] F12, F15, F16; [90 §11.3]; [F10 §3.4] and `store.hist-codec` (P35, §4.5): the owner's ruling R-43 of 2026-10-13, OI-1b, the orchestrator's ruling R-69 of 2026-10-14 and the orchestrator's ruling R-74 of 2026-10-15; `suspect` without its pinned clause (§8.2, §12 TP-4, OP-17-27): the owner's ruling R-90 of 2026-10-19; review pass 2: `docs/spec/reviews/P-pass2.md` P2-2, with the owner's ruling R-127 of 2026-10-22 (the staleness bound `maintenance.stall-after`: §3 P36, §5.2, §10), and P2-11, with the owner's ruling R-139 of 2026-10-23 and the orchestrator's ruling R-142 of 2026-10-23 (`gc`'s `HARVEST` merge: §11.2); `docs/spec/reviews/S-pass2.md` §5 (the lead's broken line, OP-17-01's pointer, §8.2's test value 4) |
 | Depends on | [F01]; cites [F02], [F04], [F05], [F06], [F09], [F10], [F11], [F13], [F15], [F16], [F19], [F20], [CFG], [API] |
 
 This chapter lists every threshold or codec choice that switches a code path of the storage engine. For each one it
 gives the key, the type and unit, the valid range, the production value, the test-profile value, the decision point
-and what the value
-counts. Production values that an M0 measurement decides are named holes ([F01 §2.5]), listed in the Holes section.
+and what the value counts. Production values that an M0 measurement decides are named holes ([F01 §2.5]), listed in the
+Holes section of the chapter that owns the hole.
 The configuration syntax, precedence, unknown-key rule and registry format are [CFG]'s. The protocol that uses the values
 is [F16]'s. The byte layouts of the structures the parameters compare against belong to [F04], [F05], [F06], [F09], [F10]
 and [F11].
@@ -583,8 +583,9 @@ This reading resolves the "violation record beyond it" of [AR §2.5] and [20 §7
 **Model function.** `moirai_model::derived::affected_with_budget(parent: &State, child: &State, budget: u32)
 -> (Vec<Nid>, bool)`, tagged `spec: [F17 §8.2]`. `suspect` is a function of each state alone ([F13 §6.2]).
 
-**Test value 4.** A delete, retraction or supersession of a node cited by five nodes changes their `suspect` value
-([F13 §6.2]) and then takes the incomplete path at model scale.
+**Test value 4.** A delete, retraction or supersession of a node that five nodes cite, none of them `suspect` before,
+makes all five `suspect` ([F13 §6.2]'s single-hop predicate: each names the node directly), so `|S(c)|` > 4 and the
+commit takes the incomplete path at model scale (§12 TP-4's P23 row).
 
 ## 9. Git image export
 
@@ -660,16 +661,24 @@ The opening record of each window is named below. Elapsed time is measured by §
   expire at the run, with their entries in the other refs' absorbed vectors ([F11 §3.8]: the deleting `RefUpdate`'s
   `hlc` older than P30, no marker row naming the ref as origin ref, no `IDEM` entry bound to it inside its window). The
   run's P30 is `gc.reflog-expire`, or its `reflog_expire` ([API §8.5]).
+- **`HARVEST` ranges** (from M9–M10; review pass 2, P2-11; the owner's ruling R-139 of 2026-10-23). The run's
+  checkpoint fold, after the run's move drop ([F12 §3.5]), also merges the adjacent `HARVEST` ranges of a row whose
+  commits are both fixed on `main` ([F11 §13.5] "Merge at a `gc` run", "Fixed on `main`"), with the run's P30 as above.
 - **Decision point.** Each `gc` run.
 - **Visibility.** V, through `gc` only: after a `gc`, `undo`, `reflog` and as-of cannot reach an expired entry or a dropped
   commit, and the runtime snapshot ([API §15.7] `markers`, `refs`, `absorbed`) no longer holds the dropped `MARKERS_OLD`
   rows, the expired deleted refs or their absorbed entries. Both drops are functions of the stream at the run, because
-  the inertness move comes first, so they do not depend on when earlier folds ran (SP-1).
+  the inertness move comes first, so they do not depend on when earlier folds ran (SP-1). From M9–M10 the runtime
+  snapshot's `harvest` member ([API §15.7], [API §8.8]) also shows the ranges the run merged; that merge moves no byte
+  between harvested and not harvested ([API §8.5]), and it too is a function of the stream at the run, since it follows
+  the move drop ([F11 §13.5] "Determinism"; the orchestrator's ruling R-142 of 2026-10-23).
 - **Model function.** `moirai_model::gc::reachable_after_gc(dag, refs, reflog, pins, now, expire, cruft) -> Set<CommitId>`,
   tagged `spec: [F17 §11.2]`, for reachability. The model's `Gc` also applies the two runtime drops above, in that order:
   it keeps every marker row in one set, so it drops the rows that [F11 §7]'s inertness rule places in `MARKERS_OLD` at
   the run (cleared, or absorbed by every live ref) whose `hlc` is older than P30, then the expired deleted refs
-  ([API §8.5]). Physical GC (frame rewriting, file deletion, blob GC) is outside its scope ([60 §4.3], OP-17-17).
+  ([API §8.5]). From M9–M10 the same `Gc` also merges, after the run's move drop, the ranges of the `HARVEST` bullet
+  above ([F11 §13.5] rule (2)), with no order against the two drops. Physical GC (frame rewriting, file deletion, blob
+  GC) is outside its scope ([60 §4.3], OP-17-17).
 - **Test values.** 2 h and 30 min.
 
 ### 11.3 Trash and file observations (P32, P33)
@@ -838,7 +847,7 @@ body-placement hole (measurement 6). P35's production value is `HOLE(F10-hist-co
   values are design-fixed, and WP-81a records them unchanged. A reviewer who reads [60 §3.1] as requiring every value to be
   measured would turn the D values into holes with no deciding measurement. The chapter rejects that reading, because it
   would leave values undecidable. P35's default is [F10]'s hole `F10-hist-codec` (measurement 6), which this chapter
-  cites and does not list (§4.5).
+  cites in §3's P35 row and in §4.5 and does not list in its Holes section.
 - **OP-17-02 (FTS tier-2 count).** [AR §2.11] says "above ~20k nodes" without defining the count. The chapter resolves it as
   `HEAD.next_id − 1`, store-wide and monotonic, with `HEAD.flags` bit 1 set once and never cleared. Every view then uses one
   tier, and a raised threshold never switches tier 2 off.
