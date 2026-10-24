@@ -135,7 +135,7 @@ contract for every rule file.
 
 | File | Cite | Content | WP (role) | Status |
 |---|---|---|---|---|
-| [COVERAGE.md](COVERAGE.md) | — | One row per [60 §2.5] row (multi-part rows split), R-1…R-18, F1–F18, X-F1–X-F12 and [90 §10.1] item: chapter sections, fixture, model function; 152 rows, none unmapped | WP-10 (R-SPEC-F) skeleton; rows from every chapter's WP, assembled by R-SPEC-F | draft, pass 1 pending |
+| [COVERAGE.md](COVERAGE.md) | — | One row per [60 §2.5] row (multi-part rows split), R-1…R-18, F1–F18, X-F1–X-F12 and [90 §10.1] item, and per invariant of the design of record ([F13 §3]): chapter sections, fixture, model function; 190 rows, none unmapped | WP-10 (R-SPEC-F) skeleton; rows from every chapter's WP, assembled by R-SPEC-F | draft, pass 1 pending |
 | [HOLES.md](HOLES.md) | — | Every named hole of every part: where it sits, what decides it, its candidates; aliases; decided rule-file holes; measured decisions that are not holes | R-SPEC-F; filled by WP-81a | draft, pass 1 pending |
 | [reviews/a1-P.md](reviews/a1-P.md) | — | Phase-0 re-review of [40] and [50] revision 2 and the [PLAN §6.2] confirmations, lens P (performance, RAM, Windows) | WP-80a (R-REV-P) | review |
 | [reviews/a1-S.md](reviews/a1-S.md) | — | The same, lens S (semantics and correctness) | WP-80a (R-REV-S) | review |

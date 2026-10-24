@@ -17,8 +17,15 @@
   tables of [60 §2.5] carry the same items as [40 §2.11] and [50 §8.1], which are authoritative ([60 §2.5], [F01 §2.4]);
   each R-n and Fn therefore has one row that serves both. The "Cross-platform" and "Harness-agnostic interface" audit rows
   are summary rows; their parts are the X-F rows (§10) and the [90 §10.1] rows (§11).
+- **Invariant rows** (§12; review pass 2, S2-7; the owner's ruling R-127 of 2026-10-22, F2-Q6 and F2-Q10 (6)). Each
+  invariant of the design of record, I1–I4, I5′, I6–I14, I14′, I17′, I18′, I25′–I34′, I36′–I43′ and I-P3, and I35′ and
+  I-D1, which [F13 §1.1] lists in their own groups, has one row `F13-<ID>`, whose `chapter §` cell cites the [F13 §3]
+  subsection that states it, so that a model function tagged `spec: [F13 §x] <ID>` ([F13 §1.2]) matches the row by
+  citation; I26′'s row also cites the state definition of [F13 §4.1], and I37′'s the validator order of [F13 §5]. The
+  fixture cells stay blank until a fixture covers the whole invariant, and the model cells of I29′ and I30′ read
+  `none: deferred to M5`.
 - **Columns** ([F01 §2.7]). `item` is a stable row id (`60-…` for [60 §2.5], `R-n`, `R5-Fn` for [50 §8.1]'s Fn, `X-Fn`, `90-…` for
-  [90 §10.1]); `frozen content` states what the item freezes; `chapter §` lists every section that specifies a part of it,
+  [90 §10.1], `F13-<ID>` for [F13 §3]'s invariants (§12)); `frozen content` states what the item freezes; `chapter §` lists every section that specifies a part of it,
   each followed by the part; `fixture` and `model function` are blank until R-FIX and R-MODEL fill them, or read `none:` (below). The R5 rows' ids
   carry `R5-` so that no id is a substring of a chapter tag ([F10]–[F18]) or of an I-F label, which the item-id match of
   `xtask coverage` would take for the row (review pass 2, A2-3; the owner's ruling R-127 of 2026-10-22, F2-Q6).
@@ -67,7 +74,8 @@
 | §9 R5 reservations: F1–F18 ([50 §8.1], authoritative; the same rows as [60 §2.5]'s R5 table) | 18 | 18 | 0 | 0 |
 | §10 Cross-platform freeze: X-F1–X-F12 ([80 §3]) | 12 | 12 | 0 | 0 |
 | §11 [90 §10.1] items (what M0 freezes differently) | 7 | 7 | 0 | 0 |
-| **total** | **152** | **152** | **0** | **0** |
+| §12 Invariants of the design of record, I35′ and I-D1 ([F13 §3], [F13 §5]) | 38 | 38 | 0 | 0 |
+| **total** | **190** | **190** | **0** | **0** |
 
 Pass 1 marked six rows CONFLICTING (60-AR-HEAD-params, 60-AR-Values, R-4, R-7, R-15, R-18). Round 1 of its closure
 lifted all six after the owning chapters were aligned, and re-checked the rows [pass1-closure] §7 lists as citing
@@ -280,6 +288,49 @@ Decisions (a)-(c) as restated there govern ([F16 §4]); (g), (h) and (i) are add
 | 90-Errors | Error table and refusal texts: one new code (an `unknown`-profile free-form write, refused, naming the named mutation); two exit-5 texts (declared agent differs from the lease holder; environment lease bound to another thread); mechanical fixes printed as replacement text (L4) | [F19 §11.1] E411 `unknown_model_write`, exit 6; [F19 §11.2] the two exit-5 texts; [F19 §9.4] one fix, printed as text; [LQ/errors §5.5] E411; E407 "declared agent" and "bound lease"; [LQ/errors §2] replacement texts (§2.4); [LQ/errors §5.1] the code table; [API §4.3] where the refusals are raised; [API §9.1] E411 at `Tx`; [CFG §10.9] `query.safelist.model.<profile>` selects the refusal; [RULES/role-write-policy] WZ-004, WZ-005, WZ-010, WR-004, WR-012 | `lq/cases/errors-text.cases` | `api::resolve`, `profile::model_profile`, `profile::model_write_rule` |
 | 90-Card | LQ card: display spelling chosen by the L1 ablation; ASCII; bare tool names (GT13 surface freeze) | [LQ/card §1] the constraints: ASCII only, bare tool names, one display spelling (§1.1); [LQ/card §3] the card body (Cypher candidate); [LQ/card §4] the GQL candidate; [LQ/card §5] what the card says; bare tool names (§5.2); [LQ/gql-spelling §4] the display-spelling rule; HOLE(LQ-display-spelling); [LQ/canonical-ast §1.3] the canonical form and hashes independent of the spelling | | |
 | 90-Codec | Codec decided at M0 exit by item 6 among pure-Rust options: the codec byte values, the `hist` and `blobs` frame formats, `dict.D` as raw content, absent, or a formatted zstd dictionary (option (3)) | [F10 §3] the codec byte, `BlobEnc`, frame formats, placement; HOLE(F10-codec-values), HOLE(F10-blob-codec), HOLE(F10-hist-codec), HOLE(F10-body-placement); [F10 §6] `dict.<D>`; HOLE(F10-dict-form); [F02 §5.1] whether `dict.<D>` exists; HOLE(F02-dict-file) | `hex/codec/*` (`hex/INDEX.md` §5) | none: byte layout; a byte structure that the model does not produce ([60 §4.3]): the row's fixtures check it |
+
+## 12. Invariants of the design of record, I35′ and I-D1 ([F13 §3], [F13 §5])
+
+| item | frozen content | chapter § | fixture | model function |
+|---|---|---|---|---|
+| F13-I1 | A `#N` is unique across branches and never reused, a `uid` is unique, and a known derived uid reuses its `#N` | [F13 §3.1] I1: the statement, its enforcement points, model function and gates | | |
+| F13-I35′ | A `#N` is bound to at most one `uid` over the store's life, across imports and GC | [F13 §3.1] I35′: the statement, its enforcement points, model function and gates | | |
+| F13-I2 | Structural edges have live endpoints in the same visible version, flagged `blocks` and `gates` edges excepted | [F13 §3.2] I2: the statement, its enforcement points, model function and gates | | |
+| F13-I3 | Historical edges may reference dead ids and resolve through the tombstone view | [F13 §3.2] I3: the statement, its enforcement points, model function and gates | | |
+| F13-I4 | `parent` is a forest of depth ≤ 12 | [F13 §3.2] I4: the statement, its enforcement points, model function and gates | | |
+| F13-I5′ | The combined precedence graph is acyclic | [F13 §3.2] I5′: the statement, its enforcement points, model function and gates | | |
+| F13-I6 | `supersedes(new, old)` sets `old.status = superseded` in the same commit, with at most one active superseder | [F13 §3.2] I6: the statement, its enforcement points, model function and gates | | |
+| F13-I7 | The target of `duplicate_of` is canonical | [F13 §3.2] I7: the statement, its enforcement points, model function and gates | | |
+| F13-I-P3 | Reverse adjacency is the inverse of forward adjacency in every visible version | [F13 §3.2] I-P3: the statement, its enforcement points, model function and gates | | |
+| F13-I8 | Status transitions follow the kind's machine; derived and runtime statuses are never stored | [F13 §3.3] I8: the statement, its enforcement points, model function and gates | | |
+| F13-I9 | Derived counters, bitsets, `topo` and the reverse CSR equal a full recomputation | [F13 §3.3] I9: the statement, its enforcement points, model function and gates | | |
+| F13-I10 | Every mutation belongs to exactly one commit, which carries its provenance | [F13 §3.3] I10: the statement, its enforcement points, model function and gates | | |
+| F13-I11 | Fields conform to their commit's schema version; symbols and enum integers are never reused | [F13 §3.3] I11: the statement, its enforcement points, model function and gates | | |
+| F13-I12 | Every branch head satisfies I1–I11; a violating merge, import, revert or cherry-pick stages | [F13 §3.3] I12: the statement, its enforcement points, model function and gates | | |
+| F13-I13 | A `perf` or `complexity` finding reaches `fixed` only with an `addresses` edge and a review verdict of different actors | [F13 §3.3] I13: the statement, its enforcement points, model function and gates | | |
+| F13-I14 | A `run` closes `green` only when every expected artifact was produced and read back | [F13 §3.3] I14: the statement, its enforcement points, model function and gates | | |
+| F13-I14′ | An idempotency key is bound to its payload hash and its branch | [F13 §3.4] I14′: the statement, its enforcement points, model function and gates | | |
+| F13-I17′ | A lease mutation presents the current fencing token, and expiry never bumps it | [F13 §3.4] I17′: the statement, its enforcement points, model function and gates | | |
+| F13-I26′ | Exclusion from `ready` and `claim` is defined on states, and the markers are its cache | [F13 §3.4] I26′: the statement, its enforcement points, model function and gates; [F13 §4.1] the definition on states | | |
+| F13-I27′ | A commit reachable after recovery is reachable from a ref, the reflog or a pin, or is an orphan | [F13 §3.4] I27′: the statement, its enforcement points, model function and gates | | |
+| F13-I32′ | `rm` refuses while a live lease covers the `#N`, unless `--release` | [F13 §3.4] I32′: the statement, its enforcement points, model function and gates | | |
+| F13-I33′ | On `plan/*`, `status`, `resolution`, `assignee` and claims are read-only | [F13 §3.4] I33′: the statement, its enforcement points, model function and gates | | |
+| F13-I36′ | Claims, markers and lease state are never versioned or exported | [F13 §3.4] I36′: the statement, its enforcement points, model function and gates | | |
+| F13-I25′ | A key untouched on one side since the LCA never conflicts | [F13 §3.5] I25′: the statement, its enforcement points, model function and gates | | |
+| F13-I31′ | One base rule for several LCAs: the recursive virtual base | [F13 §3.5] I31′: the statement, its enforcement points, model function and gates | | |
+| F13-I34′ | `revert` and `cherry-pick` stage on `NotFound` and record a `DATA` mismatch as a `FieldEdit` conflict value | [F13 §3.5] I34′: the statement, its enforcement points, model function and gates | | |
+| F13-I37′ | At merge, `parent` moves and implied I5′ edges come before any precedence check, in the validator order | [F13 §3.5] I37′: the statement, its enforcement points, model function and gates; [F13 §5] the validator order V01–V13 | | |
+| F13-I41′ | Staging refs exist per `(dst, src)` pair, and a staged pair never blocks another | [F13 §3.5] I41′: the statement, its enforcement points, model function and gates | | |
+| F13-I18′ | As-of output carries no derived fields unless recomputed; runtime state at a past view is E302 | [F13 §3.6] I18′: the statement, its enforcement points, model function and gates | | |
+| F13-I42′ | A commit's `affected` list is complete, or `affected_complete` = 0 beyond the `suspect` budget | [F13 §3.6] I42′: the statement, its enforcement points, model function and gates | | |
+| F13-I43′ | A commit's `append_hlc` is non-decreasing in `seq` order | [F13 §3.6] I43′: the statement, its enforcement points, model function and gates | | |
+| F13-I28′ | Git object ids follow from moirai data, the object format, the anchor-text mode and the dropped set | [F13 §3.7] I28′: the statement, its enforcement points, model function and gates | | |
+| F13-I29′ | Importing an image of the same format version reproduces every native commit id | [F13 §3.7] I29′: the statement, its enforcement points, model function and gates | | none: deferred to M5 |
+| F13-I30′ | A foreign two-parent commit is imported as a typed merge, and counters never come from a text merge | [F13 §3.7] I30′: the statement, its enforcement points, model function and gates | | none: deferred to M5 |
+| F13-I38′ | Every canonical field has exactly one carrier in the image, and import recomputes every native id | [F13 §3.7] I38′: the statement, its enforcement points, model function and gates | | |
+| F13-I39′ | A tombstone file carries every out-edge the store retains for its dead node | [F13 §3.7] I39′: the statement, its enforcement points, model function and gates | | |
+| F13-I40′ | Body bytes survive export and import exactly, and CRLF → LF happens only at write time | [F13 §3.7] I40′: the statement, its enforcement points, model function and gates | | |
+| F13-I-D1 | Dropped bodies are not kept: no later record carries one, `BLOBTAB` marks it, and no store file holds its bytes once the purge is done | [F13 §3.10] I-D1: the statement, its enforcement points, model function and gates | | |
 
 ## Holes
 
