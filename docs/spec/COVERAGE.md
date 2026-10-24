@@ -360,7 +360,7 @@ Found while every row was checked against its chapter text. None leaves a row un
 5. **Hole ids.** Six ids do not follow [F01 §2.5]'s `<part>-<name>` form, and three rule-file "holes" are naming
    decisions that are already made; [HOLES.md](HOLES.md) §3 and §4 list them with the proposed renames and values.
    **Resolved** (pass-1 finding S1-40, R-MODEL): the ids are renamed in every chapter that used them, the rule files write
-   the three decided values, and [HOLES.md](HOLES.md) §3 and §4 record the old ids until pass 2.
+   the three decided values, and [HOLES.md](HOLES.md) §3 and §4 record the old ids until the `format-v1` tag (review pass 2, A2-10).
 6. **[RULES/README §1.1] file list.** It lists `delete-policy.md` and `i26-state.md` (planned), while the files are
    `delete-policy-matrix.md` and `state-definition.md`, and it does not list `role-write-policy.md`. The index
    (`docs/spec/README.md`) lists the files as they exist. Proposal: R-MODEL aligns §1.1. **Resolved** (pass-1 finding

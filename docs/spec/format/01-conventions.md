@@ -716,6 +716,7 @@ None. This chapter fixes no value that an M0 measurement or benchmark decides.
     ids unique. **Pass 1 (P1-33, S1-40, A1-42): adopted.** Every id outside the `<part>-<name>` form is renamed as
     [HOLES.md §4] lists, and a value owned by one chapter is cited by that chapter's id, never by a second id. A "hole"
     whose value is a naming decision already made is not a hole (§2.5): its value is written ([HOLES.md §3]). Each part
-    applies the renames in its own files; `HOLES.md` records the old and the new id until pass 2. Round 1 re-check: a
+    applies the renames in its own files; `HOLES.md` records the old and the new id until the `format-v1`
+    tag (review pass 2, A2-10). Round 1 re-check: a
     scan of every `HOLE(` outside `reviews/` finds exactly the 53 ids of [HOLES.md §2] (this point names the old ids
     without that form).
