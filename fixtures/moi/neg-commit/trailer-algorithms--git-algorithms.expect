@@ -5,7 +5,7 @@
 %% context carrier destination A
 %% source [F14 §9.2]
 %% source [F07 §15]
-%% note Moirai-Git-Head sha1 and Moirai-Git-Base sha256.
-%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is 4adfc071784748a76639e269c95e30cc54f4ead0.
+%% note Klotho-Git-Head sha1 and Klotho-Git-Base sha256.
+%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is 7e20df4a97c8faea260244995e5e151410e7f56d.
 %% refuse ImageParse trailer-algorithms
 %% end

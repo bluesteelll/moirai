@@ -5,7 +5,7 @@
 %% context carrier destination A
 %% source [F14 §9.2]
 %% source [F07 §15]
-%% note Moirai-Sync-Base names the first parent, not the second.
-%% note Its tree and parents are those of carrier case sync (destination A); its object id is 9855524ba5ad875f2506de24b2d039d28a58aa27.
+%% note Klotho-Sync-Base names the first parent, not the second.
+%% note Its tree and parents are those of carrier case sync (destination A); its object id is 9601b07fdfd918bc3cf665f65b2b509771895322.
 %% refuse ImageParse trailer-sync-base
 %% end

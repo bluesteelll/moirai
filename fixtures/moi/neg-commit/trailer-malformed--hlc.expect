@@ -5,7 +5,7 @@
 %% context carrier destination A
 %% source [F14 §9.2]
 %% source [F07 §15]
-%% note A malformed value of a known trailer (Moirai-Hlc).
-%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is c503cd1ac20a5c31997d366387dcc33196af3008.
+%% note A malformed value of a known trailer (Klotho-Hlc).
+%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is a625961e90bf96222b6e8a84bbcda43ade6f3c3f.
 %% refuse ImageParse trailer-malformed
 %% end

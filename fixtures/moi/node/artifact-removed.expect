@@ -8,7 +8,7 @@
 %% note Row R4: a removed file node (status removed, a reason); still a live node file.
 %% canonical self
 %% keys
-node 672af70da09c660c2887060b8618cfd9 artifact
+node 02a3a42c719765f4f57bb6ed534348ba artifact
   status removed none
   field artifact_kind enum doc
   field bytes int 74

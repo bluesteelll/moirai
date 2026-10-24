@@ -8,7 +8,7 @@
 %% note Row R4: a planned file node: no oid, bytes or observation yet.
 %% canonical self
 %% keys
-node dba5cf7715202bc4fc8feb1405c7774b artifact
+node 0c8ca6081ef8702400f7aad68643797d artifact
   status planned none
   field artifact_kind enum source
   field origin_path path project "Cargo.toml"

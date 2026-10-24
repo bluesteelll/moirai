@@ -1,6 +1,6 @@
 # moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
 
-%% fixture side/marker-sha256/.moirai-image
+%% fixture side/marker-sha256/.klotho-image
 %% file marker
 %% context destination object format sha256
 %% source [F14 §4]

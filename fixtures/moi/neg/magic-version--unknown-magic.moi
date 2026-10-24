@@ -1,4 +1,4 @@
-moirai-nodes 1
+klotho-nodes 1
 uid: 1a000000000000000000000000000011
 kind: task
 title: Byte-range lock protocol

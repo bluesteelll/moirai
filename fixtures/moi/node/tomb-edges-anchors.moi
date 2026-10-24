@@ -1,4 +1,4 @@
-moirai-node 1
+klotho-node 1
 uid: 1a000000000000000000000000000011
 kind: task
 title: Reader registry
@@ -7,4 +7,4 @@ field reason: dup of the lock protocol task
 edge blocks -> 1a000000000000000000000000000012 flagged
 edge cites -> 5d000000000000000000000000000011 pin=ce53e65b9e751e6b6bd37f93e501ec97a4752d361d4e9848c235d462fe3adaad3
 edge mentions -> 1a000000000000000000000000000052
-anchor e2a8f4372b79ab3762509cc526f7868c -> ff62a2c718c52faafc108cf0e945642e kind=quote mode=live watch=span quote_h=f0bc697727cf4ed990d560ad41fa0517 prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=82f448f5c2b1401a2393409774e4b52d quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder" hint=3-3 window=AQACAFoex9ILRA span=xxh3:6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9 captured=55a0f8225a49064207dfab2882e736d5 marker=lock-writer v=1
+anchor 2cd5cf9fb4f6aaea8856961754d71b8d -> 58bf5caf4b563388042b46cd27dba3da kind=quote mode=live watch=span quote_h=f0bc697727cf4ed990d560ad41fa0517 prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=82f448f5c2b1401a2393409774e4b52d quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder" hint=3-3 window=AQACAFoex9ILRA span=xxh3:6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9 captured=e84607d8eefc271ceeb82b735b6d99e3 marker=lock-writer v=1

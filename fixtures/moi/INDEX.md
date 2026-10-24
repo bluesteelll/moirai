@@ -18,7 +18,7 @@ Every value is synthetic: no owner data, no real paths, users or hosts. `.gitatt
 | `node/<name>.moi` | one node file; parsed under the core schema of version 1 ([F08 §9]). File names are descriptive: the rule that a node file's uid equals its file name is a tree rule ([F14 §3.4]) |
 | `schema/<table>.moi` | the four schema tables, as `schema/kinds.moi`, `schema/fields.moi`, `schema/edges.moi`, `schema/policy.moi` of a tree |
 | `query/<name>.moi` | named-query files; in a tree each is `schema/queries/<q>.moi` (its expect names q) |
-| `side/…` | the marker (`side/marker-<format>/.moirai-image`), `refs/heads.moi` and `refs/tags.moi` rows, and the side-ref files `meta.moi`, `aliases/<h1>.moi`, `ops.moi` ([F14 §4], §8, §14) |
+| `side/…` | the marker (`side/marker-<format>/.klotho-image`), `refs/heads.moi` and `refs/tags.moi` rows, and the side-ref files `meta.moi`, `aliases/<h1>.moi`, `ops.moi` ([F14 §4], §8, §14) |
 | `tree/<name>/` | whole image trees, read as §11.1 reads a commit's tree |
 | `superset/<name>.moi` | inputs an importer accepts and normalises ([F14 §9.1]); each names its canonical twin |
 | `neg/<rule>--<variant>.moi` | single-file `ImageParse` negatives (node, query and schema files) |
@@ -126,8 +126,8 @@ An `.expect` file uses the framing of `fixtures/canonical/INDEX.md` §2.1 (UTF-8
 | queries | `query/params-ht.moi` | A string default holding a raw HT: the `params:` line value is a JSON string. |
 | queries | `query/with-params.moi` | A query with parameters: `params:` is the rendered param_decl list. |
 | side refs and rows | `side/aliases/1a.moi` | aliases/1a.moi: rows of uids that begin with byte 1a, by uid. |
-| side refs and rows | `side/marker-sha1/.moirai-image` | The .moirai-image marker, sha1. |
-| side refs and rows | `side/marker-sha256/.moirai-image` | The .moirai-image marker, sha256. |
+| side refs and rows | `side/marker-sha1/.klotho-image` | The .klotho-image marker, sha1. |
+| side refs and rows | `side/marker-sha256/.klotho-image` | The .klotho-image marker, sha256. |
 | side refs and rows | `side/meta.moi` | meta.moi of the side ref: store id, format, mode, cursor, ref rows sorted. |
 | side refs and rows | `side/ops.moi` | ops.moi: ref events and client-head events (a session key that needs JSON) in log order. |
 | side refs and rows | `side/refs/heads.moi` | refs/heads.moi of a checkpoint of main. |
@@ -190,8 +190,8 @@ The group `ledgers` is `tree/project-schema/` (two counters, several lines, a ne
 | `merge-markers` | leftover merge markers | [F14 §9.2] | `neg/merge-markers--markers.moi` |
 | `trailer-malformed` | a malformed value of a known trailer | [F14 §10.4], §10.9 | `neg-commit/trailer-malformed--hlc.commit` |
 | `trailer-repeated` | a repeated trailer | [F14 §10.9] | `neg-commit/trailer-repeated--kind.commit` |
-| `trailer-algorithms` | `Moirai-Git-Head` and `Moirai-Git-Base` of different algorithms | [F14 §10.4] | `neg-commit/trailer-algorithms--git-algorithms.commit` |
-| `trailer-sync-base` | a `Moirai-Sync-Base` that differs from its second parent's stated id | [F14 §10.4] | `neg-commit/trailer-sync-base--differs.commit` |
+| `trailer-algorithms` | `Klotho-Git-Head` and `Klotho-Git-Base` of different algorithms | [F14 §10.4] | `neg-commit/trailer-algorithms--git-algorithms.commit` |
+| `trailer-sync-base` | a `Klotho-Sync-Base` that differs from its second parent's stated id | [F14 §10.4] | `neg-commit/trailer-sync-base--differs.commit` |
 | `trailer-schema` | a schema version other than 1 | [F07 §15] | `neg-commit/trailer-schema--two.commit` |
 | `foreign-parents` | a foreign commit with more than two parents | [F07 §12.3] | `neg-commit/foreign-parents--three.commit` |
 

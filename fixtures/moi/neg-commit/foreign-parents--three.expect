@@ -6,6 +6,6 @@
 %% source [F14 §9.2]
 %% source [F07 §15]
 %% note A foreign commit (the hand edit) with three parents.
-%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is 4cb47587a9ab66d26bb6f60955affcda095c680e.
+%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is 63558d3b22e53b5a1f65d1cf6a8c58a8e640ba19.
 %% refuse ImageParse foreign-parents
 %% end
