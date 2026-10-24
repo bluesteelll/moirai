@@ -254,6 +254,7 @@ renewal, a cursor) are no entries.
 - **Ties.** Entries of one seq come in log order: the commit's key changes first, in [API §5.7]'s row order, then the group's
   other entries in the order of their records ([F05 §4.7]), then the entries of later groups in append order. `ORDER BY seq`
   keeps this order among ties.
+  The marker entries of one `Marker` record come in [F05 §9.5]'s entry order, which no fold changes and `ORDER BY seq` keeps.
 - `relevant_to` of an absent `node` is false.
 
 2.16. **Reserved built-ins (M9–M10)** (spec sync 3; [AR §11] #46). The work-list queries of §4.25 need three built-ins
