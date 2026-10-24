@@ -1,16 +1,16 @@
-tree 158637c1c66b09d94ff9832c9b2b932c377d6419
-parent d1049329a21f4c63eb0a48f2aa85fb94ed1ee3e3
-author moirai/dev#5 <developer@moirai.invalid> 1790004200 +0000
-committer moirai/dev#5 <developer@moirai.invalid> 1790004200 +0000
+tree aee42bcd5fbc48e27ea5c009922db074005e637f
+parent 43825ab43c3a678d2b1f1763e1e20eff1b58502b
+author klotho/dev#5 <developer@klotho.invalid> 1790004200 +0000
+committer klotho/dev#5 <developer@klotho.invalid> 1790004200 +0000
 
 re-estimate #2
 
-Moirai-Commit: cc79ab57d62c0ac72987e753512d459bb1b0949f46d769039263d423e3b0ac5ae
-Moirai-Kind: ordinary
-Moirai-Ref: lane/demote
-Moirai-Hlc: 117309715251200000
-Moirai-Actor: dev#5
-Moirai-Role: developer
-Moirai-Session: claude:s5
-Moirai-Schema: 1
-Moirai-Ops: 1
+Klotho-Commit: ceee95dbd316213c295653a6bc3a6501c1fd91436c8ca963e0db429027ef35e05
+Klotho-Kind: ordinary
+Klotho-Ref: lane/demote
+Klotho-Hlc: 117309715251200000
+Klotho-Actor: dev#5
+Klotho-Role: developer
+Klotho-Session: claude:s5
+Klotho-Schema: 1
+Klotho-Ops: 1

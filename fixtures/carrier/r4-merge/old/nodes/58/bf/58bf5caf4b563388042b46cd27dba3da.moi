@@ -1,0 +1,16 @@
+klotho-node 1
+uid: 58bf5caf4b563388042b46cd27dba3da
+kind: artifact
+status: present
+created: c1e26cf836cda835436dbf2c54e7cc795f54bcffcd1da9d38e11f3a5fab690f64 2026-09-21T14:25:20.000Z
+updated: c7ceced131ffc81f21564921fbff77348c90215e4f2dd0143e47cbcd796df930e 2026-09-21T15:14:20.000Z
+field aliases: [docs/storage/lock.md]
+field artifact_kind: doc
+field bytes: 161
+field observed_blob: sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae
+field observed_git: sha1:cafe11e0dfd91a0b34786ad5767ab6627e288de6
+field oid: sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae
+field origin_path: docs/storage/lock.md
+field path: docs/locking/lock.md
+field relink: explicit/intent
+field root: project

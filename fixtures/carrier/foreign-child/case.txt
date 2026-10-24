@@ -9,9 +9,9 @@
 %% note Row foreign: one parent; its message holds the byte FF (item 6: U+FFFD).
 %% destination F sha1 full
 %% class foreign
-%% git-commit c4056d98d06b816e62206682d773e8e4ea459126
-%% git-tree e49b9cffc18a81320755881803de73a6a58b7e1a
-%% git-parent 33881ca4c0710e4ef0c39fa06904c0cc6494ca6a foreign-root
+%% git-commit c8b652a712267fab39952a5da860495ad0cb1994
+%% git-tree 19fe9590e8594d35fbdd769cc28d000ff343738f
+%% git-parent d299508691dda2c972974271eac38464ae150599 foreign-root
 %% touched-new 1
 %% touched-old 1
 %% p-state
@@ -32,17 +32,17 @@ node 3d000000000000000000000000000001 note
 %% entries
 2c000000000000000000000000000001 status = done completed
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 2c000000000000000000000000000001 status
 012c00000000000000000000000000000102000104000000646f6e6509000000636f6d706c65746564
 ; u64 entry count = 1
 0100000000000000
 %% entry-count 1
-%% changeset-digest ac1028320c88471fe4efa014265ccc35192d0126f1a818c1db28ff7b2e8ac945
+%% changeset-digest ae0dc3cf254c0e8a0cd5734943f8dad97c1596686d96683456b501793a98d1f6
 %% commit
 kind ordinary
-parent a4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
+parent 50a13d75db5cc44f2dd416743cf3846047d747cb51bab3074164c253ddd2d7a0
 hlc 01a088bec9c00000
 actor "git:bob@example.com"
 role ""
@@ -54,16 +54,16 @@ git-base -
 message "Close \ufffd the importer task"
 schema-version 1
 origin -
-foreign sha1 c4056d98d06b816e62206682d773e8e4ea459126
+foreign sha1 c8b652a712267fab39952a5da860495ad0cb1994
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-a4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
+50a13d75db5cc44f2dd416743cf3846047d747cb51bab3074164c253ddd2d7a0
 ; item 3: hlc
 0000c0c9be88a001
 ; item 4: actor
@@ -91,9 +91,9 @@ a4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
 ; item 9: foreign_algo
 0400000073686131
 ; item 9: foreign_oid
-14000000c4056d98d06b816e62206682d773e8e4ea459126
+14000000c8b652a712267fab39952a5da860495ad0cb1994
 ; item 10: changeset_digest
-ac1028320c88471fe4efa014265ccc35192d0126f1a818c1db28ff7b2e8ac945
-%% commit-id e143819ccd708e8318946181783f5cd10899389cdfff24bfccc2fbf14f426f1b
+ae0dc3cf254c0e8a0cd5734943f8dad97c1596686d96683456b501793a98d1f6
+%% commit-id e0961d7626ac6045bbc36e55f451fc1ec0db28b52b21db6c181aafefdf1e6180
 %% canonical foreign.cases foreign-child changeset-digest
 %% end

@@ -10,10 +10,10 @@
 %% note a `path_moves` entry (a block); F2 registered at F1's old path with `origin_pred` = F1.
 %% destination A sha1 full
 %% class native
-%% git-commit 02a13fe126e7ffae79893a741ce051a9310177b8
-%% git-tree 1baa9f02aaec35e8b595900f9d95e7f565851b01
-%% git-parent 15a8ce13bee4af280d0de5985643573e7fc0b05f anchor-full
-%% trailer-commit 3452dc704892b196e865750e7be425be3cb0a3cf59caf80ac0342f141284e957
+%% git-commit 99a08bdcf33601fcd88dfea7b34218472d4ec07c
+%% git-tree 189f6b5a5c7884d184f185150362aeff6a85f0ec
+%% git-parent 21f78d7f7fece672743848e54ab637fdea7c4ba7 anchor-full
+%% trailer-commit 7ceced131ffc81f21564921fbff77348c90215e4f2dd0143e47cbcd796df930e
 %% touched-new 3
 %% touched-old 2
 %% p-state
@@ -27,8 +27,8 @@ node 1a000000000000000000000000000002 task
   parent a0000000000000000000000000000001 "k"
   field estimate int 5
   field title text "Write the recovery test"
-  at ff62a2c718c52faafc108cf0e945642e 451c99960d7d0705e2e58204dc597f09 kind=range mode=live watch=span resolver=1 captured=ae12469f9fd646a920aead70874596ad quote="## Timeouts" prefix="A holder that dies leaves the byte to the OS.\n" suffix="" end="Waiters retry every 5 ms for at most 2 s." hint=6-8 window=020000003d915a1e span_hash=0f4e2a17b3c85d69 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae marker="lock-timeouts"
-  at ff62a2c718c52faafc108cf0e945642e 9751bba14934b070bf965455e00cd17f kind=quote mode=live watch=span resolver=1 captured=5df7478441e0b5801d114d7a39c098b6 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder that dies" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae git=sha1:83bcc6a114fc80225d02ce95eec80e3769b5f074
+  at 58bf5caf4b563388042b46cd27dba3da 09671df76134862a7644c1c051e185dc kind=range mode=live watch=span resolver=1 captured=4149a94a03c43061dcb4be5072890992 quote="## Timeouts" prefix="A holder that dies leaves the byte to the OS.\n" suffix="" end="Waiters retry every 5 ms for at most 2 s." hint=6-8 window=020000003d915a1e span_hash=0f4e2a17b3c85d69 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae marker="lock-timeouts"
+  at 58bf5caf4b563388042b46cd27dba3da 20181b6578a11c10348613b26319bb8b kind=quote mode=live watch=span resolver=1 captured=f3122f33f95ef5cbc64d595f83ad2756 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder that dies" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae git=sha1:83bcc6a114fc80225d02ce95eec80e3769b5f074
 node 1a000000000000000000000000000003 task
   field title text "Measure the flush p99"
   field work_kind enum measure
@@ -36,7 +36,7 @@ node 3b000000000000000000000000000001 note
   field note_kind enum hazard
   field title text "Flush stalls under real-time scanning"
   body "Real-time scanning adds 40 ms to FlushFileBuffers."
-node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
+node 721354ad0f367138746bf0429056d772 area
   field root text "project"
   field title text "root:project"
 node 5d000000000000000000000000000001 decision
@@ -45,7 +45,7 @@ node 5d000000000000000000000000000001 decision
   field what text "One FlushFileBuffers per group."
 node a0000000000000000000000000000001 area
   field title text "Storage engine"
-node ff62a2c718c52faafc108cf0e945642e artifact
+node 58bf5caf4b563388042b46cd27dba3da artifact
   field artifact_kind enum doc
   field bytes int 161
   field observed_git oid sha1 83bcc6a114fc80225d02ce95eec80e3769b5f074
@@ -64,8 +64,8 @@ node 1a000000000000000000000000000002 task
   parent a0000000000000000000000000000001 "k"
   field estimate int 5
   field title text "Write the recovery test"
-  at ff62a2c718c52faafc108cf0e945642e 451c99960d7d0705e2e58204dc597f09 kind=range mode=live watch=span resolver=1 captured=ae12469f9fd646a920aead70874596ad quote="## Timeouts" prefix="A holder that dies leaves the byte to the OS.\n" suffix="" end="Waiters retry every 5 ms for at most 2 s." hint=6-8 window=020000003d915a1e span_hash=0f4e2a17b3c85d69 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae marker="lock-timeouts"
-  at ff62a2c718c52faafc108cf0e945642e 9751bba14934b070bf965455e00cd17f kind=quote mode=live watch=span resolver=1 captured=5df7478441e0b5801d114d7a39c098b6 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder that dies" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae git=sha1:83bcc6a114fc80225d02ce95eec80e3769b5f074
+  at 58bf5caf4b563388042b46cd27dba3da 09671df76134862a7644c1c051e185dc kind=range mode=live watch=span resolver=1 captured=4149a94a03c43061dcb4be5072890992 quote="## Timeouts" prefix="A holder that dies leaves the byte to the OS.\n" suffix="" end="Waiters retry every 5 ms for at most 2 s." hint=6-8 window=020000003d915a1e span_hash=0f4e2a17b3c85d69 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae marker="lock-timeouts"
+  at 58bf5caf4b563388042b46cd27dba3da 20181b6578a11c10348613b26319bb8b kind=quote mode=live watch=span resolver=1 captured=f3122f33f95ef5cbc64d595f83ad2756 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder that dies" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae git=sha1:83bcc6a114fc80225d02ce95eec80e3769b5f074
 node 1a000000000000000000000000000003 task
   field title text "Measure the flush p99"
   field work_kind enum measure
@@ -73,7 +73,7 @@ node 3b000000000000000000000000000001 note
   field note_kind enum hazard
   field title text "Flush stalls under real-time scanning"
   body "Real-time scanning adds 40 ms to FlushFileBuffers."
-node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
+node 721354ad0f367138746bf0429056d772 area
   field path_moves set pathmove 1 01a0c48844e00000 explicit project "docs/storage/" project "docs/locking/" sha1:cafe11e0dfd91a0b34786ad5767ab6627e288de6
   field root text "project"
   field title text "root:project"
@@ -83,17 +83,17 @@ node 5d000000000000000000000000000001 decision
   field what text "One FlushFileBuffers per group."
 node a0000000000000000000000000000001 area
   field title text "Storage engine"
-node c7828ca11b193c46fd13acfa05c87ce7 artifact
+node be880822463f1631ca060327e6761258 artifact
   field artifact_kind enum doc
   field bytes int 55
   field observed_blob oid sha1 25f952fedd463004ee5cc04d53a3b8b7f189fca5
   field observed_git oid sha1 cafe11e0dfd91a0b34786ad5767ab6627e288de6
   field oid oid sha1 25f952fedd463004ee5cc04d53a3b8b7f189fca5
   field origin_path path project "docs/storage/lock.md"
-  field origin_pred ref ff62a2c718c52faafc108cf0e945642e
+  field origin_pred ref 58bf5caf4b563388042b46cd27dba3da
   field path path project "docs/storage/lock.md"
   field root text "project"
-node ff62a2c718c52faafc108cf0e945642e artifact
+node 58bf5caf4b563388042b46cd27dba3da artifact
   field aliases set path 1 project "docs/storage/lock.md"
   field artifact_kind enum doc
   field bytes int 161
@@ -105,78 +105,78 @@ node ff62a2c718c52faafc108cf0e945642e artifact
   field relink text "explicit/intent"
   field root text "project"
 %% entries
-5bd0e29e6afc4a73557e4cbdf7d34c33 field path_moves = set pathmove 1 01a0c48844e00000 explicit project "docs/storage/" project "docs/locking/" sha1:cafe11e0dfd91a0b34786ad5767ab6627e288de6
-c7828ca11b193c46fd13acfa05c87ce7 existence = live artifact
-c7828ca11b193c46fd13acfa05c87ce7 field artifact_kind = enum doc
-c7828ca11b193c46fd13acfa05c87ce7 field bytes = int 55
-c7828ca11b193c46fd13acfa05c87ce7 field observed_blob = oid sha1 25f952fedd463004ee5cc04d53a3b8b7f189fca5
-c7828ca11b193c46fd13acfa05c87ce7 field observed_git = oid sha1 cafe11e0dfd91a0b34786ad5767ab6627e288de6
-c7828ca11b193c46fd13acfa05c87ce7 field oid = oid sha1 25f952fedd463004ee5cc04d53a3b8b7f189fca5
-c7828ca11b193c46fd13acfa05c87ce7 field origin_path = path project "docs/storage/lock.md"
-c7828ca11b193c46fd13acfa05c87ce7 field origin_pred = ref ff62a2c718c52faafc108cf0e945642e
-c7828ca11b193c46fd13acfa05c87ce7 field path = path project "docs/storage/lock.md"
-c7828ca11b193c46fd13acfa05c87ce7 field root = text "project"
-ff62a2c718c52faafc108cf0e945642e field aliases = set path 1 project "docs/storage/lock.md"
-ff62a2c718c52faafc108cf0e945642e field observed_blob = oid sha1 a936e37c01d643cb4e9df77e93ec3d4f89fd77ae
-ff62a2c718c52faafc108cf0e945642e field observed_git = oid sha1 cafe11e0dfd91a0b34786ad5767ab6627e288de6
-ff62a2c718c52faafc108cf0e945642e field path = path project "docs/locking/lock.md"
-ff62a2c718c52faafc108cf0e945642e field relink = text "explicit/intent"
+58bf5caf4b563388042b46cd27dba3da field aliases = set path 1 project "docs/storage/lock.md"
+58bf5caf4b563388042b46cd27dba3da field observed_blob = oid sha1 a936e37c01d643cb4e9df77e93ec3d4f89fd77ae
+58bf5caf4b563388042b46cd27dba3da field observed_git = oid sha1 cafe11e0dfd91a0b34786ad5767ab6627e288de6
+58bf5caf4b563388042b46cd27dba3da field path = path project "docs/locking/lock.md"
+58bf5caf4b563388042b46cd27dba3da field relink = text "explicit/intent"
+721354ad0f367138746bf0429056d772 field path_moves = set pathmove 1 01a0c48844e00000 explicit project "docs/storage/" project "docs/locking/" sha1:cafe11e0dfd91a0b34786ad5767ab6627e288de6
+be880822463f1631ca060327e6761258 existence = live artifact
+be880822463f1631ca060327e6761258 field artifact_kind = enum doc
+be880822463f1631ca060327e6761258 field bytes = int 55
+be880822463f1631ca060327e6761258 field observed_blob = oid sha1 25f952fedd463004ee5cc04d53a3b8b7f189fca5
+be880822463f1631ca060327e6761258 field observed_git = oid sha1 cafe11e0dfd91a0b34786ad5767ab6627e288de6
+be880822463f1631ca060327e6761258 field oid = oid sha1 25f952fedd463004ee5cc04d53a3b8b7f189fca5
+be880822463f1631ca060327e6761258 field origin_path = path project "docs/storage/lock.md"
+be880822463f1631ca060327e6761258 field origin_pred = ref 58bf5caf4b563388042b46cd27dba3da
+be880822463f1631ca060327e6761258 field path = path project "docs/storage/lock.md"
+be880822463f1631ca060327e6761258 field root = text "project"
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
-; entry 1: 5bd0e29e6afc4a73557e4cbdf7d34c33 field path_moves
-015bd0e29e6afc4a73557e4cbdf7d34c33040a000000706174685f6d6f76657300090e010000000000e04488c4a00108
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
+; entry 1: 58bf5caf4b563388042b46cd27dba3da field aliases
+0158bf5caf4b563388042b46cd27dba3da0407000000616c696173657300090c010000000700000070726f6a65637414
+000000646f63732f73746f726167652f6c6f636b2e6d64
+; entry 2: 58bf5caf4b563388042b46cd27dba3da field observed_blob
+0158bf5caf4b563388042b46cd27dba3da040d0000006f627365727665645f626c6f62000d0400000073686131140000
+00a936e37c01d643cb4e9df77e93ec3d4f89fd77ae
+; entry 3: 58bf5caf4b563388042b46cd27dba3da field observed_git
+0158bf5caf4b563388042b46cd27dba3da040c0000006f627365727665645f676974000d040000007368613114000000
+cafe11e0dfd91a0b34786ad5767ab6627e288de6
+; entry 4: 58bf5caf4b563388042b46cd27dba3da field path
+0158bf5caf4b563388042b46cd27dba3da040400000070617468000c0700000070726f6a65637414000000646f63732f
+6c6f636b696e672f6c6f636b2e6d64
+; entry 5: 58bf5caf4b563388042b46cd27dba3da field relink
+0158bf5caf4b563388042b46cd27dba3da040600000072656c696e6b00070f0000006578706c696369742f696e74656e
+74
+; entry 6: 721354ad0f367138746bf0429056d772 field path_moves
+01721354ad0f367138746bf0429056d772040a000000706174685f6d6f76657300090e010000000000e04488c4a00108
 0000006578706c696369740700000070726f6a6563740d000000646f63732f73746f726167652f0700000070726f6a65
 63740d000000646f63732f6c6f636b696e672f040000007368613114000000cafe11e0dfd91a0b34786ad5767ab6627e
 288de6
-; entry 2: c7828ca11b193c46fd13acfa05c87ce7 existence
-01c7828ca11b193c46fd13acfa05c87ce701000108000000617274696661637400
-; entry 3: c7828ca11b193c46fd13acfa05c87ce7 field artifact_kind
-01c7828ca11b193c46fd13acfa05c87ce7040d00000061727469666163745f6b696e64000603000000646f63
-; entry 4: c7828ca11b193c46fd13acfa05c87ce7 field bytes
-01c7828ca11b193c46fd13acfa05c87ce70405000000627974657300033700000000000000
-; entry 5: c7828ca11b193c46fd13acfa05c87ce7 field observed_blob
-01c7828ca11b193c46fd13acfa05c87ce7040d0000006f627365727665645f626c6f62000d0400000073686131140000
+; entry 7: be880822463f1631ca060327e6761258 existence
+01be880822463f1631ca060327e676125801000108000000617274696661637400
+; entry 8: be880822463f1631ca060327e6761258 field artifact_kind
+01be880822463f1631ca060327e6761258040d00000061727469666163745f6b696e64000603000000646f63
+; entry 9: be880822463f1631ca060327e6761258 field bytes
+01be880822463f1631ca060327e67612580405000000627974657300033700000000000000
+; entry 10: be880822463f1631ca060327e6761258 field observed_blob
+01be880822463f1631ca060327e6761258040d0000006f627365727665645f626c6f62000d0400000073686131140000
 0025f952fedd463004ee5cc04d53a3b8b7f189fca5
-; entry 6: c7828ca11b193c46fd13acfa05c87ce7 field observed_git
-01c7828ca11b193c46fd13acfa05c87ce7040c0000006f627365727665645f676974000d040000007368613114000000
+; entry 11: be880822463f1631ca060327e6761258 field observed_git
+01be880822463f1631ca060327e6761258040c0000006f627365727665645f676974000d040000007368613114000000
 cafe11e0dfd91a0b34786ad5767ab6627e288de6
-; entry 7: c7828ca11b193c46fd13acfa05c87ce7 field oid
-01c7828ca11b193c46fd13acfa05c87ce704030000006f6964000d04000000736861311400000025f952fedd463004ee
+; entry 12: be880822463f1631ca060327e6761258 field oid
+01be880822463f1631ca060327e676125804030000006f6964000d04000000736861311400000025f952fedd463004ee
 5cc04d53a3b8b7f189fca5
-; entry 8: c7828ca11b193c46fd13acfa05c87ce7 field origin_path
-01c7828ca11b193c46fd13acfa05c87ce7040b0000006f726967696e5f70617468000c0700000070726f6a6563741400
+; entry 13: be880822463f1631ca060327e6761258 field origin_path
+01be880822463f1631ca060327e6761258040b0000006f726967696e5f70617468000c0700000070726f6a6563741400
 0000646f63732f73746f726167652f6c6f636b2e6d64
-; entry 9: c7828ca11b193c46fd13acfa05c87ce7 field origin_pred
-01c7828ca11b193c46fd13acfa05c87ce7040b0000006f726967696e5f70726564000aff62a2c718c52faafc108cf0e9
-45642e
-; entry 10: c7828ca11b193c46fd13acfa05c87ce7 field path
-01c7828ca11b193c46fd13acfa05c87ce7040400000070617468000c0700000070726f6a65637414000000646f63732f
+; entry 14: be880822463f1631ca060327e6761258 field origin_pred
+01be880822463f1631ca060327e6761258040b0000006f726967696e5f70726564000a58bf5caf4b563388042b46cd27
+dba3da
+; entry 15: be880822463f1631ca060327e6761258 field path
+01be880822463f1631ca060327e6761258040400000070617468000c0700000070726f6a65637414000000646f63732f
 73746f726167652f6c6f636b2e6d64
-; entry 11: c7828ca11b193c46fd13acfa05c87ce7 field root
-01c7828ca11b193c46fd13acfa05c87ce70404000000726f6f7400070700000070726f6a656374
-; entry 12: ff62a2c718c52faafc108cf0e945642e field aliases
-01ff62a2c718c52faafc108cf0e945642e0407000000616c696173657300090c010000000700000070726f6a65637414
-000000646f63732f73746f726167652f6c6f636b2e6d64
-; entry 13: ff62a2c718c52faafc108cf0e945642e field observed_blob
-01ff62a2c718c52faafc108cf0e945642e040d0000006f627365727665645f626c6f62000d0400000073686131140000
-00a936e37c01d643cb4e9df77e93ec3d4f89fd77ae
-; entry 14: ff62a2c718c52faafc108cf0e945642e field observed_git
-01ff62a2c718c52faafc108cf0e945642e040c0000006f627365727665645f676974000d040000007368613114000000
-cafe11e0dfd91a0b34786ad5767ab6627e288de6
-; entry 15: ff62a2c718c52faafc108cf0e945642e field path
-01ff62a2c718c52faafc108cf0e945642e040400000070617468000c0700000070726f6a65637414000000646f63732f
-6c6f636b696e672f6c6f636b2e6d64
-; entry 16: ff62a2c718c52faafc108cf0e945642e field relink
-01ff62a2c718c52faafc108cf0e945642e040600000072656c696e6b00070f0000006578706c696369742f696e74656e
-74
+; entry 16: be880822463f1631ca060327e6761258 field root
+01be880822463f1631ca060327e67612580404000000726f6f7400070700000070726f6a656374
 ; u64 entry count = 16
 1000000000000000
 %% entry-count 16
-%% changeset-digest a8edde7ef2526c65efc94aaad4ff22684d106f768891904adb9778aa80c0b5d7
+%% changeset-digest bd3b77541e6c4700bb43485a5f1e07cbac0b99fa2acf0b40e0c54aabd56a10dc
 %% commit
 kind ordinary
-parent c2645145d5e8c99c807a3e7c1c5447981dd0627ab94bb8be799ef231e29064e6
+parent 1e26cf836cda835436dbf2c54e7cc795f54bcffcd1da9d38e11f3a5fab690f64
 hlc 01a0c48844e00000
 actor "dev#2"
 role "developer"
@@ -190,14 +190,14 @@ schema-version 1
 origin -
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-c2645145d5e8c99c807a3e7c1c5447981dd0627ab94bb8be799ef231e29064e6
+1e26cf836cda835436dbf2c54e7cc795f54bcffcd1da9d38e11f3a5fab690f64
 ; item 3: hlc
 0000e04488c4a001
 ; item 4: actor
@@ -228,6 +228,6 @@ c2645145d5e8c99c807a3e7c1c5447981dd0627ab94bb8be799ef231e29064e6
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-a8edde7ef2526c65efc94aaad4ff22684d106f768891904adb9778aa80c0b5d7
-%% commit-id 3452dc704892b196e865750e7be425be3cb0a3cf59caf80ac0342f141284e957
+bd3b77541e6c4700bb43485a5f1e07cbac0b99fa2acf0b40e0c54aabd56a10dc
+%% commit-id 7ceced131ffc81f21564921fbff77348c90215e4f2dd0143e47cbcd796df930e
 %% end

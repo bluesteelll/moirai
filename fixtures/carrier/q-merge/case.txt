@@ -10,11 +10,11 @@
 %% note absent) on stale_notes; each side is the JSON string of a whole query-def file.
 %% destination A sha1 full
 %% class native
-%% git-commit 8129e2aba031f60f26594e97bf639bfd09c15722
-%% git-tree d12e3efa0785b2c6b84294aa7b9d9c0fce9f8514
-%% git-parent 15f59b62732a4382f3e8fc2dd913428b847e0dae q-change
-%% git-parent afdd99ae16262834645df99eef8513f9afb557ae q-lane
-%% trailer-commit cb4f7657f01cd0248a5a57cead7158181215904cbb1afda640835560e8c15060
+%% git-commit 81bf873f2029ae162091398dfda8324fc1b72009
+%% git-tree 2dd4a2c144996d0a1de655d8d23b5cffea46f0a4
+%% git-parent 441cd92b8753e3f88c95a23d659b5e2ff4bd51be q-change
+%% git-parent fe439d490d552b8e0c9532b0f8fb938e9091d834 q-lane
+%% trailer-commit ad959ab654e2545dcad9edd2fbbdf5dec68308492d2c7653482bbbc3c99d0eaf
 %% touched-new 2
 %% touched-old 1
 %% p-state
@@ -78,8 +78,8 @@ schema query stale_notes conflict DeleteVsModify
 schema query open_tasks = conflict FieldEdit base (present) ours (present) theirs (present)
 schema query stale_notes = conflict DeleteVsModify base (present) ours (absent) theirs (present)
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: schema query open_tasks
 02050a0000006f70656e5f7461736b7301090000004669656c6445646974010100440000002473636f70653a206e6f64
 65203d2023753a61303030303030303030303030303030303030303030303030303030303030312c20246c696d69743a
@@ -116,11 +116,11 @@ schema query stale_notes = conflict DeleteVsModify base (present) ours (absent) 
 ; u64 entry count = 2
 0200000000000000
 %% entry-count 2
-%% changeset-digest dcdc13c5b9c7aeaff06312cf2abed3b9556db1cc6bfa025f58f098770ddea1c8
+%% changeset-digest e10c9c92c9a2bbebc4bff6172f5d72257e2272c3592c81838c9aa9ce4a01e9f1
 %% commit
 kind merge
-parent b615381affeff30141749be1064127f00c3a9e5362622a55032b6fbf1049358f
-parent 3781463b0232de8d64c96888b4348922dc972b4d7e29b844bc6ab3abe36fa89d
+parent 23c5525d44274f09a45defe4c4e59d0f48b6ab6df95472044a395914f37b84b0
+parent 5d4a7ab140bae95ec317812eb50283ec27396de548e0bf1a6887d9518815ffb8
 hlc 01a0c48dc3200000
 actor "orch"
 role "orchestrator"
@@ -134,16 +134,16 @@ schema-version 1
 origin -
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 050000006d65726765
 ; item 2: n_parents
 02000000
 ; item 2: parent 1
-b615381affeff30141749be1064127f00c3a9e5362622a55032b6fbf1049358f
+23c5525d44274f09a45defe4c4e59d0f48b6ab6df95472044a395914f37b84b0
 ; item 2: parent 2
-3781463b0232de8d64c96888b4348922dc972b4d7e29b844bc6ab3abe36fa89d
+5d4a7ab140bae95ec317812eb50283ec27396de548e0bf1a6887d9518815ffb8
 ; item 3: hlc
 000020c38dc4a001
 ; item 4: actor
@@ -173,6 +173,6 @@ b615381affeff30141749be1064127f00c3a9e5362622a55032b6fbf1049358f
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-dcdc13c5b9c7aeaff06312cf2abed3b9556db1cc6bfa025f58f098770ddea1c8
-%% commit-id cb4f7657f01cd0248a5a57cead7158181215904cbb1afda640835560e8c15060
+e10c9c92c9a2bbebc4bff6172f5d72257e2272c3592c81838c9aa9ce4a01e9f1
+%% commit-id ad959ab654e2545dcad9edd2fbbdf5dec68308492d2c7653482bbbc3c99d0eaf
 %% end

@@ -10,9 +10,9 @@
 %% note empty tree). The same git commit is the root of destinations A, C and H (its tree has no anchor line).
 %% destination A sha1 full
 %% class native
-%% git-commit 018e6a12ce584771b360c194bc69088493ee821e
-%% git-tree 34b5c80e0239f4e0be4c34fdf7b187717a3be48c
-%% trailer-commit 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+%% git-commit 815ecefd3990cfec6fd61fa7e77637f665e88ff1
+%% git-tree 801a5ef48ea6b8cb28885c5c2961e7373861f348
+%% trailer-commit 3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 %% touched-new 7
 %% touched-old 0
 %% p-state
@@ -65,8 +65,8 @@ node a0000000000000000000000000000001 area
 a0000000000000000000000000000001 existence = live area
 a0000000000000000000000000000001 field title = text "Storage engine"
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 1a000000000000000000000000000001 existence
 011a000000000000000000000000000001010001040000007461736b00
 ; entry 2: 1a000000000000000000000000000001 hierarchy
@@ -123,7 +123,7 @@ a0000000000000000000000000000001 field title = text "Storage engine"
 ; u64 entry count = 23
 1700000000000000
 %% entry-count 23
-%% changeset-digest 36a19882b0dd71d122715249ca7e88ac28d7d81f942d449f0e955fd2b3a93558
+%% changeset-digest 6ec33d539432a45aff963d99b18b87d79d9f0e07839368ebde5337dde6477b5a
 %% commit
 kind ordinary
 hlc 01a0c4506c000000
@@ -139,8 +139,8 @@ schema-version 1
 origin -
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
@@ -174,8 +174,8 @@ foreign -
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-36a19882b0dd71d122715249ca7e88ac28d7d81f942d449f0e955fd2b3a93558
-%% commit-id 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+6ec33d539432a45aff963d99b18b87d79d9f0e07839368ebde5337dde6477b5a
+%% commit-id 3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 %% canonical commits.cases root commit-id
 %% same-id b-root
 %% end

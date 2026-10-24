@@ -1,16 +1,16 @@
-tree 1274bbe397028d4cd4808dfc7b1d700050bbf6de70438c8140f19d1bf62053aa
-author moirai/image:checkpoint <@moirai.invalid> 1789964000 +0000
-committer moirai/image:checkpoint <@moirai.invalid> 1789964000 +0000
+tree 8b76d647312ca7511df581bd849fb563619872aa279f7f91f94564bf0fd5178e
+author klotho/image:checkpoint <@klotho.invalid> 1789964000 +0000
+committer klotho/image:checkpoint <@klotho.invalid> 1789964000 +0000
 
 checkpoint plan/storage
 
-Moirai-Commit: cd8741d715ca09d1b983ab7a60e69a7312ec02896169ef20a860f704a2117435b
-Moirai-Kind: checkpoint
-Moirai-Head: c32f142528424161310e374cd5affc067ccf980a3bce9cf4e72568fb78eca26f1
-Moirai-Ref: plan/storage
-Moirai-Folded: 5 commits from c25ad3d0aedc00d66d5ca7d255bbf7d379b8d453076a4770024cc973b8184d4a5 to c32f142528424161310e374cd5affc067ccf980a3bce9cf4e72568fb78eca26f1
-Moirai-Hlc: 117307080704000000
-Moirai-Actor: image:checkpoint
-Moirai-Foreign-Git: sha1:8d1469a55ab7be4254809feecc13b299e45a14b0
-Moirai-Schema: 1
-Moirai-Ops: 24
+Klotho-Commit: c4b8252e33b2bde052f410323b636f29ef6a625a7a01936905c769f7dbe2cee2e
+Klotho-Kind: checkpoint
+Klotho-Head: c32f142528424161310e374cd5affc067ccf980a3bce9cf4e72568fb78eca26f1
+Klotho-Ref: plan/storage
+Klotho-Folded: 5 commits from c25ad3d0aedc00d66d5ca7d255bbf7d379b8d453076a4770024cc973b8184d4a5 to c32f142528424161310e374cd5affc067ccf980a3bce9cf4e72568fb78eca26f1
+Klotho-Hlc: 117307080704000000
+Klotho-Actor: image:checkpoint
+Klotho-Foreign-Git: sha1:53589d491ccf2696c47f8566d3828d54630fd38f
+Klotho-Schema: 1
+Klotho-Ops: 24

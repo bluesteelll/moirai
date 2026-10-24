@@ -1,0 +1,14 @@
+klotho-node 1
+uid: 02a3a42c719765f4f57bb6ed534348ba
+kind: artifact
+status: present
+created: c87cd762b535e0a73f1b6084520dad1ca25e65c8d7882bbf1708c3a4fc2d42206 2026-09-21T15:13:20.000Z
+updated: c87cd762b535e0a73f1b6084520dad1ca25e65c8d7882bbf1708c3a4fc2d42206 2026-09-21T15:13:20.000Z
+field artifact_kind: doc
+field bytes: 72
+field observed_blob: sha1:3c7f6ee22f7a670bc36cd11e0618674cebf1b900
+field observed_git: sha1:07749270e4852cbea89a09460cae7049ab75e153
+field oid: sha1:3c7f6ee22f7a670bc36cd11e0618674cebf1b900
+field origin_path: docs/legacy/notes.txt
+field path: docs/legacy/notes.txt
+field root: project

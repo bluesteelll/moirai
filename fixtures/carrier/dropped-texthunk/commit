@@ -1,17 +1,17 @@
-tree d31dc7c126cfec3d1f0f771e1667ec6ba4279c37
-parent 6e7861d2d807ca40b437a2085cf5563559b9a90a
-parent 206bd4e9ce085f6f0af0df20225706db63383167
-author moirai/orch <orchestrator@moirai.invalid> 1790004440 +0000
-committer moirai/orch <orchestrator@moirai.invalid> 1790004440 +0000
+tree f460a68308009d2e0fe24c81620d2f66292a70ae
+parent 37e84143dbd3266c0f165167b5ab28c531de27ca
+parent dd6b6127ae88b9907f3e6eabde52bed8369ae945
+author klotho/orch <orchestrator@klotho.invalid> 1790004440 +0000
+committer klotho/orch <orchestrator@klotho.invalid> 1790004440 +0000
 
 merge lane/t into lane/d
 
-Moirai-Commit: c5c867fa636989fbeb55890345fbff73013a2b5aa598d835481149cc9ab53b2f3
-Moirai-Kind: merge
-Moirai-Ref: lane/d
-Moirai-Hlc: 117309730979840000
-Moirai-Actor: orch
-Moirai-Role: orchestrator
-Moirai-Session: claude:s0
-Moirai-Schema: 1
-Moirai-Ops: 1
+Klotho-Commit: c4a579b7a36efd4574d1df4f780b4f8c29e0b1b35287fe524756c43c82131dc86
+Klotho-Kind: merge
+Klotho-Ref: lane/d
+Klotho-Hlc: 117309730979840000
+Klotho-Actor: orch
+Klotho-Role: orchestrator
+Klotho-Session: claude:s0
+Klotho-Schema: 1
+Klotho-Ops: 1

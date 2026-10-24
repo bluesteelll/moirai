@@ -6,13 +6,13 @@
 %% source [F14 §10.5]
 %% source [F14 §12.1]
 %% source [F14 §12.2]
-%% note Gate-0 row cherry-pick: Moirai-Origin names case lane-z-1.
+%% note Gate-0 row cherry-pick: Klotho-Origin names case lane-z-1.
 %% destination A sha1 full
 %% class native
-%% git-commit 0e0f4c74c8524e63dfae1a5542d686a29f7a848d
-%% git-tree 1fa5605575ebf34022a8599fb1c7bd81e3505989
-%% git-parent 0c47d3bc9383306f3d858beccb5359bd05fb73bc main-c3
-%% trailer-commit 352fde46a717001f4c4a321f22dadb5b24b02e6c782d66d285607873438bf503
+%% git-commit 1145ef26984acbeba22d259ec75759b871f3cdc8
+%% git-tree 7c06a71c97e36155f057fd23f8be0f71cc584d2d
+%% git-parent 3565fa11da6c6e3c78adbab246af55519bfd583b main-c3
+%% trailer-commit 27449bab1edabcb73004629a9182b5bd2f228c62d535acf98795a4c2e87f569d
 %% touched-new 2
 %% touched-old 1
 %% p-state
@@ -77,8 +77,8 @@ node a0000000000000000000000000000001 area
 5d000000000000000000000000000002 field title = text "Write-through for the pointer file"
 5d000000000000000000000000000002 field what = text "MOVEFILE_WRITE_THROUGH on every pointer rename."
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 5d000000000000000000000000000001 field tradeoff
 015d000000000000000000000000000001040800000074726164656f666600071b0000004f6e6520657874726120666c
 757368207065722072656e616d652e
@@ -93,10 +93,10 @@ node a0000000000000000000000000000001 area
 ; u64 entry count = 4
 0400000000000000
 %% entry-count 4
-%% changeset-digest 39708ecc6ef376bef8c2db5e0ca0a91172fe8bf948a53fccfec653d6372a1770
+%% changeset-digest 18338c81345e28cb80a0c958b69ac94f81a928bd2c3600e180bc7faf6d288a7a
 %% commit
 kind cherry-pick
-parent e9e5a7d9c65899681f606c97a70cb27fed3c4a7583f328fceaada34ccc0053b9
+parent 1fc39939d58ac95cadffe279c473f128e062955a66f750c083403659f70a65e1
 hlc 01a0c47e32c00000
 actor "dev#2"
 role "developer"
@@ -107,17 +107,17 @@ git-worktree ""
 git-base -
 message "pick the pointer-file decision"
 schema-version 1
-origin cc912a175b764273d102003f96b1b800c60aee1768a64583fdcf92de515a9d65
+origin 9a0c73755b87ae60d324717f47ccd993dedef9bf856887539852438c3fd01185
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 0b0000006368657272792d7069636b
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-e9e5a7d9c65899681f606c97a70cb27fed3c4a7583f328fceaada34ccc0053b9
+1fc39939d58ac95cadffe279c473f128e062955a66f750c083403659f70a65e1
 ; item 3: hlc
 0000c0327ec4a001
 ; item 4: actor
@@ -141,13 +141,13 @@ e9e5a7d9c65899681f606c97a70cb27fed3c4a7583f328fceaada34ccc0053b9
 ; item 7: schema_version
 01000000
 ; item 8: origin
-20000000cc912a175b764273d102003f96b1b800c60aee1768a64583fdcf92de515a9d65
+200000009a0c73755b87ae60d324717f47ccd993dedef9bf856887539852438c3fd01185
 ; item 9: foreign_algo
 00000000
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-39708ecc6ef376bef8c2db5e0ca0a91172fe8bf948a53fccfec653d6372a1770
-%% commit-id 352fde46a717001f4c4a321f22dadb5b24b02e6c782d66d285607873438bf503
+18338c81345e28cb80a0c958b69ac94f81a928bd2c3600e180bc7faf6d288a7a
+%% commit-id 27449bab1edabcb73004629a9182b5bd2f228c62d535acf98795a4c2e87f569d
 %% canonical commits.cases cherry-pick commit-id
 %% end

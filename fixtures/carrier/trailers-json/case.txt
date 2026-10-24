@@ -6,14 +6,14 @@
 %% source [F14 §10.5]
 %% source [F14 §12.1]
 %% source [F14 §12.2]
-%% note Row trailers (+): Moirai-Actor and Moirai-Worktree need JSON strings (a leading `[`; an HT); the
+%% note Row trailers (+): Klotho-Actor and Klotho-Worktree need JSON strings (a leading `[`; an HT); the
 %% note assignee field value needs one too. N1 gains a ledger line of +2.
 %% destination A sha1 full
 %% class native
-%% git-commit 0315d4f332006f732f5b8ba1d25b38457c8ac1a9
-%% git-tree 6502a23ba8c4d487efa712efe19c13626ef9e772
-%% git-parent 018e6a12ce584771b360c194bc69088493ee821e root
-%% trailer-commit 6afe1bcfe3813d5d4e7c705e6c5f68a4bc49d58da857745fc0cd66dbd0fbf3c4
+%% git-commit f6e2e97c1a6269a043efda727800d44b6da68e7c
+%% git-tree 77ef6913d9c181a317946fbf836f3692e44fbfbc
+%% git-parent 815ecefd3990cfec6fd61fa7e77637f665e88ff1 root
+%% trailer-commit cc975c4a9ace52bb4d19fea52bd491498051f021cb80142109dce9ed55cfdfa7
 %% touched-new 2
 %% touched-old 2
 %% p-state
@@ -70,8 +70,8 @@ node a0000000000000000000000000000001 area
 1a000000000000000000000000000003 field assignee = text "[bot] ci"
 3b000000000000000000000000000001 counter incidents = +2
 %% digest-input
-; lp("moirai-changeset-v1")
-130000006d6f697261692d6368616e67657365742d7631
+; lp("klotho-changeset-v1")
+130000006b6c6f74686f2d6368616e67657365742d7631
 ; entry 1: 1a000000000000000000000000000003 field assignee
 011a000000000000000000000000000003040800000061737369676e65650007080000005b626f745d206369
 ; entry 2: 3b000000000000000000000000000001 counter incidents
@@ -79,10 +79,10 @@ node a0000000000000000000000000000001 area
 ; u64 entry count = 2
 0200000000000000
 %% entry-count 2
-%% changeset-digest e72a1b6d54702e360a70b0746f932a65a57fd8d701df49ffc67ffafe047e0163
+%% changeset-digest c737529205563814bb58a011f4944cb7386c046741d924a0fbc69f107eb5169b
 %% commit
 kind ordinary
-parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+parent 3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 hlc 01a0c48ead800000
 actor "[bot] ci"
 role "ci"
@@ -96,14 +96,14 @@ schema-version 1
 origin -
 foreign -
 %% c
-; domain lp("moirai-commit-v1")
-100000006d6f697261692d636f6d6d69742d7631
+; domain lp("klotho-commit-v1")
+100000006b6c6f74686f2d636f6d6d69742d7631
 ; item 1: kind
 080000006f7264696e617279
 ; item 2: n_parents
 01000000
 ; item 2: parent 1
-64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+3a76e82c33297e93edf023e1a947a1649125847cfcbda640ef088779016088a3
 ; item 3: hlc
 000080ad8ec4a001
 ; item 4: actor
@@ -134,6 +134,6 @@ foreign -
 ; item 9: foreign_oid
 00000000
 ; item 10: changeset_digest
-e72a1b6d54702e360a70b0746f932a65a57fd8d701df49ffc67ffafe047e0163
-%% commit-id 6afe1bcfe3813d5d4e7c705e6c5f68a4bc49d58da857745fc0cd66dbd0fbf3c4
+c737529205563814bb58a011f4944cb7386c046741d924a0fbc69f107eb5169b
+%% commit-id cc975c4a9ace52bb4d19fea52bd491498051f021cb80142109dce9ed55cfdfa7
 %% end

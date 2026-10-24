@@ -1,19 +1,19 @@
-tree 0f85d3ed9f3cd6d99ea52c07c1372c100f8b32b3
-parent 15a8ce13bee4af280d0de5985643573e7fc0b05f
-author moirai/dev#6 <developer@moirai.invalid> 1790003720 +0000
-committer moirai/dev#6 <developer@moirai.invalid> 1790003720 +0000
+tree 435dd53b2f22f2d6957a5f174351d03014386647
+parent 21f78d7f7fece672743848e54ab637fdea7c4ba7
+author klotho/dev#6 <developer@klotho.invalid> 1790003720 +0000
+committer klotho/dev#6 <developer@klotho.invalid> 1790003720 +0000
 
 file add docs/locking/lock.md
 
-Moirai-Commit: c0b47a91dcf030bd56e2ee19ccb9d882a9574a3570966be852de34dd7796c3371
-Moirai-Kind: ordinary
-Moirai-Ref: lane/r4b
-Moirai-Hlc: 117309683793920000
-Moirai-Actor: dev#6
-Moirai-Role: developer
-Moirai-Session: claude:s8
-Moirai-Git-Head: sha1:40e2e0d749a06d32a406134ed325a4616d989d09
-Moirai-Git-Branch: docs/locking
-Moirai-Worktree: D:/work/docs
-Moirai-Schema: 1
-Moirai-Ops: 9
+Klotho-Commit: c2a48da3db6a77d11afc1cd097c1f28b26e508d3f8a9787959c7fc44201773893
+Klotho-Kind: ordinary
+Klotho-Ref: lane/r4b
+Klotho-Hlc: 117309683793920000
+Klotho-Actor: dev#6
+Klotho-Role: developer
+Klotho-Session: claude:s8
+Klotho-Git-Head: sha1:40e2e0d749a06d32a406134ed325a4616d989d09
+Klotho-Git-Branch: docs/locking
+Klotho-Worktree: D:/work/docs
+Klotho-Schema: 1
+Klotho-Ops: 9
