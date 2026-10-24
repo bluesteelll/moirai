@@ -6,7 +6,7 @@
 | Chapter | [F13], `docs/spec/format/13-invariants.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-16c, the invariants part of WP-16 ([PLAN §3.2] item 1), author role R-SPEC-P |
-| Sources | [AR §3.4] (every invariant, including the table heading's re-check rule), [AR §3.5] (derived state), [AR §3.6] (status machines), [AR §4.5] steps 1–12 (the enforcement points of the write path), [AR §4.6], [AR §4.9], [AR §4.10], [AR §5a.1]–[AR §5a.9] (merge, validators, markers, `undo`, `-D`), [AR §5b.4]–[AR §5b.7] (image round trip and gates 0–3), [AR §5d.1], [AR §5e.8], [AR §6.2]–[AR §6.4], [AR §8.2] "Correctness gates", [AR §8.3] CORRECTNESS table (row "Invariant coverage"); [21 §8] (I35′, which [AR §3.4] I1 cites); [40 §2.10] (I-F1…I-F14, authoritative), [40 §8.3.2] (P1–P15), [40 §8.1] (FL placement); [80 §2.4.3] ("Invariants": I-G1–I-G6), [80 §2.4.4]; [50 §3.8], [50 §5.8], [50 §5.9], [50 §8.1] F15, F16, F18; [60 §2.5] rows "Derived-state semantics" and "Protocol decisions" (k); [60 §2.6] (validator table); [60 §3.13] (gate catalogue); [60 §4.2]–[60 §4.4]; [72] M4 (I26′ on states); the owner's ruling R-90 of 2026-10-19 (`suspect` without its pinned clause: §6.2, OP-13-14); the owner's ruling R-109 of 2026-10-20 (a node an automatic policy takes whole: §5 V01); review pass 2: `docs/spec/reviews/S-pass2.md` S2-4 and `docs/spec/reviews/A-pass2.md` A2-20, with the owner's ruling R-127 of 2026-10-22 (I-F7's settle door and I-F5's and I-F7's [F18] lists: §3.9), and `docs/spec/reviews/S-pass2.md` S2-6 (the check classes of I6 and I7: §3.2). |
+| Sources | [AR §3.4] (every invariant, including the table heading's re-check rule), [AR §3.5] (derived state), [AR §3.6] (status machines), [AR §4.5] steps 1–12 (the enforcement points of the write path), [AR §4.6], [AR §4.9], [AR §4.10], [AR §5a.1]–[AR §5a.9] (merge, validators, markers, `undo`, `-D`), [AR §5b.4]–[AR §5b.7] (image round trip and gates 0–3), [AR §5d.1], [AR §5e.8], [AR §6.2]–[AR §6.4], [AR §8.2] "Correctness gates", [AR §8.3] CORRECTNESS table (row "Invariant coverage"); [21 §8] (I35′, which [AR §3.4] I1 cites); [40 §2.10] (I-F1…I-F14, authoritative), [40 §8.3.2] (P1–P15), [40 §8.1] (FL placement); [80 §2.4.3] ("Invariants": I-G1–I-G6), [80 §2.4.4]; [50 §3.8], [50 §5.8], [50 §5.9], [50 §8.1] F15, F16, F18; [60 §2.5] rows "Derived-state semantics" and "Protocol decisions" (k); [60 §2.6] (validator table); [60 §3.13] (gate catalogue); [60 §4.2]–[60 §4.4]; [72] M4 (I26′ on states); the owner's ruling R-90 of 2026-10-19 (`suspect` without its pinned clause: §6.2, OP-13-14); the owner's ruling R-109 of 2026-10-20 (a node an automatic policy takes whole: §5 V01); review pass 2: `docs/spec/reviews/S-pass2.md` S2-4 and `docs/spec/reviews/A-pass2.md` A2-20, with the owner's ruling R-127 of 2026-10-22 (I-F7's settle door and I-F5's and I-F7's [F18] lists: §3.9), and `docs/spec/reviews/S-pass2.md` S2-6 (the check classes of I6 and I7: §3.2); the orchestrator's ruling R-133 of 2026-10-22 (names of Model function cells: §1.2, OP-13-18). |
 | Depends on | [F01]; cites [F04], [F05], [F06], [F08], [F11], [F12], [F14], [F15], [F16], [F17], [F18], [F19], [F20], [API] |
 
 This chapter lists every invariant of the design of record. For each one it gives the enforcement point, the check class,
@@ -38,8 +38,11 @@ invariants of the design of record, and no row is kept for them (OP-13-01).
 
 - **Invariant.** The statement, restated normatively. On wording, the cited source wins.
 - **Enforcement.** One or more enforcement points from §2, each tagged with a check class from §1.3.
-- **Model function.** The function in crate `moirai-model` that states the invariant, as a Rust path under `moirai_model::`.
-  Every such function carries the tag `// spec: [F13 §x] <ID>`, which `xtask coverage` checks ([PLAN §3.2] item 1).
+- **Model function.** The function in crate `moirai-model` that states the invariant. The binding link is the
+  tag `// spec: [F13 §x] <ID>` that the function carries; the Rust path under `moirai_model::` in the cell is its
+  expected location, which R-MODEL meets or corrects in the cell (OP-13-18). `xtask coverage` checks the functions
+  that `COVERAGE.md`'s model-function column names and their tags ([PLAN §3.2] item 1); it does not read this
+  chapter's cells (the orchestrator's ruling R-133 of 2026-10-22).
 - **Gates.** Gate ids of [60 §3.13] and the named rows of [AR §8.3], each with the milestone from which it is mandatory.
   Every invariant has at least one gate. The [AR §8.3] row "Invariant coverage" gates this chapter itself at the M0
   specification review and at every exit.
@@ -614,3 +617,10 @@ are specified in [F17], where the production values that measurements decide are
 
   The [AR] and [60] texts that OQ-A-13's decision gives WP-81a follow there, among them [AR §0] item 4, [AR §2.7] T7,
   [AR §3.4] I25′ and [AR §5a.7] step 4's row "parent / order".
+- **OP-13-18 (the names of §3's Model function column).** At master 6e6c75b, 38 of the 64 backticked names in the Model
+  function cells of §3 do not resolve, under this test: a name resolves when its module path and its function name give
+  a function defined in `moirai-model` outside its test code; a function re-exported to that path counts; a function
+  defined inside an impl (`Type::fn`) does not resolve at `module::fn`. The count is a statement about names only, not
+  about what any function does. §1.2 therefore makes the `spec:` tag the binding link and the cell's path the expected
+  location; R-MODEL meets the names or the tags, and no cell is renamed here (the orchestrator's ruling R-133 of
+  2026-10-22).
