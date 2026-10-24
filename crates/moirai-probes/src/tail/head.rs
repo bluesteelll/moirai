@@ -20,7 +20,7 @@ use xxhash_rust::xxh3::xxh3_128;
 /// A slot's length ([F04 §2], [F04 §3.1]).
 pub const SLOT_LEN: usize = 4_096;
 /// `magic` ([F04 §3.1]).
-pub const MAGIC: [u8; 4] = *b"MOIR";
+pub const MAGIC: [u8; 4] = *b"KLTH";
 /// `SegRef`'s length ([F04 §4.1]).
 pub const SEG_REF_LEN: usize = 29;
 /// The entries of `segments` ([F04 §3.1]).
@@ -569,7 +569,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             &b[0..8],
-            &[b'M', b'O', b'I', b'R', 1, 0, 2, 0],
+            &[b'K', b'L', b'T', b'H', 1, 0, 2, 0],
             "magic, format, flags"
         );
         assert_eq!(&b[8..16], &2u64.to_le_bytes(), "slot_seq at 8");

@@ -875,6 +875,6 @@ mod tests {
         let b = base_for(&t);
         let c = Columns::parse(&b).unwrap();
         let bytes = encode(&fold_of(&t, &c)).unwrap();
-        assert_eq!(xxhash_rust::xxh3::xxh3_64(&bytes), 0x4139_da21_1b45_710e);
+        assert_eq!(xxhash_rust::xxh3::xxh3_64(&bytes), 0xba59_e369_c041_f1c4);
     }
 }
