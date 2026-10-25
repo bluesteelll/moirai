@@ -37,6 +37,8 @@ if (A.branch !== 'm0/' + A.role) return refuse('branch must be m0/<role>')
 if (!['LIGHT', 'STANDARD', 'HEAVY'].includes(A.tier)) return refuse('tier must be LIGHT, STANDARD or HEAVY')
 if (!['M', 'MD', 'R', 'N', 'D', 'B', 'V', 'L'].includes(A.class)) return refuse('class must be M, MD, R, N, D, B, V or L (docs/m0/workflow.md section 5.1)')
 if (A.class === 'M' && A.tier !== 'HEAVY') return refuse('class M needs tier HEAVY (a map rename stays HEAVY)')
+const FG = A.finalGate === true
+if (FG && !['R', 'N', 'D', 'L'].includes(A.class)) return refuse('finalGate needs class R, N, D or L: a markdown-only unit that no test reads (docs/m0/workflow.md section 5.2)')
 const esc = t => String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 if (!new RegExp('^cargo xtask gate --branch ' + esc(A.branch) + '( --range [^ ]+\\.\\.' + esc(A.branch) + ')?$').test(A.gateCmd)) return refuse('gateCmd must be "cargo xtask gate --branch <branch>", optionally with " --range <base>..<branch>"')
 // The stages and the round limit of each tier (docs/m0/workflow.md sections 5.1 and 6.1). The dry run returns them,
@@ -52,6 +54,10 @@ const SINCE0 = DM ? DM[1] : ''
 const GR = /^DELTA SINCE [0-9a-f]{7,40}: gate re-run of round (\d+)\b/.exec(A.resumeNote || '')
 const R0 = A.deltaRound === undefined || A.deltaRound === null || A.deltaRound === '' ? 1 : A.deltaRound
 if (!Number.isInteger(R0) || R0 < 1 || R0 > T.maxRounds || (R0 > 1 && !DM) || (GR && Number(GR[1]) !== R0)) return { ok: false, stage: 'args', error: 'deltaRound must be a round of the tier (default 1), above 1 only with a DELTA SINCE resumeNote, and n with a "gate re-run of round <n>" resumeNote' }
+// finalGate (U6): the rounds run their checkers on the spec's doc checks without the gate, and the mechanic gates the
+// head of a round green apart from the gate, followed in HEAVY and STANDARD by a final check; once a round that ran the
+// gate is not green, every later round gates first. A "gate re-run of round <n>" relaunch gates first.
+const FGMODE = FG && !GR
 const has = s => T.stages.includes(s)
 const HEAVY = A.tier === 'HEAVY'
 
@@ -77,7 +83,7 @@ const HDR = [
   `- Save your report where your stage says and return the structured answer: verdict (or outcome), report path, head = the HEAD sha you examined.`,
 ].join('\n') // HDR
 if (HDR.length > 5000) return refuse(`header ${HDR.length} characters, above 5,000: shorten lock or others (named sections go to ${SP}lock.md; docs/m0/workflow.md section 5.2)`)
-if (A.dryRun) return { ok: true, args: A, stages: T.stages.slice(), maxRounds: T.maxRounds, hdrChars: HDR.length }
+if (A.dryRun) return { ok: true, args: A, stages: T.stages.slice(), maxRounds: T.maxRounds, gatePlan: FGMODE ? 'final head' : 'every round', hdrChars: HDR.length }
 const S = (verdicts, extra) => ({
   type: 'object',
   properties: Object.assign({ verdict: { type: 'string', enum: verdicts }, report: { type: 'string' }, head: { type: 'string' } }, extra || {}),
@@ -140,7 +146,7 @@ const EXPCHK = round => ` Write every FAILED gate id, one per line in X/gate-ids
 // The mechanic's fields, which the tester or the verifier checks against the kit's own files (U4, R-164 ruling 5).
 const FIELDS = (g, round) => ` The mechanic returned: outcome ${g.outcome}, head ${g.head}, tree ${g.tree}, kit ${g.kit}, rows ${g.rows}; the gate command: ${A.gateCmd}. Return gate_fields MATCH when those equal ${SP}gate_r${round}/DONE and summary.tsv's row count, ${SP}gate_r${round}/cmd.txt (one word per line) is the gate command word for word, and the log's range line is the range the command implies (master..${A.branch}, or its --range); else MISMATCH.`
 const COUNTS = ' Return critical and important as the counts of CONFIRMED Critical and Important items only, and plausible_ci as the count of PLAUSIBLE Critical and Important items; list every item in the report.'
-const verify = async (round, since, logic) => {
+const verify = async (round, since, logic, gateFirst) => {
   const delta = round > 1 || since !== A.base
   const slim = !logic
   const prev = round - 1
@@ -162,60 +168,89 @@ const verify = async (round, since, logic) => {
   const reviewArm = () => run(`review-r${round}`, 'Verify', 'code-reviewer', S(['APPROVED', 'CHANGES_REQUESTED'], HEAVY ? RATED : RATED_P),
     `ROLE: code-reviewer, round ${round}. Review ${scope}${close}. Read code through git show and git diff in ${A.wt}, only paths ${A.role} may read. Check that every path the scope lists (the unit's commits and a merge's conflict resolutions) is in the lock set and writable by ${A.role} (docs/m0/authors.md §3) and that every commit subject except a trunk sync's names a WP of the role. Line-cited defects only, each Critical, Important or Minor, and CONFIRMED or PLAUSIBLE.${HEAVY ? '' : COUNTS}${LIGHTCHK} Save ${SP}review_r${round}.md.`)
 
+  // A round without a gate first (finalGate) gives its checkers NOGATE in place of the gate check.
+  const NOGATE = "This round runs no gate first (finalGate: a markdown-only unit is gated once, at its final head): check the spec's doc checks; after a round green apart from the gate the mechanic gates the head and a final check follows."
+  const RED = gateFirst ? ' A gate outcome other than PASS is RED.' : ''
+  let c
   if (has('test')) {
     const muts = !delta
       ? 'Every red-first re-run red on the parent and green on HEAD; at least 2 mutations of your own (at the change and at any gate this round added) that a named gate must catch'
       : logic ? `Then ${redo}; 1 new mutation of your own at a line the delta changed that a named gate must catch`
       : `Then ${redo}; no new mutation: ${flag}, and return logic = true (else logic = false); the flag alone does not make your verdict RED, since its mutation ran in this round`
     const testArm = async () => {
-      const gate = await gateArm()
-      if (!reached(gate)) return { gate, test: null }
-      const test = await run(`test-r${round}`, 'Verify', 'tester', S(['GREEN', 'RED'], Object.assign({ gate_fields: GF }, EXP, slim ? { logic: BOOL } : {})),
-        `ROLE: tester, round ${round}.${GRT} ${gateCheck}${FIELDS(gate, round)} Expected-red set: ${A.expectedRed ? A.expectedRed + ', sha256 ' + A.expectedRedSha + '; check the file against that sha' : 'none'}.${EXPCHK(round)} Scope: ${scope}. ${muts}; the pins; ${tests('your role file gives')}. A gate outcome other than PASS is RED. Never commit, never edit ${A.wt}. Save ${SP}test_r${round}.md.`)
+      const gate = gateFirst ? await gateArm() : null
+      if (gateFirst && !reached(gate)) return { gate, test: null }
+      const pre = gateFirst ? `${gateCheck}${FIELDS(gate, round)} Expected-red set: ${A.expectedRed ? A.expectedRed + ', sha256 ' + A.expectedRedSha + '; check the file against that sha' : 'none'}.${EXPCHK(round)}` : NOGATE
+      const test = await run(`test-r${round}`, 'Verify', 'tester', S(['GREEN', 'RED'], Object.assign(gateFirst ? Object.assign({ gate_fields: GF }, EXP) : {}, slim ? { logic: BOOL } : {})),
+        `ROLE: tester, round ${round}.${GRT} ${pre} Scope: ${scope}. ${muts}; the pins; ${tests('your role file gives')}.${RED} Never commit, never edit ${A.wt}. Save ${SP}test_r${round}.md.`)
       return { gate, test }
     }
     if (!slim) {
       const [review, arm] = await parallel([reviewArm, testArm])
-      return { gate: arm && arm.gate, test: arm && arm.test, review, reviewDue: true, slim, scope }
+      c = { gate: arm && arm.gate, test: arm && arm.test, review, reviewDue: true, slim, scope }
+    } else {
+      const arm = await testArm()
+      const reviewDue = !!arm.test && arm.test.logic === true
+      const review = reviewDue ? await reviewArm() : null
+      c = { gate: arm.gate, test: arm.test, review, reviewDue, slim, scope }
     }
-    const arm = await testArm()
-    const reviewDue = !!arm.test && arm.test.logic === true
-    const review = reviewDue ? await reviewArm() : null
-    return { gate: arm.gate, test: arm.test, review, reviewDue, slim, scope }
-  }
-  if (has('verifier')) {
-    const gate = await gateArm()
-    if (!reached(gate)) return { gate, ver: null, slim, scope }
+  } else if (has('verifier')) {
+    const gate = gateFirst ? await gateArm() : null
+    if (gateFirst && !reached(gate)) return { gate, ver: null, slim, scope, gateDue: true, gateRan: true }
     const muts = !delta
       ? `re-run the main red-first that ${SP}cut.md marks, red on the parent and green on HEAD; 1 mutation of your own at a line the unit changed that a named test must catch`
       : logic ? `${redo}; 1 new mutation of your own at a line the delta changed that a named test must catch`
       : `${redo}; no new mutation: ${flag}; that item is not counted in critical or important, since its mutation ran in this round`
-    const ver = await run(`verifier-r${round}`, 'Verify', 'verifier', S(['GREEN', 'RED'], Object.assign({ gate_fields: GF }, RATED_P)),
-      `ROLE: verifier, round ${round}.${GRT} ${gateCheck}${FIELDS(gate, round)} Scope: ${scope}. Review the scope as your role file gives${round === 1 ? '' : ', and whether the fix closes the CONFIRMED Critical and Important items of ' + SP + 'verify_r' + prev + '.md'}. Then ${muts}; the pins; the developer's expected set in ${SP}cut.md against the tests the diff removes; ${tests('tester.md "The tests of a round" gives')}. A gate FAIL is the unit's when its row is of a crate the unit touches or of a crate that depends on a changed one; any other FAIL is environmental only on R-10's terms (docs/m0/workflow.md section 10). Line-cited findings, each Critical, Important or Minor, and CONFIRMED or PLAUSIBLE; a surviving mutation, a missing expected test, a by-name mismatch or a red-first that is not red is an Important CONFIRMED.${COUNTS} A gate outcome other than PASS is RED. Never commit, never edit ${A.wt}. Save ${SP}verify_r${round}.md.`)
-    return { gate, ver, slim, scope }
+    const pre = gateFirst ? `${gateCheck}${FIELDS(gate, round)}` : NOGATE
+    const rate = gateFirst ? " A gate FAIL is the unit's when its row is of a crate the unit touches or of a crate that depends on a changed one; any other FAIL is environmental only on R-10's terms (docs/m0/workflow.md section 10)." : ''
+    const ver = await run(`verifier-r${round}`, 'Verify', 'verifier', S(['GREEN', 'RED'], Object.assign(gateFirst ? { gate_fields: GF } : {}, RATED_P)),
+      `ROLE: verifier, round ${round}.${GRT} ${pre} Scope: ${scope}. Review the scope as your role file gives${round === 1 ? '' : ', and whether the fix closes the CONFIRMED Critical and Important items of ' + SP + 'verify_r' + prev + '.md'}. Then ${muts}; the pins; the developer's expected set in ${SP}cut.md against the tests the diff removes; ${tests('tester.md "The tests of a round" gives')}.${rate} Line-cited findings, each Critical, Important or Minor, and CONFIRMED or PLAUSIBLE; a surviving mutation, a missing expected test, a by-name mismatch or a red-first that is not red is an Important CONFIRMED.${COUNTS}${RED} Never commit, never edit ${A.wt}. Save ${SP}verify_r${round}.md.`)
+    c = { gate, ver, slim, scope }
+  } else if (gateFirst) {
+    const [review, gate] = await parallel([reviewArm, gateArm])
+    c = { gate, review, reviewDue: true, slim: false, scope }
+  } else {
+    c = { gate: null, review: await reviewArm(), reviewDue: true, slim: false, scope }
   }
-  const [review, gate] = await parallel([reviewArm, gateArm])
-  return { gate, review, reviewDue: true, slim: false, scope }
+  if (gateFirst) return Object.assign(c, { gateDue: true, gateRan: true })
+  // finalGate: the gate runs only on the head of a round green apart from the gate, then (HEAVY, STANDARD) the final
+  // check of the gate fields and of the ids by name.
+  if (!checkersGreen(c)) return Object.assign(c, { gateDue: false, gateRan: false })
+  const gate = await gateArm() // U6-final-gate
+  Object.assign(c, { gate, gateDue: true, gateRan: true })
+  if (reached(gate) && (has('test') || has('verifier'))) {
+    c.finalDue = true
+    c.final = await run(`final-r${round}`, 'Verify', has('test') ? 'tester' : 'verifier', S(['GREEN', 'RED'], Object.assign({ gate_fields: GF }, HEAVY ? {} : RATED_P)),
+      `ROLE: ${has('test') ? 'tester' : 'verifier'}, round ${round}, the final check (finalGate).${GRT} ${gateCheck}${FIELDS(gate, round)} The round's checkers ran on the spec's doc checks before this gate; check only the gate: gate_fields as above, and the gate's ids by name and status against the reference the spec names.${HEAVY ? '' : COUNTS} A gate outcome other than PASS is RED. Never commit, never edit ${A.wt}. Save ${SP}final_r${round}.md.`)
+  }
+  return c
 }
 const ok0 = r => !!r && r.critical + r.important === 0
 const okP = r => ok0(r) && r.plausible_ci === 0
-const green = v => !!v.gate && v.gate.outcome === 'PASS' && (has('test')
+const checkersGreen = v => has('test')
   ? !!v.test && v.test.verdict === 'GREEN' && (!v.reviewDue || ok0(v.review))
-  : has('verifier') ? !!v.ver && v.ver.verdict === 'GREEN' && okP(v.ver) : okP(v.review))
+  : has('verifier') ? !!v.ver && v.ver.verdict === 'GREEN' && okP(v.ver) : okP(v.review)
+const finalGreen = v => !v.finalDue || (!!v.final && v.final.verdict === 'GREEN' && (HEAVY || okP(v.final)))
+const green = v => !!v.gate && v.gate.outcome === 'PASS' && checkersGreen(v) && finalGreen(v)
+// The head a round examined: the gate's, or in a round that ran no gate its checkers'.
+const headOf = v => v.gate ? v.gate.head : ((v.test || v.ver || v.review || {}).head)
+// Below HEAVY, the report a fix works from: a RED final check's, else the checker's.
+const repOf = v => v.final && !finalGreen(v) ? v.final : has('verifier') ? v.ver : v.review
 // A review answers for the head it examined; a short sha is the same head, and an empty one is none.
 const norm = h => String(h || '').trim().toLowerCase()
 const sameHead = (a, b) => { const x = norm(a), y = norm(b); return x !== '' && y !== '' && (x === y || (x.length >= 7 && y.startsWith(x)) || (y.length >= 7 && x.startsWith(y))) }
 // A stage that returned nothing, a gate that did not reach a verdict, or a review of another head than the gate
 // verified (a review replayed from an earlier launch, docs/m0/workflow.md section 6.4) goes back to the orchestrator.
 const broken = v => {
-  if (!v.gate) return 'gate: the mechanic returned nothing'
-  if (v.gate.outcome !== 'PASS' && v.gate.outcome !== 'FAIL') return 'gate: ' + v.gate.outcome
+  if (v.gateDue && !v.gate) return 'gate: the mechanic returned nothing'
+  if (v.gate && v.gate.outcome !== 'PASS' && v.gate.outcome !== 'FAIL') return 'gate: ' + v.gate.outcome
   if (has('test') && !v.test) return 'test: the tester returned nothing'
   if (has('verifier') && !v.ver) return 'verifier: the verifier returned nothing'
   if (v.reviewDue && !v.review) return 'review: the reviewer returned nothing'
+  if (v.finalDue && !v.final) return 'final: the final check returned nothing'
   // The tester's or the verifier's check of the mechanic's fields against DONE (U4).
-  if ((v.test && v.test.gate_fields === 'MISMATCH') || (v.ver && v.ver.gate_fields === 'MISMATCH')) return 'gate: mechanic fields disagree with DONE'
-  if (v.review && !sameHead(v.review.head, v.gate.head)) return `review: the review examined ${norm(v.review.head) || 'no head'} and the gate verified ${v.gate.head}: not a review of the verified head (one replayed from an earlier launch, or a misreported head); after a gateRun-only relaunch of round n's gate, relaunch DELTA SINCE the head gate_r<n-1>.md verified, with deltaRound n (docs/m0/workflow.md sections 5.3 and 6.4)`
+  if ([v.test, v.ver, v.final].some(r => !!r && r.gate_fields === 'MISMATCH')) return 'gate: mechanic fields disagree with DONE'
+  if (v.review && v.gate && !sameHead(v.review.head, v.gate.head)) return `review: the review examined ${norm(v.review.head) || 'no head'} and the gate verified ${v.gate.head}: not a review of the verified head (one replayed from an earlier launch, or a misreported head); after a gateRun-only relaunch of round n's gate, relaunch DELTA SINCE the head gate_r<n-1>.md verified, with deltaRound n (docs/m0/workflow.md sections 5.3 and 6.4)`
   return ''
 }
 
@@ -235,43 +270,46 @@ const parked = v => ({
 })
 
 let round = R0
-let v = await verify(round, SINCE0 || A.base, SINCE0 ? A.deltaLogic !== false : true)
+let gateEvery = !FGMODE
+let v = await verify(round, SINCE0 || A.base, SINCE0 ? A.deltaLogic !== false : true, gateEvery)
+if (v.gateRan && !green(v)) gateEvery = true // U6-later
 while (!green(v) && !broken(v) && round < T.maxRounds) {
   if (skip(v)) return parked(v)
   phase('Fix')
   let items
   if (has('triage')) {
     const tri = await run(`triage-r${round}`, 'Fix', 'code-reviewer', S(['DONE'], { confirmed: { type: 'integer' } }),
-      `ROLE: code-reviewer as the adversarial verifier (triage).${GRT} Read-only except scratch probes under ${SP}. Try to REFUTE every red in ${SP}test_r${round}.md, a FAIL in ${SP}gate_r${round}.md${v.review ? ' and every Critical and Important in ' + SP + 'review_r' + round + '.md' : ' (a slim round: no review ran)'}, against HEAD, reading code only within the round's scope: ${v.scope}. Per item: CONFIRMED, REFUTED or OUT-OF-SCOPE, with the reason. Save ${SP}triage_r${round}.md.`)
-    if (!tri || tri.confirmed === 0) return { ok: false, tier: A.tier, stage: 'triage', note: 'nothing confirmed: the orchestrator rules on any remaining red', gate: v.gate, test: v.test, review: v.review, tri, reports: SP }
+      `ROLE: code-reviewer as the adversarial verifier (triage).${GRT} Read-only except scratch probes under ${SP}. Try to REFUTE every red in ${SP}test_r${round}.md${v.gateRan ? ', a FAIL in ' + SP + 'gate_r' + round + '.md' : ' (no gate ran this round)'}${v.final ? ', every red in ' + SP + 'final_r' + round + '.md' : ''}${v.review ? ' and every Critical and Important in ' + SP + 'review_r' + round + '.md' : ' (a slim round: no review ran)'}, against HEAD, reading code only within the round's scope: ${v.scope}. Per item: CONFIRMED, REFUTED or OUT-OF-SCOPE, with the reason. Save ${SP}triage_r${round}.md.`)
+    if (!tri || tri.confirmed === 0) return { ok: false, tier: A.tier, class: A.class, stage: 'triage', note: 'nothing confirmed: the orchestrator rules on any remaining red', gate: v.gate, test: v.test, review: v.review, tri, reports: SP }
     items = `the CONFIRMED items of ${SP}triage_r${round}.md`
   } else {
     // Below HEAVY the checker's CONFIRMED rating is the confirmation; anything else is the orchestrator's to rule.
-    const rep = has('verifier') ? v.ver : v.review
+    const rep = repOf(v)
     if (rep.critical + rep.important === 0) {
       return {
-        ok: false, unit: A.unit, tier: A.tier, class: A.class, stage: v.gate.outcome !== 'PASS' ? 'gate' : has('verifier') ? 'verifier' : 'review',
+        ok: false, unit: A.unit, tier: A.tier, class: A.class, stage: v.gate && v.gate.outcome !== 'PASS' ? 'gate' : rep === v.final ? 'final' : has('verifier') ? 'verifier' : 'review',
         note: 'no CONFIRMED Critical or Important: the orchestrator rules (a PLAUSIBLE item, or an environmental gate FAIL under R-10)',
-        round, crit: CRIT, gate: v.gate.outcome, head: v.gate.head, tree: v.gate.tree, kit: v.gate.kit, rows: v.gate.rows,
+        round, crit: CRIT, gate: v.gate && v.gate.outcome, head: headOf(v), tree: v.gate && v.gate.tree, kit: v.gate && v.gate.kit, rows: v.gate && v.gate.rows,
         ver: v.ver && v.ver.verdict, review: v.review && v.review.verdict,
         critical: rep.critical, important: rep.important, plausible: rep.plausible_ci, slim: !!v.slim, reports: SP,
       }
     }
-    items = `the CONFIRMED Critical and Important items of ${SP}${has('verifier') ? 'verify' : 'review'}_r${round}.md`
+    items = `the CONFIRMED Critical and Important items of ${SP}${rep === v.final ? 'final' : has('verifier') ? 'verify' : 'review'}_r${round}.md`
   }
-  const since = v.gate.head
+  const since = headOf(v)
   const fix = await run(`fix-r${round}`, 'Fix', 'developer', S(['DONE', 'STOPPED'], { logic: BOOL }),
     `ROLE: developer, in ${A.wt}.${GRT} Fix ${items} as follow-up commits (never amend), each behavioural fix red-first; re-run the per-commit gates the fix touches. Refute an item you find wrong with evidence in ${SP}fix_r${round}.md instead of fixing it. An item marked "escalate"${HEAVY ? '' : ', or one whose fix would meet a HEAVY trigger,'} is a STOP with the reason "escalate: <trigger>", never a fix. Return logic = true when any fix commit changed non-test, non-comment code, and state it in ${SP}fix_r${round}.md. Save ${SP}fix_r${round}.md.`)
   if (!fix || fix.verdict !== 'DONE') return { ok: false, tier: A.tier, stage: 'fix', round, fix, reports: SP }
   round++
-  v = await verify(round, since, fix.logic !== false)
+  v = await verify(round, since, fix.logic !== false, gateEvery)
+  if (v.gateRan && !green(v)) gateEvery = true // U6-later
 }
 const why = broken(v)
 if (!why && skip(v)) return parked(v)
-const rep = has('verifier') ? v.ver : v.review
+const rep = repOf(v)
 return {
   ok: !why && !!green(v), unit: A.unit, tier: A.tier, class: A.class, stage: why ? why.split(':')[0] : 'verify', note: why, round, crit: CRIT,
-  gate: v.gate && v.gate.outcome, head: v.gate && v.gate.head, tree: v.gate && v.gate.tree, kit: v.gate && v.gate.kit, rows: v.gate && v.gate.rows,
+  gate: v.gate && v.gate.outcome, head: headOf(v), tree: v.gate && v.gate.tree, kit: v.gate && v.gate.kit, rows: v.gate && v.gate.rows,
   test: v.test && v.test.verdict, ver: v.ver && v.ver.verdict, review: v.review && v.review.verdict,
   critical: rep && rep.critical, important: rep && rep.important, plausible: rep && rep.plausible_ci, slim: !!v.slim, reports: SP,
 }
