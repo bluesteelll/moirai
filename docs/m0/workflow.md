@@ -143,7 +143,7 @@ rewrite of `RESUME.md`, and never pushed to the public repository (R-1). It hold
 | `embed/<unit>.src.js`, `embed/<unit>.js`, `embed/args_<unit>.json` | the copy of `unit.js` taken at the unit's first launch, the embedded copy made from it, and the arguments of every launch (§6.3, §6.4) |
 | `<unit>/` | `spec.md`, `baseline_unit.tsv`, `run_<k>.txt` and `result_<k>.json` (written by the orchestrator, §6.3), `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's or the verifier's kit runs), `test_r<n>.md`, `verify_r<n>.md`, `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `audit_test.md` and `audit_review.md` (the audit of a LIGHT or STANDARD unit, §5.6), `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees), `kit-<commit>/` (the scratch kits of a unit that changes Appendix A, §7) |
 | `arms.tsv` | one row per finding of a tiered unit's checkers and of its audit, for the trial of the tiers (§5.6) |
-| `kit/` | the scripts of Appendix A, `budgets.txt`, `caps.txt`, `unit-allow.txt`, `guard.exe`, `locks/`, `selftest-runs/` |
+| `kit/` | the scripts of Appendix A (`cargo.ps1`, the unit agents' cargo wrapper, among them), `budgets.txt`, `caps.txt`, `unit-allow.txt`, `guard.exe`, `locks/`, `selftest-runs/` |
 
 Its `.gitignore` holds `/*/wt-*/`, `/*/kit-*/`, `log.txt`, `/kit/locks/`, `/kit/selftest-runs/` and `/kit/guard.exe`.
 
@@ -605,7 +605,8 @@ or stop it.
 
 - **Scripts** (Appendix A; Windows PowerShell 5.1, ASCII): `start-gate.ps1` (start one run), `run-gate.ps1` (the
   detached runner it starts), `wait-gate.ps1` (one bounded wait), `stop-gate.ps1` (stop by PID tree and archive),
-  `preflight.ps1` (the floors: disk and RAM through the guard of [MP §8], and the commit charge), `embed.ps1` (§6.3),
+  `preflight.ps1` (the floors: disk and RAM through the guard of [MP §8], and the commit charge), `cargo.ps1` (every
+  cargo call of a unit agent, with the unit config's lane, jobs and test threads; K2), `embed.ps1` (§6.3),
   `local-settings.ps1` (§8: the main checkout only, §15 step 6), `kit-hash.ps1`, `kit-common.ps1` (shared helpers),
   `selftest.ps1` and `selftest-fake.ps1` (the red-proof). Beside them: `budgets.txt` (`gate=<minutes>`,
   `tests=<minutes>`, §15 step 9), `caps.txt` (the counted directories of the pre-flight and their caps, `<dir>=<cap>`
@@ -618,7 +619,11 @@ or stop it.
   -UnitConfigSha256 <hex>`: the file must exist, match the sha and parse, else exit 2; it supplies `-TargetDir`,
   `-Jobs`, the disk floor and, for `-Kind gate`, `-WorkDir` (`gate_wt`), and an explicit value that differs exits 2.
   `params.txt` records `unit_config=` and `test_threads=`, and `run-gate.ps1` sets `RUST_TEST_THREADS` from it.
-  Without the option the kit behaves as before, for the orchestrator's own runs.
+  Without the option the kit behaves as before, for the orchestrator's own runs. `cargo.ps1` (K2) takes the same two
+  options for every other cargo call of a unit agent: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+  <ORCH>/kit/cargo.ps1 -UnitConfig <ORCH>/<unit>/unit.toml -UnitConfigSha256 <unitTomlSha> -WorkDir <tree> [-TestTier
+  pr] "<cargo arguments>"`. The cargo arguments are one quoted string: a bare `--` is PowerShell's end-of-parameters
+  token, and one string never meets the binder, so `-- --check` reaches cargo intact. It refuses a missing config.
 - **A run directory** holds `params.txt` and `cmd.txt` (written before the start), `PID` and `owner.txt` (unit, run
   id, kind, the runner's PID and start time, the budget, the work directory, the kit hash, `head`), then `child.pid`,
   `tree.txt` (every process of the run's tree, `pid=start time`), `peak.txt` (the tree's peak working set in bytes),
@@ -638,6 +643,9 @@ or stop it.
   `wait-gate.ps1` exits 0 (DONE), 3 (still running within the budget), 4 (past the budget: a hang) or 5 (the runner
   is gone without DONE).
 - **Commands agents run** (from the Bash tool, each after `cd` into its directory):
+  - every per-commit cargo call (the developer, and the tester's or the verifier's direct runs): `cargo.ps1`, above,
+    with `-TestTier pr` in place of `MOIRAI_TEST_TIER=pr`, for example `… cargo.ps1 -UnitConfig <ORCH>/<unit>/unit.toml
+    -UnitConfigSha256 <unitTomlSha> -WorkDir <wt> -TestTier pr "test --locked -p <crate> --no-fail-fast"`;
   - the full gate (the mechanic): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/start-gate.ps1
     -UnitConfig <ORCH>/<unit>/unit.toml -UnitConfigSha256 <unitTomlSha> -RunDir <ORCH>/<unit>/gate_r<n> -Unit <unit>
     -RunId <unit>-r<n> -Kind gate -Detach m0/<role> -CmdLine "<gateCmd>"`, with no `-WorkDir`, `-TargetDir` or
@@ -689,8 +697,9 @@ or stop it.
   dies (the orphaned command is stopped by its recorded PID), the pre-flight below each floor and with a capped
   directory's reserve, through the fallback and the guard, the pre-flight below the commit floor on both paths, with
   the floor's default pinned, and start-gate passing the floor on, the embedded copy, the local settings, the
-  `-Detach` checkout with its lockfile rules, and the unit config (`K1-*`: its keys, its sha256, the floor it gives
-  the pre-flight, a differing option, the gate worktree and the test threads, with a no-config control). Each script's own red-proof is the selftest case named after it in
+  `-Detach` checkout with its lockfile rules, the unit config (`K1-*`: its keys, its sha256, the floor it gives
+  the pre-flight, a differing option, the gate worktree and the test threads, with a no-config control), and the cargo
+  wrapper (`K2-*`: the environment it sets, the test tier, a missing config, a wrong sha256 and `-- --check` intact). Each script's own red-proof is the selftest case named after it in
   Appendix A.
 
 ## 8. Settings
@@ -1054,6 +1063,7 @@ and its exit codes. The red-proof of each is the `selftest.ps1` case that names 
 | `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-fallback-commit-low`, `preflight-commit-default-floor`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`, `preflight-guard-commit-low`, `K1-floor`, `K1-defaults`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-fallback-commit-control`, `preflight-guard-pass`, `preflight-guard-cap-control`, `preflight-guard-commit-control` |
 | `embed.ps1` | `embed-no-marker-refused`, `embed-two-markers-refused`, `embed-writes-lf-copy` |
 | `local-settings.ps1` | `local-settings-malformed-refused`, `local-settings-adds-and-keeps`, `local-settings-idempotent` |
+| `cargo.ps1` | `K2-env`, `K2-tier`, `K2-missing`, `K2-args`, `K2-sha` |
 | `kit-common.ps1`, `kit-hash.ps1` | every case above; `summary-stamped-with-kit-hash`; `K1-unknown` and `K1-sha` (`Read-UnitConfig`) |
 
 `selftest.ps1` is red-proved once by a deliberate defect: change the last line of `selftest-fake.ps1` to `exit 0`;
@@ -1970,7 +1980,7 @@ exit 0
 ```powershell
 # local-settings.ps1 - add the workflow's local keys to a checkout's .claude/settings.local.json, keeping every key
 # and rule already there (docs/m0/workflow.md sections 8 and 15, Appendix A). Under RULINGS R-8 and R-9 it is run for
-# the main checkout only; its deny-rule part below serves only a return to unit sessions in role worktrees.
+# the main checkout only (section 15 step 6).
 #
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/local-settings.ps1 -Worktree <checkout>
 #     -Orch <ORCH> -WtRoot <worktree root> [-AllowFile <kit>/unit-allow.txt]
@@ -2109,7 +2119,8 @@ exit $Code
 # when the command itself exits 0, zero rows or zero tests must not pass, a missing expected test must fail, test ids
 # must carry the package, a hang must be stopped by its PID tree, a busy work directory must be refused, and the
 # pre-flight must refuse below its floors (disk, RAM and the commit charge), counting the reserve of the capped
-# directories, and the unit config must be checked and applied (K1-*). Prints one line per case and "selftest: PASS" or "selftest: FAIL". Exit codes: 0 every case behaved;
+# directories, the unit config must be checked and applied (K1-*), and the cargo wrapper must set the config's
+# environment and pass its arguments intact (K2-*). Prints one line per case and "selftest: PASS" or "selftest: FAIL". Exit codes: 0 every case behaved;
 # 1 a case misbehaved. Takes about three minutes. Never run beside a unit's gate in the same work directory.
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
@@ -2521,9 +2532,89 @@ Add-Result 'K1-threads' 'params test_threads=3, the command printed RUST_TEST_TH
 # The no-config control: the call of gate-pass-rows-exit-3, with no -UnitConfig, keeps today's behaviour.
 Test-Verdict 'K1-control' 'gate' $pass 3 'FAIL' 1 | Out-Null
 
+# The cargo wrapper (K2): a fake cargo first on PATH prints the environment, its arguments and its directory; the
+# session's three variables hold other values and MOIRAI_TEST_TIER is unset for the calls.
+$fakebin = New-Dir 'fakebin'
+Write-Text (Join-Path $fakebin 'cargo.cmd') ("@echo off`r`necho CARGO_TARGET_DIR=%CARGO_TARGET_DIR%`r`necho CARGO_BUILD_JOBS=%CARGO_BUILD_JOBS%`r`necho RUST_TEST_THREADS=%RUST_TEST_THREADS%`r`necho MOIRAI_TEST_TIER=%MOIRAI_TEST_TIER%`r`necho ARGS=%*`r`necho CWD=%CD%`r`nexit /b 0`r`n")
+$k2w = New-Dir 'k2-tree'
+$cf2 = New-UnitConfig 'k2' $k1t $k1g 3 5 0
+$saved = @{ Path = $env:Path; T = $env:CARGO_TARGET_DIR; J = $env:CARGO_BUILD_JOBS; R = $env:RUST_TEST_THREADS; M = $env:MOIRAI_TEST_TIER }
+$env:Path = $fakebin + ';' + $env:Path
+$env:CARGO_TARGET_DIR = 'D:/elsewhere'
+$env:CARGO_BUILD_JOBS = '9'
+$env:RUST_TEST_THREADS = '7'
+$env:MOIRAI_TEST_TIER = $null
+$e1 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, 'build -p demo')
+$e2 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, '-TestTier', 'pr', 'test --locked -p demo')
+$e3 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', (Join-Path $base 'no-such.toml'), '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, 'build -p demo')
+$e4 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, 'fmt -p demo -- --check')
+$e5 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', ('f' * 64), '-WorkDir', $k2w, 'build -p demo')
+$env:Path = $saved.Path
+$env:CARGO_TARGET_DIR = $saved.T
+$env:CARGO_BUILD_JOBS = $saved.J
+$env:RUST_TEST_THREADS = $saved.R
+$env:MOIRAI_TEST_TIER = $saved.M
+$t2 = $k1t.Replace('\', '/')
+$okE1 = ($e1.Code -eq 0 -and $e1.Out.Contains("CARGO_TARGET_DIR=$t2") -and $e1.Out.Contains('CARGO_BUILD_JOBS=3') -and $e1.Out.Contains('RUST_TEST_THREADS=5') -and $e1.Out.Contains("CWD=$k2w"))
+Add-Result 'K2-env' "0, CARGO_TARGET_DIR=$t2 CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=5 in the tree" ('{0}: {1}' -f $e1.Code, (Get-Brief $e1.Out)) $okE1
+Add-Result 'K2-tier' '0, MOIRAI_TEST_TIER=pr' ('{0}: {1}' -f $e2.Code, (Get-Brief $e2.Out)) ($e2.Code -eq 0 -and $e2.Out.Contains('MOIRAI_TEST_TIER=pr'))
+Add-Result 'K2-missing' '2, names the path' ('{0}: {1}' -f $e3.Code, (Get-Brief $e3.Out)) ($e3.Code -eq 2 -and $e3.Out.Contains('no-such.toml'))
+$args4 = @($e4.Out -split "`r?`n" | Where-Object { $_.StartsWith('ARGS=') })
+Add-Result 'K2-args' '0, exactly ARGS=fmt -p demo -- --check' ('{0}: {1}' -f $e4.Code, ($args4 -join ' | ')) ($e4.Code -eq 0 -and $args4.Count -eq 1 -and $args4[0].TrimEnd() -eq 'ARGS=fmt -p demo -- --check')
+Add-Result 'K2-sha' '2, names the sha' ('{0}: {1}' -f $e5.Code, (Get-Brief $e5.Out)) ($e5.Code -eq 2 -and $e5.Out.Contains('f' * 64))
+
 $bad = @($results | Where-Object { -not $_.Ok })
 Write-Output ('selftest: {0} of {1} cases behaved; kit {2}; runs in {3}' -f ($results.Count - $bad.Count), $results.Count, (Get-KitHash), $base)
 if ($bad.Count -gt 0) { Write-Output 'selftest: FAIL'; exit 1 }
 Write-Output 'selftest: PASS'
 exit 0
+```
+
+### A.12 `kit/cargo.ps1`
+
+```powershell
+# cargo.ps1 - run one cargo command of a unit agent with its unit config's target directory, jobs and test threads
+# (docs/m0/workflow.md section 7 "The unit config", Appendix A; RULINGS R-178 OQ-1).
+#
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/cargo.ps1 -UnitConfig <ORCH>/<unit>/unit.toml
+#     -UnitConfigSha256 <hex> -WorkDir <tree> [-TestTier pr] "<cargo arguments>"
+#
+# The cargo arguments are one quoted string, split on white space (no word may contain a space, and none of
+# & | < > ^ % or a double quote may appear): a bare -- is PowerShell's own end-of-parameters token and a bare -p an
+# unknown parameter, while one string never meets the binder, so "fmt -p x -- --check" reaches cargo intact. The unit
+# config is checked as start-gate.ps1 checks it (kit-common's Read-UnitConfig): a missing file, a wrong sha256 or a
+# bad key exits 2. It sets CARGO_TARGET_DIR, CARGO_BUILD_JOBS and RUST_TEST_THREADS from target_dir, jobs and
+# test_threads, and MOIRAI_TEST_TIER=pr under -TestTier pr (any other value is refused), then runs cargo from PATH in
+# -WorkDir, its output unchanged. Its first output line names the four values, the tree and the words. No parameter
+# is mandatory, so a missing one never prompts. Exit codes: cargo's own; 2 refused (usage, the config, the
+# arguments).
+[CmdletBinding(PositionalBinding = $false)]
+param(
+    [string]$UnitConfig = '',
+    [string]$UnitConfigSha256 = '',
+    [string]$WorkDir = '',
+    [string]$TestTier = '',
+    [Parameter(Position = 0)][string]$CargoArgs = ''
+)
+. (Join-Path $PSScriptRoot 'kit-common.ps1')
+
+if ($UnitConfig -eq '') { Fail 2 'cargo: no -UnitConfig: a unit agent runs cargo with its unit config (docs/m0/workflow.md section 7)' }
+$cfg = Read-UnitConfig $UnitConfig $UnitConfigSha256 'cargo'
+if ($WorkDir -eq '' -or -not (Test-Path -LiteralPath $WorkDir -PathType Container)) { Fail 2 "cargo: no work directory '$WorkDir' (-WorkDir <tree>)" }
+if ($TestTier -ne '' -and $TestTier -ne 'pr') { Fail 2 "cargo: -TestTier takes pr only, not $TestTier" }
+if ($CargoArgs -match '[&|<>^%"]') { Fail 2 'cargo: the cargo arguments must not contain & | < > ^ % or a double quote' }
+$words = @($CargoArgs.Trim() -split '\s+' | Where-Object { $_ -ne '' })
+if ($words.Count -lt 1) { Fail 2 'cargo: no cargo arguments: pass them as one quoted string' }
+$app = Get-Command -Name 'cargo' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($null -eq $app) { Fail 2 'cargo: no cargo on PATH' }
+$env:CARGO_TARGET_DIR = $cfg['target_dir']
+$env:CARGO_BUILD_JOBS = $cfg['jobs']
+$env:RUST_TEST_THREADS = $cfg['test_threads']
+if ($TestTier -eq 'pr') { $env:MOIRAI_TEST_TIER = 'pr' }
+[Console]::Out.WriteLine(('cargo.ps1: CARGO_TARGET_DIR={0} CARGO_BUILD_JOBS={1} RUST_TEST_THREADS={2} MOIRAI_TEST_TIER={3} in {4}: cargo {5}' -f $env:CARGO_TARGET_DIR, $env:CARGO_BUILD_JOBS, $env:RUST_TEST_THREADS, $env:MOIRAI_TEST_TIER, $WorkDir, ($words -join ' ')))
+Set-Location -LiteralPath $WorkDir
+$old = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try { & $app.Path @words } finally { $ErrorActionPreference = $old }
+exit $LASTEXITCODE
 ```
