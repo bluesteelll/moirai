@@ -1,7 +1,8 @@
 # The agent workflow: units, the orchestrator and the gate kit
 
 - **Status:** set up on 2026-10-07 from the owner's brief and the plan the owner approved that day, and updated on
-  2026-10-11 for R-5 to R-11 and on 2026-10-12 for R-23 (the tiers, the stop-list, two units after a trial pair); R-HARN
+  2026-10-11 for R-5 to R-11, on 2026-10-12 for R-23 (the tiers, the stop-list, two units after a trial pair) and on
+  2026-10-25 for LEAN-1 (R-149, R-150, R-178, R-179: the short header, the unit config, the lean stage rules); R-HARN
   (`docs/m0/**`, [authors.md](authors.md) §3), reviewed like any other `docs/m0/` file. The orchestrator reads this
   file. Every other agent reads only AGENTS.md "Agent work", its role file in `.claude/agents/` and its brief; an agent
   of a LIGHT or STANDARD unit may also read §5.1 (the tiers and their triggers), and the verifier also reads `tester.md`
@@ -14,7 +15,8 @@
   on 2026-10-07 (code.claude.com/docs/en/: `settings`, `settings-reference`, `permissions`, `sub-agents`,
   `workflows`, `prompt-caching`, `agent-view`); a fact that moves with a release is checked again in §15.
 - **Rulings:** R-1 to R-4 (§2) are the owner's answers of 2026-10-07. Later rulings are numbered on from R-5 in
-  `<ORCH>/RULINGS.md`, and units cite them by number. §2 summarises R-5 to R-11 and R-23.
+  `<ORCH>/RULINGS.md`, and units cite them by number. §2 summarises R-5 to R-11, R-23, R-149, R-150, R-178 and
+  R-179.
 
 ## 1. Terms and places
 
@@ -29,30 +31,26 @@
 - **Author role** (PLAN §3.1: R-HARN-I, R-MODEL, …) and **stage role** (`.claude/agents/`: architect,
   architecture-critic, developer, tester, verifier, code-reviewer, researcher, project-analyst, results-analyst,
   doc-writer, mechanic). Every agent of a unit is a stage role acting for the unit's author role, bound by that role's
-  S1–S6 and write map (AGENTS.md "Agent work") and by any reading limit its spec sets; the role's `deny_read` path rules
-  are not applied (R-8).
+  S1–S6 and write map (AGENTS.md "Agent work") and by its reading limit: the role files' section "Reading limit", the
+  author role's row there and the header's extras (R-8, R-178, R-179).
 - **Gate worktree**: a neutral, non-authoring worktree, detached, where only the full gate runs
   (`cargo xtask gate --branch m0/<role>`, PLAN §3.1 "The gate worktree"). There is one per PLAN lane, `gate-a` for
   the lane-A roles and `gate-b` for the lane-B roles of `xtask/roles.toml`, because the gate runs with the target
   directory of the branch's lane: units of different lanes then gate at once, and units of one lane take turns on the
-  kit's lock of that worktree (they would wait on cargo's build lock of the shared target directory anyway). While
-  units build only in lane A, every unit gates in `gate-a` with lane A's target directory, whatever its role's lane
-  (R-8, R-9); two open units take turns there on the kit's lock (R-23, §4).
+  kit's lock of that worktree (they would wait on cargo's build lock of the shared target directory anyway). Since
+  R-26 each slot has its own: slot A builds into `laneA` and gates in `gate-a`, slot B into `laneB` and `gate-b`, and
+  a unit's `<ORCH>/<unit>/unit.toml` names its gate worktree and lane (§7 "The unit config").
 - **Lock set**: the paths a unit may write. **Red-first**, **pin**: AGENTS.md "Agent work". **Mutation**: a deliberate
   bug that a named gate must catch. **Delta-scoped**: only what the last fix or sync changed.
 - **Tier**: LIGHT, STANDARD or HEAVY, the depth of a unit's checks (§5.1), which sets its stages (§6.1).
 - **Kit**: the PowerShell scripts in `<ORCH>/kit/` that run long gates detached under a budget (§7, Appendix A).
 - **Orchestrator session**: an interactive Claude Code session in the main checkout, on `master`. It plans, launches
   each unit's workflow itself (§6.3), reads verdicts, rules, merges and pushes; it never does a stage's work. Its
-  environment (the main checkout's `.claude/settings.local.json`, §8) gives every unit agent lane A's target
-  directory and 4 build jobs (R-8, R-9).
-- **Unit session** (superseded by R-8 and R-9; used under R-1 to R-7, up to the trial unit): a Claude Code session
-  started in the role worktree, which launched the unit workflow and nothing else. A subagent starts in the launching
-  session's working directory and inherits that session's permission rules and environment (Claude Code sub-agents
-  documentation). So a unit's agents now take the orchestrator session's rules and environment, and work in the role
-  worktree by starting every shell command with a `cd` into it (the unit header, §6.1). The role worktree's
-  `.claude/settings.local.json`, which `xtask worktree` still writes with the role's `deny_read` rules and its lane's
-  `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS` (`xtask/src/worktree.rs`), is unused.
+  environment (the main checkout's `.claude/settings.local.json`, §8) serves its own builds; a unit agent's cargo
+  calls take the target directory, the jobs and the test threads of the unit's `unit.toml` through the kit (§7;
+  R-178 OQ-1).
+- **Unit session** (superseded by R-8 and R-9): a session started in the role worktree up to the trial unit; a unit's
+  agents now run inside the orchestrator session and `cd` into the role worktree (the unit header, §6.1).
 
 | Place | Path | Made by |
 |---|---|---|
@@ -60,7 +58,7 @@
 | `<WT_ROOT>`, the worktree root | `D:/moirai-wt` | `git config moirai.worktree-root` (R-1) |
 | Role worktree, one per open unit | `<WT_ROOT>/<role>`, branch `m0/<role>` | `cargo xtask worktree <role> --base master` |
 | Gate worktrees | `<WT_ROOT>/gate-a`, `<WT_ROOT>/gate-b` | `git worktree add --detach`, once (§15 step 6) |
-| Lane target directories | `D:/moirai-target/laneA`, `D:/moirai-target/laneB` | `git config moirai.target-root` (PLAN §2.1); the orchestrator session's environment sets lane A for every unit (§8, R-8) |
+| Lane target directories | `D:/moirai-target/laneA`, `D:/moirai-target/laneB` | `git config moirai.target-root` (PLAN §2.1); a unit's `unit.toml` names its slot's lane (§5.2 step 6, §7; R-26) |
 | `<ORCH>`, the orchestration state | `D:/orch/moirai` | §15 step 3 (R-1) |
 
 ## 2. The owner's rulings
@@ -100,31 +98,52 @@ Later rulings, in short (the full text is in `<ORCH>/RULINGS.md`; units cite the
 - **R-7 Unit sessions through the app** (2026-10-08; superseded by R-8). A unit session started from the command
   line had no login of its own on the PC, so the orchestrator started unit sessions through the Claude app.
 - **R-8 Units from the orchestrator session** (2026-10-08; amended by R-9). The orchestrator session launches each
-  unit itself with the Workflow tool, from the embedded copy. There is no unit session and no CLI login, and the
-  role's `deny_read` path rules are not applied. S1–S6 and the write map of authors.md §3 still bind what a unit
-  writes. Builds take the main checkout's settings, lane A's target directory and 4 jobs, and every unit gates in
-  `gate-a`. R-8 first ran units in the main checkout itself; R-9 moved them into the role worktree.
+  unit itself with the Workflow tool, from the embedded copy. There is no unit session and no CLI login. The tool
+  rules of `xtask/roles.toml` are not applied; a unit agent's reading limit is its role file's section "Reading
+  limit", the author role's row there and the header's extras (R-178, R-179). S1–S6 and the write map of authors.md
+  §3 still bind what a unit writes. R-8 first ran units in the main checkout itself, with one shared target
+  directory; R-9 moved them into the role worktree, R-26 gave each slot its lane, and the unit config now carries it
+  (§7).
 - **R-9 A unit works in its own folder** (2026-10-08; in force). `wt` is the role worktree made by
   `cargo xtask worktree <role> --base master`, so the main checkout stays on `master`. `kit/local-settings.ps1` is
   not run for the role worktree, and the settings `xtask worktree` writes there go unused (§5.2).
 - **R-10 The commit charge and an environmental FAIL** (2026-10-08; in force). No full gate or other kit run starts
   while the free commit charge is below 4 GB, and the kit refuses such a start (§7, §10). A gate FAIL caused by the
   machine is re-run once on the same head; a second one is a STOP for the owner.
-- **R-11 The kit counts lane A only** (2026-10-11; in force until a nightly run or a lane B unit). `kit/caps.txt`
-  counts `D:/moirai-target/laneA` alone and keeps the other entries as comments. The full `[guard.caps]` set is
-  restored before any nightly run or any lane B unit (§10).
+- **R-11 The kit counted lane A only** (2026-10-11; superseded by R-26, which counts lane B again for the second
+  slot). `kit/caps.txt` holds the counted directories and the caps the orchestrator sets (§10).
 - **R-23 The lean workflow** (2026-10-12; in force). The owner chose risk tiers and a stop-list. Every unit runs at
   a tier, LIGHT, STANDARD or HEAVY (§5.1, §6.1), as the lean design states it with the amendments of its adversarial
   check: the merge-verdict machinery and every kit script are HEAVY; normative text brought in line with code is not
   exempt; a PLAUSIBLE Critical or Important blocks `ok`; tests are counted by name in every tier; and lower-tier units
   are audited, every one for the first 8, then 1 in 2 (§5.6). The stop-list says what is not built yet (§5.5). Two
   units run at once after a trial pair (§4, §10). The matching change of AGENTS.md is the owner's commit.
+- **R-149 A host fault, widened; the tester re-runs on a gate re-run** (2026-10-24; in force). A test binary that
+  ends abnormally with no FAILED line while the commit charge is below the kit's floor is a host fault, like a rustc
+  or cargo crash (R-142 ruling 4): it is re-run alone once, and a second fault of the same run is a STOP. A relaunch
+  that changes only `gateRun` must re-run the tester too (ruling 2), so the token reaches the checkers' prompts (§6.4).
+- **R-150 The lean process** (2026-10-24; the owner's answers and the orchestrator's Phase 0; in force). LEAN-1, one
+  R-HARN-I unit with no other unit in flight, brings the short header with the environment in a kit config, one full
+  gate at the final head for a markdown-only unit, the triage skipped when every red is expected by name, the
+  product-only critique for map renames, `gateRun` in the tester's prompt, and the tier trial closed with the 1-in-2
+  audit kept. Every reading limit in force stays, written once per role. Phase 0: rulings cited by id, one
+  product-only check of a new spec with a scoped recheck only after an applied Important, owner questions at once,
+  and short briefs from templates (§5.2).
+- **R-178 The LEAN-1 brief** (2026-10-24; in force). One kit cargo wrapper carries the lane, the jobs and the test
+  threads of every cargo call (OQ-1 (A)); `gateRun` reaches the tester's, verifier's, triage's and fix's prompts, not
+  the review's (OQ-2 (b)); a unit's limit beyond its row goes into `extras` (OQ-3 (a)); class M stays HEAVY and only
+  selects the product-only critique (OQ-4); the clean rule is a role-file rule (OQ-6 (a)); the mechanic returns a
+  checked `rows`, and no unit agent uses LSP (OQ-7 (a)).
+- **R-179 No reading limit retired** (2026-10-24; in force). Every limit in force stays (retiring one is the owner's
+  call); unit-scoped limits stay unit-scoped, as `extras` seeds; R-74 ruling 5's pointer strip and the unit
+  directory's lists are pre-launch duties (§5.2); one keyed limits file gives each limit its home.
 
 R-12 (2026-10-11) settles the questions of one unit, and §7 "The kit hash" carries its rule for re-installing the
 kit. Such unit rulings are not summarised here.
 
-§9 applies R-3. §10 applies R-4, R-5, R-10 and R-11, and §7 and Appendix A apply R-10 and R-11 to the kit. §1, §3 to
-§6, §8, §12, §13 and §15 apply R-8 and R-9. §4, §5, §6, §10 and §11 apply R-23. Chat with the owner may be in Russian;
+§9 applies R-3. §10 applies R-4, R-5, R-10 and R-26, and §7 and Appendix A apply R-10 to the kit. §1, §3 to §6,
+§8, §12, §13 and §15 apply R-8 and R-9. §4, §5, §6, §10 and §11 apply R-23. §5, §6, §7 and the role files apply
+R-149, R-150, R-178 and R-179. Chat with the owner may be in Russian;
 every file in the repository and in `<ORCH>` is in English (AGENTS.md).
 
 ## 3. The orchestration state: `<ORCH>`
@@ -141,9 +160,9 @@ rewrite of `RESUME.md`, and never pushed to the public repository (R-1). It hold
 | `baseline.tsv` | the test IDs (`<package>\|<source>\|<test>`, §7) and statuses of the whole workspace at tier `pr` on `master` (§15 step 8), refreshed per package at each merge (§5.4 step 6); no unit agent reads it (§5.2 step 6) |
 | `mechanic-escapes.tsv` | the mechanic's escapes (§9) |
 | `embed/<unit>.src.js`, `embed/<unit>.js`, `embed/args_<unit>.json` | the copy of `unit.js` taken at the unit's first launch, the embedded copy made from it, and the arguments of every launch (§6.3, §6.4) |
-| `<unit>/` | `spec.md`, `baseline_unit.tsv`, `run_<k>.txt` and `result_<k>.json` (written by the orchestrator, §6.3), `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's or the verifier's kit runs), `test_r<n>.md`, `verify_r<n>.md`, `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `audit_test.md` and `audit_review.md` (the audit of a LIGHT or STANDARD unit, §5.6), `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees), `kit-<commit>/` (the scratch kits of a unit that changes Appendix A, §7) |
-| `arms.tsv` | one row per finding of a tiered unit's checkers and of its audit, for the trial of the tiers (§5.6) |
-| `kit/` | the scripts of Appendix A, `budgets.txt`, `caps.txt`, `unit-allow.txt`, `guard.exe`, `locks/`, `selftest-runs/` |
+| `<unit>/` | `spec.md` (or `brief.md`), `baseline_unit.tsv`, `unit.toml`, `gates.md`, `extras.tsv`, `lock.md`, `expected-red.tsv` and `rulings.md` (written by the orchestrator at the pre-launch and read-only to unit agents, §5.2), `run_<k>.txt` and `result_<k>.json` (written by the orchestrator, §6.3), `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's or the verifier's kit runs), `test_r<n>.md`, `verify_r<n>.md`, `final_r<n>.md` (a finalGate round's final check, §6.1), `failed_r<n>.tsv` (the tester's FAILED gate ids), `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `audit_test.md` and `audit_review.md` (the audit of a LIGHT or STANDARD unit, §5.6), `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees), `kit-<commit>/` (the scratch kits of a unit that changes Appendix A, §7) |
+| `arms.tsv` | one row per finding of a tiered unit's checkers and of its audit (§5.6) |
+| `kit/` | the scripts of Appendix A (`cargo.ps1`, the unit agents' cargo wrapper, among them), `budgets.txt`, `caps.txt`, `unit-allow.txt`, `guard.exe`, `locks/`, `selftest-runs/` |
 
 Its `.gitignore` holds `/*/wt-*/`, `/*/kit-*/`, `log.txt`, `/kit/locks/`, `/kit/selftest-runs/` and `/kit/guard.exe`.
 
@@ -178,22 +197,24 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 
 - **One worktree per unit**, the role worktree. `xtask worktree` still writes the role's `deny_read` rules, the lane's
   target directory and `CARGO_BUILD_JOBS` into its settings (`xtask/src/worktree.rs`), but no session starts there,
-  so they are unused: unit agents take the orchestrator session's rules and environment (§8, R-8, R-9). Two agents
+  so they are unused: unit agents take the orchestrator session's rules, and their cargo environment from the unit
+  config through the kit (§7, §8, R-8, R-9). Two agents
   never build or edit in one checkout at once:
   inside a unit the stages run one after another in the role worktree, and the tester and the reviewer, which run in
   parallel, only read it.
 - **Scratch worktrees** for red-firsts on the parent and for mutations: `git worktree add --detach
-  <ORCH>/<unit>/wt-<stage> <sha>`, removed with `git worktree remove` when done. They build into the session's lane
-  target directory, never into a private one (the disk headroom is the binding resource, [MP §8]); cargo's build
-  lock serialises them with the lane's other builds.
+  <ORCH>/<unit>/wt-<stage> <sha>`, removed with `git worktree remove` when done. They build only through the kit
+  (`cargo.ps1`, §7) into the unit's lane, never into a private target directory (the disk headroom is the binding
+  resource, [MP §8]); cargo's build lock serialises them with the lane's other builds. A package a scratch tree built
+  is cleaned before the lane's next counted run or gate (R-122 ruling 4, R-168 ruling 2: the role files' clean rule).
 - **Lock sets.** A file outside the unit's lock set, or in another open unit's set, is a STOP. The lock set lies
   inside what the author role may write (authors.md §3); two open units never share a path.
 - **Concurrency**: at most the capacity (§10), one open unit per role. Under R-23, two units run at once after a
   trial pair: the trial is a docs or spec unit beside another unit, and two code units follow only if RAM and D: hold
-  (the pre-flight's floors, `peak.txt`). Both gate in `gate-a`, serialised by the kit's lock (a busy start is exit 6:
-  the mechanic waits on the named run and starts again), so no second set of lane A artifacts is built. A `LOCKFILE`
-  outcome of one unit leaves `gate-a`'s lockfiles changed, and the other unit's next start there exits 2 ("lockfiles
-  differ") until that unit's lockfile commit lands: the orchestrator takes the lockfile steps below first, and two
+  (the pre-flight's floors, `peak.txt`). Since R-26 each slot has its own lane and gate worktree, named in its
+  units' `unit.toml`; two units of one slot would take turns on the kit's lock (a busy start is exit 6: the mechanic
+  waits on the named run and starts again). A `LOCKFILE` outcome of one unit leaves its gate worktree's lockfiles
+  changed, and the next start there exits 2 ("lockfiles differ") until that unit's lockfile commit lands: the orchestrator takes the lockfile steps below first, and two
   code units that may change a manifest do not run at once.
 - **Disk.** Every gate start checks the disk headroom first (the kit's pre-flight, §10): the volume's available space
   less the growth the counted directories of `kit/caps.txt` may still take up to their caps, as the guard counts it for
@@ -204,14 +225,14 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 - **Lockfile changes.** `Cargo.lock` and `fuzz/Cargo.lock` change only in the gate worktree (PLAN §3.1; authors.md
   §3), and every per-commit gate runs `--locked`. A unit that changes a manifest so that the lockfile must change:
   1. the developer commits the manifest change and STOPs with the reason `lockfile` (its `--locked` gates cannot run);
-  2. the orchestrator runs the full gate once itself, through the kit in the unit's gate worktree (`gate-a` with lane
-     A's target directory while units build only in lane A, R-8)
-     (`start-gate.ps1 -RunDir <ORCH>/<unit>/lock_<k> -WorkDir <gateWt> -Unit <unit> -RunId <unit>-lock<k> -Kind gate
-     -Detach m0/<role> -TargetDir <the lane's target directory> -CmdLine "cargo xtask gate --branch m0/<role>"`):
+  2. the orchestrator runs the full gate once itself, through the kit with the unit's config, which names its gate
+     worktree and lane (`start-gate.ps1 -UnitConfig <ORCH>/<unit>/unit.toml -UnitConfigSha256 <unitTomlSha> -RunDir
+     <ORCH>/<unit>/lock_<k> -Unit <unit> -RunId <unit>-lock<k> -Kind gate -Detach m0/<role> -CmdLine "cargo xtask
+     gate --branch m0/<role>"`):
      its DONE says `lockfile=updated` (the `lock` step resolved the branch's manifests and the build steps ran on the
      result). A unit whose mechanic reported `LOCKFILE` on its own joins here with that run;
   3. the orchestrator relaunches with the resume note `Copy Cargo.lock (and fuzz/Cargo.lock when DONE's changes
-     list it) from <gateWt> into <wt> byte for byte, commit it as WP-xx: Record the lockfile the gate resolved for
+     list it) from <the unit's gate_wt> into <wt> byte for byte, commit it as WP-xx: Record the lockfile the gate resolved for
      <change>, then continue cut.md`;
   4. at the next gate start the kit finds the gate worktree's lockfiles equal to the branch's, stages them and
      switches on (`start-gate.ps1 -Detach`).
@@ -257,8 +278,8 @@ The tier sets the unit's stages (§6.1).
   role files where H6 does not hold.
 - **Rules.**
   - The spec states the tier on a `Tier:` line with the six answers, "H1: no" … "H6: yes: <why>", and below HEAVY
-    either "L1–L3 hold" or "code, no trigger".
-  - When in doubt, the higher tier.
+    either "L1–L3 hold" or "code, no trigger"; and beside it the class on a `Class:` line with one line of why (below).
+  - When in doubt, the higher tier, and the higher class.
   - A unit whose arguments name no tier was launched before the tiers and is HEAVY; its relaunches keep its embedded
     script (§6.3), and the role files say so.
   - **Escalation.** An agent below HEAVY that meets a trigger, or a LIGHT developer whose change needs new behaviour
@@ -272,16 +293,49 @@ The tier sets the unit's stages (§6.1).
   - **Batching.** LIGHT or STANDARD items of one role that carry no decision may share one unit across that role's
     WPs; each commit names its own WP (§1).
 
+**Classes** (R-150 ruling 0; R-178 OQ-4; R-190 ruling 3). The spec or brief names the class with one line of why;
+when in doubt, the higher class. The Tier column is the class's tier, the higher one when in doubt.
+
+| Class | What it is | Tier |
+|---|---|---|
+| M | Mechanical by map. Every changed token is a row of a checked map. No behaviour changes. Every derived value that changes is listed, or none changes; the bytes are already fixed by merged text and a ruling | HEAVY, with the product-only critique (R-178 OQ-4) |
+| MD | Mechanical, with derived values the map does not fix: a rename that changes a hash, an id, an order or a golden computed from the renamed strings | HEAVY |
+| R | An evidence or review report: Markdown that judges other text, with no normative change | STANDARD |
+| N | Normative spec text with no open decision: a rule text whose content rulings settle | HEAVY (H4) |
+| D | A format or design decision: the text fixes bytes, layout or a merge rule | HEAVY |
+| B | Code with behaviour: the model, the oracle, `xtask`, the toy log or product code whose behaviour changes | HEAVY |
+| V | Byte or fixture values: hex fixtures and digests recomputed under new values | HEAVY |
+| L | A LIGHT text fix: no behaviour changes and no test is added, removed or renamed (L-1's "Unchanged" line; L-10) | LIGHT |
+
+- **Class M's admission:** a map rename of the u44/u45/u47 profile, with no expected-red set and no census hit;
+  anything else is MD. A class M unit stays HEAVY: `class` `M` selects only the product-only critique (§6.1), and the
+  script refuses class M below HEAVY.
+- `finalGate` (one full gate, at the final head) needs class R, N, D or L and the condition of §5.2; the script
+  refuses it with any other class (§6.2).
+
 ### 5.2 Launch a unit
 
 1. **Spec.** Write `<ORCH>/<unit>/spec.md`: the WP and its author role (authors.md §2), the tier with its six answers
-   (§5.1), the goal, the acceptance gates, each per-commit gate marked "expected red on master" or "must pass on
-   master", what is out of scope, the RULINGS it rests on, the lock set. Units are named `u<nn>-<slug>`. Then the
-   **pre-launch check** (§5.1): run each per-commit gate once on `master` and check it against its mark, and cite a
+   and the class (§5.1), the goal, the acceptance gates, each per-commit gate marked "expected red on master" or "must
+   pass on master", what is out of scope, the RULINGS it rests on, the lock set. Units are named `u<nn>-<slug>`. Then
+   the **pre-launch check** (§5.1): run each per-commit gate once on `master` and check it against its mark, and cite a
    file:line for every claim the spec makes about the tree; a gate that cannot pass on any tree is fixed in the spec
-   before the launch.
+   before the launch. As R-150 ruling 1 practises it (L-10 to L-17):
+   - specs and briefs come from the template, within its caps (L-12); a class B unit gets a short brief only when its
+     cut decides nothing (I-8), else a spec;
+   - rulings are cited by id, not by line (L-18), and every citation an agent needs lies inside its reading list
+     (R-179 ruling 3; the pre-launch duties below);
+   - one product-only check of a new spec, folded by the orchestrator, with a scoped recheck only after an applied
+     Important (L-13; L-14 with I-5); an apply is made only by an agent bound by the unit's author role (I-21);
+   - owner questions go out at once (L-16), no unit launches with an open decision (m-7), and the budgets of L-17
+     apply;
+   - the spec's dry-run table (I-6) has, for each must-pass gate, a failing row and a kill for its predicted reason, a
+     seeded trunk sync, and the counts by tool; a coupled unit's census comes from the owning role's analyst, as the
+     bare fact of a coupling (R-74 ruling 5).
 2. **Lock set.** Estimate it from the spec, inside the role's write map and disjoint from every open unit's set
-   (`RESUME.md`). The cut STOPs if its touch set leaves it; the orchestrator rules and relaunches.
+   (`RESUME.md`). The cut STOPs if its touch set leaves it; the orchestrator rules and relaunches. The args' `lock` and
+   `others` hold repository paths only, one line each; their named sections (a WP's lines, a parked unit's note) go to
+   `<ORCH>/<unit>/lock.md` (I-5), so that the header stays within its 5,000 characters.
 3. **Room.** The open units are fewer than the capacity, the role has no open unit, and the last `RESUME.md` row of
    the role is closed.
 4. **Worktree.** In the main checkout (on `master`, clean): `cargo xtask worktree <role> --base master`. The command
@@ -292,28 +346,77 @@ The tier sets the unit's stages (§6.1).
 5. **No local settings** (R-8, R-9): `kit/local-settings.ps1` is not run for the role worktree; unit agents run under
    the main checkout's settings (§8). Until R-8 this step ran it for the role worktree, to add the additional
    directories, the allow rules and the role's `deny_read` rules there.
-6. **Arguments and the unit's baseline.** Write `<ORCH>/embed/args_<unit>.json` (§6.2): `base` = `git rev-parse master`,
-   `gateWt` = `gate-a` while units build only in lane A (otherwise the gate worktree of the role's lane), `tier` = the
-   spec's tier, `dryRun` = `false`, `resumeNote` = `""`, `gateRun` = `""`, `deltaLogic` = `true`, `deltaRound` = `1`.
+6. **The unit's files, its arguments and its baseline** (R-184). The orchestrator writes, read-only to unit agents:
+   - `<ORCH>/<unit>/unit.toml`, the kit config (§7 "The unit config"): `target_dir` and `gate_wt` of the slot, `jobs`,
+     `test_threads` and `floor_gb`;
+   - `<ORCH>/<unit>/gates.md`, the per-commit gates, lane-free (no target directory, jobs or floor: `unit.toml` holds
+     them), under its legend line "CLEAN is the role files' clean rule (U8); HOST FAULTS are the role files'
+     host-fault rule (R3); a cargo call runs through K2, which holds the lane." (R-186 ruling 7);
+   - `<ORCH>/<unit>/extras.tsv`, the unit's limits beyond its row: the rows of the limits' seeds file that the role's
+     last unit and the unit's scope give it, verbatim under the header row, narrowed only with a reason in their
+     `narrowing` cell (R-178 OQ-3 (a); R-179; R-186 rulings 4 and 5), or no file and `extras` `none`;
+   - `<ORCH>/<unit>/expected-red.tsv` for a named expected-red set: one id per line in the gate ids' form
+     `<binary>|<source>|<test>`, sorted bytewise, no header (R-184 ruling 6);
+   - `<ORCH>/<unit>/lock.md` (step 2) and `<ORCH>/<unit>/rulings.md`: a copy of `RULINGS.md` frozen at the launch, for
+     an S2-limited unit with the strip of the pre-launch duties below; a relaunch that cites a newer ruling appends it
+     there first, with the same strip (§5.3).
+
+   Then `<ORCH>/embed/args_<unit>.json` (§6.2): `base` = `git rev-parse master`, `tier` and `class` = the spec's,
+   `gates` = the path of `gates.md`, `extras` = `none` or `<ORCH>/<unit>/extras.tsv: <ids>`, `gateCmd`, `unitTomlSha`
+   = the sha256 of `unit.toml`, `expectedRed` and `expectedRedSha` (or `""`), `finalGate` (below), `dryRun` = `false`,
+   `resumeNote` = `""`, `gateRun` = `""`, `deltaLogic` = `true`, `deltaRound` = `1`. Old-form args (with `gateWt` or
+   `diskFloorGb`) are converted by the orchestrator's conversion tool, which `--check` verifies field by field.
    Write `<ORCH>/<unit>/baseline_unit.tsv`: the first line of `baseline.tsv`, then its rows whose package is one of the
-   unit's (the `-p` values of `gates`), for example `grep -E '^(xtask|moirai-vfs)[|]' <ORCH>/baseline.tsv`. A role
-   writes and reads its own packages; should a `deny_read` module pattern of the role (`xtask/roles.toml`) name one of
-   them, its rows whose test path lies in that module are dropped too, as the gate's filter drops them
+   unit's (the `-p` values of `<SP>gates.md`), for example `grep -E '^(xtask|moirai-vfs)[|]' <ORCH>/baseline.tsv`. A
+   role writes and reads its own packages; should a `deny_read` module pattern of the role (`xtask/roles.toml`) name
+   one of them, its rows whose test path lies in that module are dropped too, as the gate's filter drops them
    (`xtask/src/cargo.rs`). The tester or the verifier builds its expected set from this file; `baseline.tsv` itself
-   holds every crate's test names, which S2 withholds from most roles, and the unit header (§6.1, `unit.js`) limits
-   every agent's reads under `<ORCH>` to its unit's directory, `kit/` and `RULINGS.md`.
+   holds every crate's test names, which S2 withholds from most roles, and the role files' "Reading limit" limits every
+   unit agent's reads under `<ORCH>` to its unit's directory and `kit/`, with the rulings in its own `<SP>rulings.md`.
 7. **Embedded copy.** Copy the main checkout's `.claude/workflows/unit.js` (on `master`) to
    `<ORCH>/embed/<unit>.src.js`, then `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/embed.ps1
    -Script <ORCH>/embed/<unit>.src.js -ArgsFile <ORCH>/embed/args_<unit>.json -Out <ORCH>/embed/<unit>.js`.
 8. **Dry run** in the orchestrator session: `Workflow({ name: "unit", args: <the args with dryRun true> })` must
-   return `{ ok: true, args, stages, maxRounds }` with no agent started, and `stages` must equal §6.1's list for the
-   tier; it checks the script, the arguments and the tier. After a merge that changed `.claude/workflows/`, run
+   return `{ ok: true, args, stages, maxRounds, gatePlan, hdrChars }` with no agent started; `stages` must equal
+   §6.1's list for the tier, `gatePlan` must be `every round`, or `final head` for a `finalGate` unit, and `hdrChars`
+   is at most 5,000 (the script refuses a longer header); it checks the script, the arguments and the tier. After a merge that changed `.claude/workflows/`, run
    `/reload-skills` first, so that the session runs the merged script (Claude Code workflows documentation).
-9. **Launch** (§6.3): `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js" })` from this session; the run id it returns
-   goes to `<ORCH>/<unit>/run_1.txt`.
+9. **Launch** (§6.3): `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js" })` from this session. `<ORCH>/<unit>/run_1.txt`
+   records the run id it returns and the sha256 of `<SP>gates.md` and `<SP>extras.tsv` (R-186 ruling 2); before the
+   result is ruled the orchestrator re-checks both with R-162's fsck, and a mismatch is a STOP: the file is restored
+   and the unit relaunched.
 10. **Record.** A `RESUME.md` row: unit, role, WP, tier, branch, worktree, base, stage `launched`, the session (this
     orchestrator session, §6.4), the run id (`run_1.txt`), the script `<ORCH>/embed/<unit>.js`, the lock set. Commit
     `<ORCH>`.
+
+**The pre-launch duties** (R-74 ruling 5; R-135 ruling 2 (c); R-179 ruling 3; R-180 ruling 1). An S2-limited unit is
+one whose row or `extras` bars the model, the oracle or the toy log's bug module (R-74 ruling 5's S2 units). The
+orchestrator, at each pre-launch:
+
+- for S2-limited units, strips every file:line pointer into a path that the unit's row or `extras` bars from
+  agent-facing text; it is replaced by the test id and "(R-74's census)";
+- for S2-limited units, keeps in a unit directory only the may-hold list (its spec, tools, logs and `pre/`; copies and
+  excerpts of plans, rulings and reviews with every model, oracle and bug-module description removed; `rulings.md`;
+  `gate-ids.tsv` where the role's gate shows those names; a map extract without row A6);
+- for S2-limited units, keeps in it nothing of the never-holds list (scope reports or checks that describe model or
+  oracle code; `klotho-2026-10-13/k0-stdmd.md`; another role's R-MODEL, R-ORA or R-TOY cut, analyst report or census
+  report; another unit's tester counts by file);
+- leaves an R-MODEL, R-ORA or R-TOY unit its own pointers, cut and census; gives an R-ORA unit's directory oracle
+  material and never model material, and an R-MODEL unit's in a landing with an oracle unit the model census and never
+  oracle material (R-70 m-5);
+- puts every citation an agent needs inside its reading list: in an `X/` excerpt, restated with its repository or
+  ruling source, or marked "(orchestrator's record)".
+
+**`finalGate` may be true only when** no test reads the changed text, which the owning roles' analyst establishes at
+the base (R-150 ruling 0; R-178 I-7):
+- every lock-set path ends `.md` and lies outside `crates/`, `xtask/` and `fixtures/`;
+- a names-only grep for each file name and for each new file's directory, with counts over the barred paths, is 0;
+- a poison run in a scratch tree, each lock-set file in turn deleted, emptied and filled with garbage, with each
+  package cleaned in the run's lane and its `Compiling <pkg> (<tree>)` line checked, or the run in its own target
+  directory, changes no id by name, and the gate's doc rows, counted by status, are unchanged;
+- two positive controls each change their id, counted by name: `docs/spec/lq/std.md`
+  (`lq::tests::bind::the_catalog_texts_are_the_chapters_blocks`) and `docs/m0/authors.md`
+  (`authors::tests::reads_the_repository_ledger`).
 
 ### 5.3 Between runs
 
@@ -322,7 +425,10 @@ The tier sets the unit's stages (§6.1).
   is in the run record `~/.claude/projects/<project>/<session>/workflows/<run id>.json` (§6.4).
 - Read the result's fields only (§6.5). Open a report, by section (`rg -n`, ranged reads), only on `RED`,
   `CHANGES_REQUESTED`, `STOPPED`, a gate outcome other than `PASS`, or `ok: false`.
-- Answer a question as a numbered ruling in `RULINGS.md` and relaunch with a resume note that cites it (§6.4).
+- Answer a question as a numbered ruling in `RULINGS.md`, append it to the unit's `<SP>rulings.md` (with the strip
+  of §5.2 for an S2-limited unit), and relaunch with a resume note that cites it (§6.4).
+- A return with stage `expected` (HEAVY; §6.1): every red is in the named expected-red set, so no triage ran. Count
+  the tester's `failedIds` file by name against `<SP>expected-red.tsv`; equal, the unit is parked in that form.
 - A `LOCKFILE` outcome: §4 "Lockfile changes". A `HANG`, `VOID` or `VACUOUS` gate: read the kit run's DONE and the
   failure excerpt, rule, and relaunch (§6.4 "A gate re-run").
 - A return with stage `review` whose note says that the review examined another head than the gate verified: a
@@ -353,8 +459,8 @@ The tier sets the unit's stages (§6.1).
 2. **The trunk.** In the main checkout, on `master`, `git status --porcelain` prints nothing. If
    `git merge-base --is-ancestor master m0/<role>` fails, the trunk moved: relaunch the unit with the resume note
    `DELTA SINCE <head>: trunk sync only: git merge --no-ff master; resolve a conflict only in a lock-set path, by
-   editing and keeping both sides (a conflict in any other path is a STOP); then the per-commit gates of gates (the
-   role's own crates) only; no other change.` The re-run is delta-scoped to the unit's own changes and the merge's
+   editing and keeping both sides (a conflict in any other path is a STOP); then the per-commit gates of
+   `<SP>gates.md` (the role's own crates) only; no other change.` The re-run is delta-scoped to the unit's own changes and the merge's
    conflict resolutions, never a diff across the merge (§6.1); the mechanic's full gate, filtered for the role, covers
    the rest on the new head. Then start again at step 1.
 3. **Merge**: `git merge --no-ff m0/<role> -m "Merge m0/<role>: <unit>"`. The subject names no WP, so `xtask
@@ -392,16 +498,15 @@ Orchestrator rules for what is not built yet. Each holds until the owner, or a c
 - **S7. Minors never get a unit of their own.** At the merge, a review's Minor findings are folded into one fix-only
   relaunch (`DELTA SINCE <head>: fix …`) or dropped with a reason in `RESUME.md`.
 
-### 5.6 The tier trial and the audit (R-23)
+### 5.6 The audit (R-23, R-150)
 
-The tiers run as a measured trial, for the rest of M0 or for 25 tiered units, whichever comes first. No HEAVY arm is
-cut on this trial.
+The tier trial of R-23 is closed (R-150 ruling 0): the tiers stand as §5.1 gives them, and the audit stays.
 
 - **`<ORCH>/arms.tsv`**: one row per finding of a tiered unit's checkers and of its audit, with the columns `unit`,
   `tier`, `round`, `arm`, `id`, `severity`, `rating` (CONFIRMED or PLAUSIBLE), `class` (normative text, test,
   procedure or code), `unique` (no other arm, the audit included, found it), `merged` and `escaped_from` (filled when
   a later stage or unit finds a defect in this unit's change). A wrong `logic` flag is a row of the fix agent's arm.
-- **The audit.** Every LIGHT and STANDARD unit is audited for the first 8 such units, then 1 in 2.
+- **The audit.** One LIGHT or STANDARD unit in 2 is audited (R-150 ruling 0; L-9 with I-22).
   - After the merge (§5.4) and off the critical path, the orchestrator launches through the Agent tool a tester
     (at least two mutations of its own, the touched crates' tests counted by name) and a code-reviewer (the merged
     range, as a HEAVY round 1), each with the unit's header.
@@ -409,19 +514,20 @@ cut on this trial.
     `<ORCH>/<unit>/wt-audit`, a scratch worktree detached at the verified head (`git worktree add --detach
     <ORCH>/<unit>/wt-audit <head>`), and the scope is `git diff <base>...<head>` in lock-set paths. Both run
     read-only, write `audit_test.md` and `audit_review.md`, and the worktree is removed afterwards.
-  - The audit's tests run builds in lane A beside the open units: it counts as one unit for the capacity (§4, §10)
-    and starts only when there is room.
+  - The audit's tests build in a slot's lane through the kit, beside the open units: it counts as one unit for the
+    capacity (§4, §10) and starts only when there is room.
   - A real defect becomes a fix unit; Minors follow S7. The audit's unique Critical and Important findings are the
     tier's escapes.
-- **After 25 tiered units** a results-analyst repeats the stage analysis by tier. An escape that a skipped arm would
-  have caught adds or widens a trigger (§5.1).
+- **After the milestone's tag** a results-analyst repeats the stage analysis by tier and by class (§5.1; L-9, I-22).
+  An escape that a skipped arm would have caught adds or widens a trigger (§5.1).
 
 ## 6. The unit workflow
 
 ### 6.1 Stages
 
 `.claude/workflows/unit.js` (the named workflow `unit`) runs the stages of the unit's tier (§5.1). One stage table in
-the script drives both the control flow and the dry run, which returns it as `stages` and `maxRounds`:
+the script drives both the control flow and the dry run, which returns it as `stages` and `maxRounds`, with
+`gatePlan` (`every round`, or `final head` for a `finalGate` unit) and `hdrChars` (the header's length):
 
 | tier | `stages` | pipeline | verify rounds |
 |---|---|---|---|
@@ -429,8 +535,19 @@ the script drives both the control flow and the dry run, which returns it as `st
 | STANDARD | `implement`, `gate`, `verifier`, `fix` | **implement (with its own short cut) → mechanic's gate → verifier → fix → delta re-verify** | at most 2 |
 | LIGHT | `implement`, `gate`, `review`, `fix` | **implement → mechanic's gate ∥ review → fix → delta re-verify** | at most 2 |
 
+- **The header** every prompt starts with (R-150 ruling 0; R-178; R-184 ruling 1): the unit, the role, the class
+  and the tier; the spec, `<SP>rulings.md` cited by id and this procedure; S1–S6 and the write map; one line `Reading
+  limit:` naming the role file's section, the role's row and the `extras`, with the sentence that binds every way of
+  reading; the directory and write rule, with `unit.toml`, `expected-red.tsv`, `gates.md` and `extras.tsv` read-only;
+  the scratch-worktree rule; the branch, base, trunk, `lock` and `others` (paths only; their named sections in
+  `<SP>lock.md`); the tier line; `Per-commit gates: <SP>gates.md`, every cargo call through `cargo.ps1` with the unit
+  config (§7); the full verdict `gateCmd`, the mechanic's; the long-run, git and report lines. It is at most 5,000
+  characters: the script refuses a longer one at `args`, and the dry run returns its length as `hdrChars`.
 - **Cut** (architect, HEAVY): `cut.md`, the spec re-located on the tree, the touch set, the commits with their gates
   and red-firsts, the expected test set by name. **Critique** (architecture-critic, HEAVY), one round: `critique.md`.
+  For class M (§5.1) the critique prompt is product-only, with L-13's five questions (goals sourced, gates able to
+  fail, coupling named, a tight admission, derived values derived), and leaves out citation form, line numbers,
+  process, search forms, lanes and disk; every other prompt is class MD's (R-178 OQ-4).
 - **Implement** (developer): commit by commit, red-first, per-commit gates only.
   - HEAVY: it resolves each Critical and Important of the critique or refutes it in an addendum at the end of
     `cut.md`; a Critical that changes the design returns the unit to the orchestrator; the round-1 reviewer checks
@@ -440,7 +557,9 @@ the script drives both the control flow and the dry run, which returns it as `st
     red-first and the mutation it proposes to the verifier.
   - LIGHT: it makes the spec's change, with no behaviour or test change and no red-first.
 - **Verify.** The mechanic runs the full gate through the kit in every round (`gate_r<n>.md`), so the last round's run
-  is the verdict on the final head. Round 1 covers the whole unit (`git diff master...HEAD`, read only in lock-set
+  is the verdict on the final head; it returns `rows` with DONE's `outcome`, `head`, `tree` and `kit`, and the tester
+  or the verifier checks those fields against the kit's own files and returns `gate_fields` (a `MISMATCH` returns the
+  unit to the orchestrator: "gate: mechanic fields disagree with DONE"; R-164 ruling 5). Round 1 covers the whole unit (`git diff master...HEAD`, read only in lock-set
   paths); later rounds, and a round 1 after a `DELTA SINCE` relaunch, are delta-scoped to the unit's own changes
   (`git log --first-parent <since>..HEAD`: each commit's `git show`, and for a trunk sync only its conflict
   resolutions, `git show --remerge-diff`). A diff across a trunk sync (`git diff <since>..HEAD`) is never read: it
@@ -464,9 +583,22 @@ the script drives both the control flow and the dry run, which returns it as `st
   - LIGHT: the gate and the review in parallel, the review first. The reviewer is the only checker: it also re-answers
     H1–H6 on the diff, checks that the diff changes no behaviour and no test, and checks that every changed sentence
     that says what code does matches the code it cites.
+- **finalGate** (a markdown-only unit that no test reads, §5.2; R-150 ruling 0). A round runs its checkers on the
+  spec's doc checks with no gate first (in HEAVY the review ∥ the tester, or the slim order; in STANDARD the
+  verifier; in LIGHT the review). A round green apart from the gate gets the mechanic's gate on its head, then in
+  HEAVY and STANDARD `final-r<n>` (the tester or the verifier): the gate fields and the gate's ids by name and status
+  against the spec's reference (`final_r<n>.md`). `ok` needs that `PASS` and that `GREEN`. Once a round that ran the
+  gate is not green, every later round gates first, and a "gate re-run of round <n>" relaunch gates first. A round
+  that ran no gate is never returned for want of one.
 - **Triage** (HEAVY only; code-reviewer as the adversarial verifier) tries to refute every red, every gate FAIL and
   every Critical and Important of the review, when one ran; it narrows the fix to what it confirms. Nothing confirmed
   returns the unit to the orchestrator.
+- **The triage skip** (HEAVY; R-150 ruling 0, R-178 I-9). With a named expected-red set (`expectedRed`), a round
+  whose gate FAILs returns stage `expected`, with the tester's FAILED-id list `<SP>failed_r<n>.tsv` and no triage,
+  exactly when the tester returns `expected_only` true (only the `test` row is red, its FAILED ids equal the set by
+  name, no other red and no Critical or Important of its own), `sha_ok` true (the file matches `expectedRedSha`) and
+  `by_count_reds` 0 (no red seen by count only), and the review, when due, has no Critical or Important. Otherwise the
+  triage runs.
 - **Below HEAVY there is no triage**: the verifier's or the reviewer's CONFIRMED rating, made by the run or the read
   that shows the fault, is the confirmation. A surviving mutation, a missing expected test, a by-name mismatch or a
   red-first that is not red is an Important CONFIRMED. The checker returns `critical` and `important` as counts of
@@ -474,8 +606,8 @@ the script drives both the control flow and the dry run, which returns it as `st
   `ok`. With no CONFIRMED Critical or Important the unit returns to the orchestrator (§5.3).
 - **Fix** (developer): follow-up commits, never an amend, for the CONFIRMED items of the triage (HEAVY) or of the
   checker's report (below HEAVY); it returns `logic`. An item marked "escalate" is a STOP, never a fix.
-- A stage that returns nothing, a gate outcome other than `PASS` or `FAIL`, or a review whose `head` is not the head
-  the gate verified returns the unit to the orchestrator at once. The last is a review replayed from an earlier
+- A stage that returns nothing, a gate outcome other than `PASS` or `FAIL`, a `gate_fields` `MISMATCH`, or a review
+  whose `head` is not the head the gate verified returns the unit to the orchestrator at once. The last is a review replayed from an earlier
   launch (§6.4). A short sha is the same head; an empty `head` is none.
 - **Context pack** (optional, HEAVY): when two or more checkers need the same orientation, a scout first writes
   `<unit>/pack.md` (at most 15k tokens: files and line ranges, the delta, key facts) and the briefs point at it.
@@ -491,21 +623,29 @@ structured verdict and the script parses nothing.
 | `unit` | `u<nn>-<slug>` |
 | `orch` | `D:/orch/moirai` |
 | `wt` | `D:/moirai-wt/<role>` |
-| `gateWt` | `D:/moirai-wt/gate-a` while units build only in lane A (R-8); otherwise `gate-a` or `gate-b`, by the role's lane |
 | `branch` | `m0/<role>` (the script refuses anything else) |
 | `base` | the `master` sha the unit started from |
 | `trunk` | `master` |
 | `spec` | `D:/orch/moirai/<unit>/spec.md` |
-| `lock` | the lock set, as one string of paths |
-| `others` | the other open units and their lock sets, or `none` |
-| `gates` | the per-commit gate commands of AGENTS.md with the role's crates filled in |
-| `diskFloorGb` | the disk floor of the pre-flight (default 25, [MP §8.1]; operational policy, AGENTS.md) |
+| `lock` | the lock set, repository paths only, one line; named sections go to `<ORCH>/<unit>/lock.md` (§5.2 step 2) |
+| `others` | the other open units' lock sets, paths only, one line, or `none` |
+| `gates` | the path `<ORCH>/<unit>/gates.md`, the per-commit gates, lane-free (§5.2 step 6); described, not validated |
 | `tier` | `LIGHT`, `STANDARD` or `HEAVY`, as the spec states it (§5.1); the script refuses anything else |
+| `class` | `M`, `MD`, `R`, `N`, `D`, `B`, `V` or `L`, as the spec states it (§5.1's table); the script refuses anything else, and class `M` below HEAVY |
+| `extras` | `none`, or `<ORCH>/<unit>/extras.tsv: <ids>`, the seed ids in the seeds file's order (§5.2 step 6); described, not validated |
+| `gateCmd` | the full gate's command, `cargo xtask gate --branch <branch>`, optionally with ` --range <base>..<branch>`; the script refuses any other form |
+| `unitTomlSha` | the sha256 of `<ORCH>/<unit>/unit.toml` (§7 "The unit config") |
+| `expectedRed` | `<ORCH>/<unit>/expected-red.tsv`, the named expected-red set, or `""`; with `expectedRedSha`, its sha256 (§6.1, the triage skip) |
+| `finalGate` | optional, default `false`: one full gate at the final head (§5.2, §6.1); only with class `R`, `N`, `D` or `L`, else refused |
 | `resumeNote` | `""` on a first launch (§6.4) |
-| `gateRun` | optional, `""` on a first launch: a token that only the mechanic's prompt carries; a relaunch that must re-run round 1's gate changes it (§6.4) |
+| `gateRun` | optional, `""` on a first launch: a token in the gate's, tester's, verifier's, triage's and fix's prompts, never the review's; a relaunch that must re-run round 1's gate changes it (§6.4) |
 | `deltaLogic` | optional, default `true`; read only with a `DELTA SINCE` resume note: `false` says that the delta changed no non-test code and makes the relaunch's first verify round slim (§6.1, §6.4) |
 | `deltaRound` | optional, default `1`; read only with a `DELTA SINCE` resume note: the round the relaunch's first verify round is. A gate re-run of round n of 2 or more passes n, so that the relaunch repeats round n (§6.4). The script refuses a value that is not a round of the tier, one above 1 without a `DELTA SINCE` note, and one other than n with a note `DELTA SINCE <sha>: gate re-run of round <n>` |
-| `dryRun` | `true` returns `{ ok: true, args, stages, maxRounds }` (the tier's stages and round limit, §6.1) before any agent starts |
+| `dryRun` | `true` returns `{ ok: true, args, stages, maxRounds, gatePlan, hdrChars }` (the tier's stages and round limit, the gate plan and the header's length, §6.1) before any agent starts |
+
+Old-form args are refused at `args`: a `gateWt` or `diskFloorGb` field ("unconverted args"; both now live in
+`unit.toml`), and a header above 5,000 characters (shorten `lock` or `others`). Every refusal is `{ ok: false, stage:
+'args', error }`, with `missing` when a required field is absent.
 
 ### 6.3 Launching
 
@@ -521,7 +661,8 @@ structured verdict and the script parses nothing.
   - the launch is `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js" })`, run in the background of the session;
   - every agent of the unit starts in the session's directory, with its rules and environment, and starts each shell
     command with a `cd` into `wt` or the directory its stage names (the unit header);
-  - `<ORCH>/<unit>/run_<k>.txt` holds the run id the tool returns;
+  - `<ORCH>/<unit>/run_<k>.txt` records the run id the tool returns and the sha256 of `<SP>gates.md` and
+    `<SP>extras.tsv`, which the orchestrator re-checks with R-162's fsck before the result is ruled (§5.2 step 9);
   - `<ORCH>/<unit>/result_<k>.json` holds the workflow's return value, or
     `{"ok": false, "stage": "launch", "note": "<the error>"}` when it fails to start or ends with an error;
   - if the session ends before the workflow returns, the value is in the run record
@@ -546,8 +687,9 @@ structured verdict and the script parses nothing.
   non-comment code may pass `deltaLogic` `false`, which makes round 1 slim (§6.1); the tester or the verifier checks
   that flag.
 - **A gate re-run** (an environmental FAIL under R-10, a `HANG`, a `VOID`) depends on the round of the gate.
-  - **Round 1's gate**: change `gateRun` only. It is in every gate prompt, so the round-1 gate and every agent that
-    started after it run again. The cut, the critique, the implement stage and round 1's review start before that
+  - **Round 1's gate**: change `gateRun` only. It is in the gate's, the tester's, the verifier's, the triage's and
+    the fix's prompts and never the review's (R-149 ruling 2, R-178 OQ-2 (b)), so the round-1 gate and every agent
+    that started after it run again, the tester included. The cut, the critique, the implement stage and round 1's review start before that
     gate (HEAVY and LIGHT), so they return from the journal. Nothing was committed after that review started, so it
     is a review of the head the gate runs on again. A replayed agent does not rewrite its file: this relaunch copies
     `impl.md` and `review_r1.md` into `<unit>/run<k>/` instead of moving them, which also covers a review that runs
@@ -582,15 +724,24 @@ structured verdict and the script parses nothing.
   checkout and relaunch from it with the run id. Copying a run's directory under another session's directory in
   `~/.claude/projects/` is an undocumented internal path: a fallback only. A relaunch that reports "nothing to
   resume" starts over as a new run (new `k`).
+- **The migration to LEAN-1's script.** A unit launched before LEAN-1 keeps its `embed/<unit>.src.js` (§6.3); such a
+  copy is never relaunched after LEAN-1's merge, since the role files it relies on are not embedded: a rerun is a new
+  launch from the merged `unit.js` with converted args (§5.2 step 6), its cut and critique run again. The first unit
+  after the merge waits until the kit is installed and its selftest passes (§7 "The kit hash"); then `/reload-skills`,
+  the copy of `unit.js` to `embed/<unit>.src.js`, the converted args with `unit.toml`, `gates.md`, `extras.tsv` and
+  their shas, `embed.ps1`, and a dry run whose `stages` equal §6.1's, whose `gatePlan` is as the spec states and whose
+  `hdrChars` is at most 5,000.
 - Scripts are plain JavaScript; `Date.now()`, `Math.random()` and a bare `new Date()` throw in the runtime, so
   anything time-dependent comes in through the arguments.
 
 ### 6.5 What the workflow returns
 
-`ok`, `unit`, `tier`, `stage` (`verify` when the rounds ran out or finished; else the stage that returned it: `args`,
-`cut`, `critique`, `implement`, `gate`, `test`, `verifier`, `review`, `triage`, `fix`), `note`, `round`, `crit` (the
-critique's verdict, or `none` below HEAVY), `gate` (the mechanic's outcome), `head`, `tree`, `kit`, `test`, `ver` (the
-verifier's verdict), `review`, `critical` and `important` (the last round's checker: the review in HEAVY and LIGHT,
+`ok`, `unit`, `tier`, `class`, `stage` (`verify` when the rounds ran out or finished; else the stage that returned it:
+`args`, `cut`, `critique`, `implement`, `gate`, `test`, `verifier`, `final` (a finalGate round's final check), `review`,
+`expected` (the triage skip, with `failedIds`, the path of the tester's FAILED-id list), `triage`, `fix`), `note`
+(`gate: mechanic fields disagree with DONE` for a `gate_fields` `MISMATCH`), `round`, `crit` (the critique's
+verdict, or `none` below HEAVY), `gate` (the mechanic's outcome), `head`, `tree`, `kit`, `rows` (the mechanic's row
+count of `summary.tsv`), `test`, `ver` (the verifier's verdict), `review`, `critical` and `important` (the last round's checker: the review in HEAVY and LIGHT,
 absent in a slim round that ran no review, and the verifier in STANDARD), `plausible` (below HEAVY, the PLAUSIBLE
 Critical and Important items), `slim` (the last round was slim), `reports` (the unit's directory): verdicts and paths,
 about a few hundred tokens; the orchestrator copies it into `result_<k>.json`. Nothing else is read until a verdict
@@ -605,13 +756,25 @@ or stop it.
 
 - **Scripts** (Appendix A; Windows PowerShell 5.1, ASCII): `start-gate.ps1` (start one run), `run-gate.ps1` (the
   detached runner it starts), `wait-gate.ps1` (one bounded wait), `stop-gate.ps1` (stop by PID tree and archive),
-  `preflight.ps1` (the floors: disk and RAM through the guard of [MP §8], and the commit charge), `embed.ps1` (§6.3),
+  `preflight.ps1` (the floors: disk and RAM through the guard of [MP §8], and the commit charge), `cargo.ps1` (every
+  cargo call of a unit agent, with the unit config's lane, jobs and test threads; K2), `embed.ps1` (§6.3),
   `local-settings.ps1` (§8: the main checkout only, §15 step 6), `kit-hash.ps1`, `kit-common.ps1` (shared helpers),
   `selftest.ps1` and `selftest-fake.ps1` (the red-proof). Beside them: `budgets.txt` (`gate=<minutes>`,
   `tests=<minutes>`, §15 step 9), `caps.txt` (the counted directories of the pre-flight and their caps, `<dir>=<cap>`
-  per line, from `xtask/nightly.toml` `[guard.caps]`, §10; laneA only while units build only in lane A, R-11),
-  `unit-allow.txt` (§8), `guard.exe` (a copy of `moirai-probes-bin guard`, §15 step 5) and `locks/` (one lock per
-  work directory).
+  per line, from `xtask/nightly.toml` `[guard.caps]`, §10), `unit-allow.txt` (§8), `guard.exe` (a copy of
+  `moirai-probes-bin guard`, §15 step 5) and `locks/` (one lock per work directory).
+- **The unit config** (K1; RULINGS R-150, R-178 OQ-1, R-184): `<ORCH>/<unit>/unit.toml`, written at the unit's
+  pre-launch (§5.2) and read-only to unit agents, holds flat TOML lines, each key once and no other key:
+  `target_dir` and `gate_wt` (strings) and `jobs`, `test_threads` and `floor_gb` (integers). The unit's args carry
+  its sha256 (`unitTomlSha`, §6.2). `start-gate.ps1` and `preflight.ps1` take `-UnitConfig <path>
+  -UnitConfigSha256 <hex>`: the file must exist, match the sha and parse, else exit 2; it supplies `-TargetDir`,
+  `-Jobs`, the disk floor and, for `-Kind gate`, `-WorkDir` (`gate_wt`), and an explicit value that differs exits 2.
+  `params.txt` records `unit_config=` and `test_threads=`, and `run-gate.ps1` sets `RUST_TEST_THREADS` from it.
+  Without the option the kit behaves as before, for the orchestrator's own runs. `cargo.ps1` (K2) takes the same two
+  options for every other cargo call of a unit agent: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+  <ORCH>/kit/cargo.ps1 -UnitConfig <ORCH>/<unit>/unit.toml -UnitConfigSha256 <unitTomlSha> -WorkDir <tree> [-TestTier
+  pr] "<cargo arguments>"`. The cargo arguments are one quoted string: a bare `--` is PowerShell's end-of-parameters
+  token, and one string never meets the binder, so `-- --check` reaches cargo intact. It refuses a missing config.
 - **A run directory** holds `params.txt` and `cmd.txt` (written before the start), `PID` and `owner.txt` (unit, run
   id, kind, the runner's PID and start time, the budget, the work directory, the kit hash, `head`), then `child.pid`,
   `tree.txt` (every process of the run's tree, `pid=start time`), `peak.txt` (the tree's peak working set in bytes),
@@ -625,17 +788,24 @@ or stop it.
   PID tree). A tests run also fails when a test binary has no package (§7 "Test IDs"). `start-gate.ps1` exits 0
   (started), 1 (pre-flight refused: its line names the reasons, `ram-low`, `disk-low`, `commit-low`, or `guard`), 2
   (usage or precondition: an existing run directory, no `CARGO_TARGET_DIR`, a gate worktree that is not clean, a tests
-  run of cargo without `--message-format=json-render-diagnostics`, no `caps.txt`) or 6 (the work directory is busy).
+  run of cargo without `--message-format=json-render-diagnostics`, no `caps.txt`, a unit config that is missing, does
+  not match its sha256 or does not parse, or an explicit option that differs from it) or 6 (the work directory is
+  busy).
   `wait-gate.ps1` exits 0 (DONE), 3 (still running within the budget), 4 (past the budget: a hang) or 5 (the runner
   is gone without DONE).
 - **Commands agents run** (from the Bash tool, each after `cd` into its directory):
+  - every per-commit cargo call (the developer, and the tester's or the verifier's direct runs): `cargo.ps1`, above,
+    with `-TestTier pr` in place of `MOIRAI_TEST_TIER=pr`, for example `… cargo.ps1 -UnitConfig <ORCH>/<unit>/unit.toml
+    -UnitConfigSha256 <unitTomlSha> -WorkDir <wt> -TestTier pr "test --locked -p <crate> --no-fail-fast"`;
   - the full gate (the mechanic): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/start-gate.ps1
-    -RunDir <ORCH>/<unit>/gate_r<n> -WorkDir <gateWt> -Unit <unit> -RunId <unit>-r<n> -Kind gate -Detach m0/<role>
-    -DiskFloorGb <floor> -CmdLine "cargo xtask gate --branch m0/<role>"`;
-  - tests counted by name (the tester or the verifier): the same script with `-RunDir <ORCH>/<unit>/tests_r<n>-<m>
-    -WorkDir <the tree under test> -RunId <unit>-t<n>-<m> -Kind tests -Expected <ORCH>/<unit>/expected_r<n>.tsv
-    -CmdLine "cargo test --locked --message-format=json-render-diagnostics -p <crate> … --no-fail-fast"` (the kit
-    sets `MOIRAI_TEST_TIER=pr`; `.claude/agents/tester.md` carries the whole sequence);
+    -UnitConfig <ORCH>/<unit>/unit.toml -UnitConfigSha256 <unitTomlSha> -RunDir <ORCH>/<unit>/gate_r<n> -Unit <unit>
+    -RunId <unit>-r<n> -Kind gate -Detach m0/<role> -CmdLine "<gateCmd>"`, with no `-WorkDir`, `-TargetDir` or
+    `-DiskFloorGb`: the unit config gives the gate worktree, the lane and the floor;
+  - tests counted by name (the tester or the verifier): the same script with `-UnitConfig <ORCH>/<unit>/unit.toml
+    -UnitConfigSha256 <unitTomlSha> -RunDir <ORCH>/<unit>/tests_r<n>-<m> -WorkDir <the tree under test> -RunId
+    <unit>-t<n>-<m> -Kind tests -Expected <ORCH>/<unit>/expected_r<n>.tsv -CmdLine "cargo test --locked
+    --message-format=json-render-diagnostics -p <crate> … --no-fail-fast"` (the kit sets `MOIRAI_TEST_TIER=pr` and
+    `RUST_TEST_THREADS`; `.claude/agents/tester.md` carries the whole sequence);
   - a bounded wait: `… wait-gate.ps1 -RunDir <run dir>` (540 s by default; the shell tool's timeout above it), one
     call per slice, never a sleep loop in the shell;
   - a stop: `… stop-gate.ps1 -RunDir <run dir> -Reason "<why>"`. Never `taskkill /IM` or any kill by image name: it
@@ -677,8 +847,11 @@ or stop it.
   stopped by its PID tree, a bounded wait on a live run, a busy work directory, a stop and its archive, a runner that
   dies (the orphaned command is stopped by its recorded PID), the pre-flight below each floor and with a capped
   directory's reserve, through the fallback and the guard, the pre-flight below the commit floor on both paths, with
-  the floor's default pinned, and start-gate passing the floor on, the embedded copy, the local settings, and the
-  `-Detach` checkout with its lockfile rules. Each script's own red-proof is the selftest case named after it in
+  the floor's default pinned, and start-gate passing the floor on, the embedded copy, the local settings, the
+  `-Detach` checkout with its lockfile rules, the unit config (`K1-*`: its keys, an unknown, repeated, missing or
+  wrongly typed one refused, its sha256, the floor it gives the pre-flight, each differing option refused, the gate
+  worktree and the test threads, with a no-config control), and the cargo wrapper (`K2-*`: the environment it sets,
+  the test tier, a missing config or work directory, a wrong sha256, a metacharacter refused and `-- --check` intact). Each script's own red-proof is the selftest case named after it in
   Appendix A.
 
 ## 8. Settings
@@ -710,10 +883,10 @@ or stop it.
 
 **Local, `.claude/settings.local.json`** (this machine, untracked): `kit/local-settings.ps1` adds to the main checkout
 (§15 step 6) `permissions.additionalDirectories` `<ORCH>` and `<WT_ROOT>` and the allow rules of `kit/unit-allow.txt`.
-It is not run for role worktrees (R-8, R-9); its extension of a role's `deny_read` rules to `<WT_ROOT>/**` and
-`<ORCH>/**` serves only a return to unit sessions. The main checkout's file also sets `env.CARGO_TARGET_DIR`
-(`D:/moirai-target/laneA`) and `env.CARGO_BUILD_JOBS` (4), which the orchestrator session and every unit agent take
-(R-8). `unit-allow.txt` starts with the kit's one rule:
+It is not run for role worktrees (R-8, R-9). The main checkout's file also sets `env.CARGO_TARGET_DIR` and
+`env.CARGO_BUILD_JOBS`, which the orchestrator's own builds take; a unit agent's cargo calls take the unit config's
+values through the kit instead (§7; R-178 OQ-1). `unit-allow.txt` starts with the kit's one rule, which also covers
+every unit agent's `cargo.ps1` call in the header's form:
 
 ```text
 # Local allow rules for the main checkout (kit/local-settings.ps1).
@@ -769,7 +942,8 @@ unit.
 
 - **The share.** Half of the logical cores and half of the RAM while the owner works, and never more than profile
   L's daytime limits ([60 §3.15]): the build lanes with their build semaphore (cargo's lock on the lane's target
-  directory) and `CARGO_BUILD_JOBS` cap, no rust-analyzer in role worktrees, fuzzers sanitizer-off at no more than two
+  directory) and `CARGO_BUILD_JOBS` cap, no rust-analyzer in role worktrees and no LSP (R-102): no unit agent uses
+  an LSP query, fuzzers sanitizer-off at no more than two
   targets with `-rss_limit_mb=256`, gate jobs beside the agents within 1 GB in total, and everything refused below
   1.5 GB of free RAM.
 - **What the 1 GB covers** (R-5, ruled by the orchestrator on 2026-10-08 on the owner's delegation). [60 §3.15] lists
@@ -783,17 +957,16 @@ unit.
   (`peak.txt`) leaves less than 1.5 GB free while the owner works.
 - **Build jobs.** `git config moirai.build-jobs` = half the logical cores divided by the number of lanes that may build
   at once (two), until measurement 21 sets the lane cap (`xtask/src/worktree.rs`, `.cargo/config.toml`). Role
-  worktrees made after a change get the new value. Under R-8 and R-9 every unit builds with the orchestrator
-  session's `CARGO_BUILD_JOBS` (4, from the main checkout's `settings.local.json`, §8); the value that `xtask worktree`
-  writes into a role worktree is unused.
-- **Disk.** Before every gate start, the pre-flight's floor (`diskFloorGb`, by default 25 GB, [MP §8.1]) on the
-  headroom: the available space less the growth the directories of `kit/caps.txt` may still take up to their caps.
+  worktrees made after a change get the new value. A unit builds with the `jobs` and `test_threads` of its
+  `<ORCH>/<unit>/unit.toml`, through the kit (§7 "The unit config"); the value that `xtask worktree` writes into a role
+  worktree is unused.
+- **Disk.** Before every gate start, the pre-flight's floor (the unit config's `floor_gb`; the kit's default 25 GB,
+  [MP §8.1]) on the headroom: the available space less the growth the directories of `kit/caps.txt` may still take up to their caps.
   They are the four counted directories under the target root (`laneA`, `laneB`, `fuzz`, `mutants`) with the caps
   of `xtask/nightly.toml` `[guard.caps]` (nightly.md §3), as the nightly runner passes them to the guard; a change of
   `[guard.caps]` on `master` is copied into `caps.txt`. With today's caps the headroom on the PC can be 0 (nightly.md
-  §7 item 3): §15 step 5 checks it before the first gate. While units build only in lane A (R-8, R-9), `caps.txt`
-  counts `laneA` alone and keeps the other three lines as comments (R-11). Restore the full `[guard.caps]` set before
-  any nightly run or any lane B unit.
+  §7 item 3): §15 step 5 checks it before the first gate. `caps.txt` counts the lanes the slots in use build in, with
+  the caps the orchestrator records there (R-26).
 - **Commit charge** (R-10). Every kit start refuses while the free commit charge
   (`Win32_OperatingSystem.FreeVirtualMemory`) is below `-CommitFloorGb`: 4 GB by default, operational policy like the
   other floors. The refusal makes no run directory, and the pre-flight line says `verdict=refuse commit-low` when the
@@ -833,8 +1006,9 @@ unit.
   non-test code makes one new mutation, which can find the round's only defect while the review says APPROVED; a slim
   round makes none, and its tester checks the flag that made it slim.
 - **Checking arms by tier.** HEAVY keeps every arm (critique, triage, the tester's mutations, the review in every round
-  that changed non-test code): they catch the defects. LIGHT and STANDARD drop arms as R-23 rules, and the trial of
-  §5.6 measures what that loses; a further arm is cut only on that trial's measured escapes.
+  that changed non-test code): they catch the defects. LIGHT and STANDARD drop arms as R-23 rules; the trial is
+  closed (R-150 ruling 0), and the 1-in-2 audit and the analysis by tier and class (§5.6) watch for an escape, which
+  adds or widens a trigger rather than cutting an arm.
 - **A small always-loaded floor**: a lean AGENTS.md and memory index; typed agents with small tool sets start much
   lighter than a general-purpose agent.
 - **The orchestrator**: workflows return verdicts and paths (at most about 2k tokens); reports are read by section;
@@ -936,9 +1110,8 @@ differed, the step says so.
 5. **The kit.** Write every file of Appendix A into `D:/orch/moirai/kit/` exactly as printed (ASCII, CRLF line
    endings), then `budgets.txt` with `gate=30` and `tests=30` (until step 9), `unit-allow.txt` as in §8, and
    `caps.txt`: a comment line naming `master`'s sha, then one line per entry of `xtask/nightly.toml` `[guard.caps]` on
-   `master`, `<target root>/<name>=<cap>` (`D:/moirai-target/laneA=40GB`, `laneB`, `fuzz`, `mutants`). While units
-   build only in lane A, `caps.txt` holds only `D:/moirai-target/laneA=40GB` and the other three entries as comments
-   (R-11, §10). Build the guard
+   `master`, `<target root>/<name>=<cap>` (`D:/moirai-target/laneA=40GB`, `laneB`, `fuzz`, `mutants`); the
+   orchestrator then keeps the lanes the slots in use build in counted (R-26, §10). Build the guard
    (`cargo build -p moirai-probes-bin --bin guard --locked` with `CARGO_TARGET_DIR=D:/moirai-target/laneA`) and copy
    the executable to `D:/orch/moirai/kit/guard.exe` (the nightly runner keeps its own copy, nightly.md §1). Run
    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/orch/moirai/kit/selftest.ps1`: it must end with
@@ -955,7 +1128,8 @@ differed, the step says so.
    each deletion is logged (§4); steps 8–12 wait until the pre-flight passes. Commit `<ORCH>`.
 6. **Settings and gate worktrees.** `kit/local-settings.ps1 -Worktree D:/claude/moirai -Orch D:/orch/moirai -WtRoot
    D:/moirai-wt` for the main checkout. Also set the main checkout's `.claude/settings.local.json` `env`:
-   `CARGO_TARGET_DIR` = `D:/moirai-target/laneA` and `CARGO_BUILD_JOBS` = 4 (R-8). Restart the session if `<ORCH>` is
+   `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS` for the orchestrator's own builds (`D:/moirai-target/laneA` and 4 at the
+   first setup); unit agents take theirs from the unit config (§7). Restart the session if `<ORCH>` is
    still not readable without a prompt. Then the gate worktrees: `git worktree add --detach D:/moirai-wt/gate-a HEAD`
    and `git worktree add --detach D:/moirai-wt/gate-b HEAD`. The first setup made them before any role worktree,
    because `xtask worktree` writes its deny rules for the worktrees that exist; under R-8 those rules go unused. If
@@ -1037,14 +1211,15 @@ and its exit codes. The red-proof of each is the `selftest.ps1` case that names 
 
 | Script | Red-proof cases in `selftest.ps1` |
 |---|---|
-| `start-gate.ps1` | `run-dir-reuse-refused`, `start-refused-below-disk-floor`, `lock-released-after-refusal`, `start-refused-without-target-dir`, `start-refused-cmd-metacharacter`, `tests-kind-needs-json-messages`, `start-refused-below-commit-floor`, `start-passes-default-commit-floor`, `busy-work-dir-refused`, `detach-dirty-refused`, `foreign-lockfile-refused`, `lockfile-equal-to-branch-staged-and-switched` |
-| `run-gate.ps1` | `gate-fail-row-exit-0`, `gate-pass-rows-exit-3`, `gate-nothing-exit-0`, `tests-zero`, `tests-missing-expected`, `tests-failed-exit-101`, `tests-unannounced-binary`, `tests-ids-carry-package`, `hang-stopped-by-pid-tree`, `detach-records-head-and-tree`, `lockfile-update-reported`, `summary-stamped-with-kit-hash`; the passing controls `gate-pass`, `tests-pass`, `tests-ids-by-name`, `tests-two-packages` |
+| `start-gate.ps1` | `run-dir-reuse-refused`, `start-refused-below-disk-floor`, `lock-released-after-refusal`, `start-refused-without-target-dir`, `start-refused-cmd-metacharacter`, `tests-kind-needs-json-messages`, `start-refused-below-commit-floor`, `start-passes-default-commit-floor`, `busy-work-dir-refused`, `detach-dirty-refused`, `foreign-lockfile-refused`, `lockfile-equal-to-branch-staged-and-switched`, `K1-defaults`, `K1-mismatch`, `K1-unknown`, `K1-sha`, `K1-gatewd`; the control `K1-control` |
+| `run-gate.ps1` | `gate-fail-row-exit-0`, `gate-pass-rows-exit-3`, `gate-nothing-exit-0`, `tests-zero`, `tests-missing-expected`, `tests-failed-exit-101`, `tests-unannounced-binary`, `tests-ids-carry-package`, `hang-stopped-by-pid-tree`, `detach-records-head-and-tree`, `lockfile-update-reported`, `summary-stamped-with-kit-hash`, `K1-threads`; the passing controls `gate-pass`, `tests-pass`, `tests-ids-by-name`, `tests-two-packages` |
 | `wait-gate.ps1` | `wait-slice-running`, `dead-runner-reported` |
 | `stop-gate.ps1` | `stop-gate-archives-and-kills`, `orphan-killed-by-pid`, `lock-released-after-stop` |
-| `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-fallback-commit-low`, `preflight-commit-default-floor`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`, `preflight-guard-commit-low`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-fallback-commit-control`, `preflight-guard-pass`, `preflight-guard-cap-control`, `preflight-guard-commit-control` |
+| `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-fallback-commit-low`, `preflight-commit-default-floor`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`, `preflight-guard-commit-low`, `K1-floor`, `K1-defaults`, `K1-mismatch`, `K1-unknown`, `K1-sha`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-fallback-commit-control`, `preflight-guard-pass`, `preflight-guard-cap-control`, `preflight-guard-commit-control` |
 | `embed.ps1` | `embed-no-marker-refused`, `embed-two-markers-refused`, `embed-writes-lf-copy` |
 | `local-settings.ps1` | `local-settings-malformed-refused`, `local-settings-adds-and-keeps`, `local-settings-idempotent` |
-| `kit-common.ps1`, `kit-hash.ps1` | every case above; `summary-stamped-with-kit-hash` |
+| `cargo.ps1` | `K2-env`, `K2-tier`, `K2-missing`, `K2-args`, `K2-sha` |
+| `kit-common.ps1`, `kit-hash.ps1` | every case above; `summary-stamped-with-kit-hash`; `K1-unknown` and `K1-sha` (`Read-UnitConfig`) |
 
 `selftest.ps1` is red-proved once by a deliberate defect: change the last line of `selftest-fake.ps1` to `exit 0`;
 the case `gate-pass-rows-exit-3` (and others) must then report `FAIL` and the run must end `selftest: FAIL` with exit
@@ -1097,6 +1272,40 @@ function Read-KeyValues([string]$Path) {
         if ($i -gt 0) { $h[$line.Substring(0, $i).Trim()] = $line.Substring($i + 1).Trim() }
     }
     return $h
+}
+
+function Read-UnitConfig([string]$Path, [string]$Sha256, [string]$Who) {
+    # The unit config <ORCH>/<unit>/unit.toml (docs/m0/workflow.md section 7 "The unit config"): flat TOML lines,
+    # each key once and no other key: target_dir and gate_wt (basic strings with no quote, backslash or white space),
+    # jobs, test_threads and floor_gb (integers). Its SHA-256 must equal the one the unit's args carry. Anything else
+    # exits 2, naming the path, the shas, the key or the line.
+    if ([string]::IsNullOrEmpty($Path) -or [string]::IsNullOrEmpty($Sha256)) { Fail 2 "${Who}: -UnitConfig and -UnitConfigSha256 go together" }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Fail 2 "${Who}: no unit config $Path" }
+    $got = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($got -ne $Sha256.ToLowerInvariant()) { Fail 2 "${Who}: the unit config $Path has sha256 $got, not $Sha256" }
+    $kinds = @{ target_dir = 'string'; gate_wt = 'string'; jobs = 'integer'; test_threads = 'integer'; floor_gb = 'integer' }
+    $h = @{}
+    foreach ($line in (Read-Lines $Path)) {
+        $t = $line.Trim()
+        if ($t -eq '' -or $t.StartsWith('#')) { continue }
+        $m = [regex]::Match($t, '^([A-Za-z0-9_-]+)\s*=\s*(?:"([^"\\\s]*)"|([0-9]+))$')
+        if (-not $m.Success) { Fail 2 "${Who}: not '<key> = <value>' in ${Path}: $t" }
+        $k = $m.Groups[1].Value
+        if (-not $kinds.ContainsKey($k)) { Fail 2 "${Who}: unknown key $k in $Path" }
+        if ($h.ContainsKey($k)) { Fail 2 "${Who}: the key $k twice in $Path" }
+        $isText = $m.Groups[2].Success
+        if (($kinds[$k] -eq 'string') -ne $isText) { Fail 2 ("${Who}: the key $k in $Path must be a {0}" -f $kinds[$k]) }
+        if ($isText) { $h[$k] = $m.Groups[2].Value } else { $h[$k] = $m.Groups[3].Value }
+    }
+    foreach ($k in $kinds.Keys) { if (-not $h.ContainsKey($k)) { Fail 2 "${Who}: no key $k in $Path" } }
+    return $h
+}
+
+function Test-SamePath([string]$A, [string]$B) {
+    # Paths compared with / for \, no trailing /, case-insensitive (Windows).
+    $x = $A.Replace('\', '/').TrimEnd('/')
+    $y = $B.Replace('\', '/').TrimEnd('/')
+    return [string]::Equals($x, $y, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
 function Get-KitHash {
@@ -1332,28 +1541,34 @@ function ConvertTo-ClaudeAbs([string]$Path) {
 # start-gate.ps1 - start one long gate detached, in its own minimized console, under a time budget
 # (docs/m0/workflow.md section 7 and Appendix A).
 #
-#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/start-gate.ps1 -RunDir <new dir> -WorkDir <dir>
-#     -Unit <unit> -RunId <id> -Kind gate|tests -CmdLine "<command>" [-Detach <branch>] [-BudgetMin <min>]
-#     [-TargetDir <dir>] [-Jobs <n>] [-Expected <tsv>] [-DiskFloorGb <gb>] [-RamFloorGb <gb>] [-CommitFloorGb <gb>]
-#     [-Guard <exe>] [-CapsFile <file>]
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/start-gate.ps1 -RunDir <new dir> [-WorkDir <dir>]
+#     -Unit <unit> -RunId <id> -Kind gate|tests -CmdLine "<command>" [-UnitConfig <unit.toml> -UnitConfigSha256 <hex>]
+#     [-Detach <branch>] [-BudgetMin <min>] [-TargetDir <dir>] [-Jobs <n>] [-Expected <tsv>] [-DiskFloorGb <gb>]
+#     [-RamFloorGb <gb>] [-CommitFloorGb <gb>] [-Guard <exe>] [-CapsFile <file>]
 #
+# -UnitConfig <ORCH>/<unit>/unit.toml with its -UnitConfigSha256 (the unit's args carry it; docs/m0/workflow.md
+# section 7 "The unit config"): the file must exist, match the sha and parse (kit-common's Read-UnitConfig), else exit
+# 2. It supplies -TargetDir and -Jobs, the pre-flight's disk floor (floor_gb, which preflight.ps1 reads from it) and,
+# for -Kind gate, -WorkDir (gate_wt); an explicit -TargetDir, -Jobs, -DiskFloorGb or (gate kind) -WorkDir that
+# differs from it exits 2. params.txt records unit_config= and test_threads= (both empty without a config); run-gate
+# sets RUST_TEST_THREADS from test_threads. Without -UnitConfig, -WorkDir is required and the defaults below hold.
 # -Detach <branch> (the gate worktree): under the lock, the work directory must be clean - except Cargo.lock and
 # fuzz/Cargo.lock when they equal the branch's, which are then staged - and is switched to the branch tip, detached
 # (git switch --detach), as cargo xtask gate --branch requires; the tip is recorded as head.
 # The command's words are split on white space (no word may contain a space), and the runner hands them to cmd.exe,
 # so none of & | < > ^ % " may appear in them. The run directory must not exist. A tests run of cargo needs
 # --message-format=json-render-diagnostics: its test ids take the package from cargo's compiler-artifact messages.
-# Defaults: -BudgetMin from <kit>/budgets.txt (<kind>=<minutes>), -TargetDir and -Jobs from CARGO_TARGET_DIR and
-# CARGO_BUILD_JOBS (the session's environment; the main checkout's settings.local.json sets them, docs/m0/workflow.md
-# section 8), -CommitFloorGb 4 (RULINGS R-10), -Guard <kit>/guard.exe, -CapsFile <kit>/caps.txt (the counted
-# directories of the pre-flight, preflight.ps1).
+# Defaults: -BudgetMin from <kit>/budgets.txt (<kind>=<minutes>), -TargetDir and -Jobs from the unit config, else from
+# CARGO_TARGET_DIR and CARGO_BUILD_JOBS (the orchestrator session's environment, docs/m0/workflow.md section 8),
+# -CommitFloorGb 4 (RULINGS R-10), -Guard <kit>/guard.exe, -CapsFile <kit>/caps.txt (the counted directories of the
+# pre-flight, preflight.ps1).
 # One run per work directory at a time: the lock is <kit>/locks/<work dir>.lock.
 # Writes in the run directory: params.txt and cmd.txt (before the start), PID and owner.txt (after it); the runner
 # (run-gate.ps1) writes the rest. Exit codes: 0 started; 1 pre-flight refused (the pre-flight line names its
 # reasons); 2 usage or precondition; 6 the work directory is busy (another live run holds its lock).
 param(
     [Parameter(Mandatory = $true)][string]$RunDir,
-    [Parameter(Mandatory = $true)][string]$WorkDir,
+    [string]$WorkDir = '',
     [Parameter(Mandatory = $true)][string]$Unit,
     [Parameter(Mandatory = $true)][string]$RunId,
     [Parameter(Mandatory = $true)][ValidateSet('gate', 'tests')][string]$Kind,
@@ -1367,11 +1582,28 @@ param(
     [double]$RamFloorGb = 1.5,
     [double]$CommitFloorGb = 4,
     [string]$Guard = '',
-    [string]$CapsFile = ''
+    [string]$CapsFile = '',
+    [string]$UnitConfig = '',
+    [string]$UnitConfigSha256 = ''
 )
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
-if (-not (Test-NoSpace @($RunDir, $WorkDir, $TargetDir, $Expected, $Unit, $RunId, $PSScriptRoot))) {
+# The unit config (K1): it supplies the target directory, the jobs and, for a gate, the work directory.
+$unitCfg = $null
+$threads = ''
+if ($UnitConfig -ne '' -or $UnitConfigSha256 -ne '') {
+    $unitCfg = Read-UnitConfig $UnitConfig $UnitConfigSha256 'start-gate'
+    if ($PSBoundParameters.ContainsKey('TargetDir') -and -not (Test-SamePath $TargetDir $unitCfg['target_dir'])) { Fail 2 ("start-gate: -TargetDir {0} differs from the unit config's target_dir {1}" -f $TargetDir, $unitCfg['target_dir']) }
+    if ($PSBoundParameters.ContainsKey('Jobs') -and $Jobs -ne $unitCfg['jobs']) { Fail 2 ("start-gate: -Jobs {0} differs from the unit config's jobs {1}" -f $Jobs, $unitCfg['jobs']) }
+    if ($PSBoundParameters.ContainsKey('DiskFloorGb') -and $DiskFloorGb -ne [double]$unitCfg['floor_gb']) { Fail 2 ("start-gate: -DiskFloorGb {0} differs from the unit config's floor_gb {1}" -f $DiskFloorGb, $unitCfg['floor_gb']) }
+    if ($Kind -eq 'gate' -and $WorkDir -ne '' -and -not (Test-SamePath $WorkDir $unitCfg['gate_wt'])) { Fail 2 ("start-gate: -WorkDir {0} differs from the unit config's gate_wt {1}" -f $WorkDir, $unitCfg['gate_wt']) }
+    $TargetDir = $unitCfg['target_dir']
+    $Jobs = $unitCfg['jobs']
+    $threads = $unitCfg['test_threads']
+    if ($Kind -eq 'gate' -and $WorkDir -eq '') { $WorkDir = $unitCfg['gate_wt'] }
+}
+if ($WorkDir -eq '') { Fail 2 'start-gate: no -WorkDir (a gate takes gate_wt from -UnitConfig; a tests run names its tree)' }
+if (-not (Test-NoSpace @($RunDir, $WorkDir, $TargetDir, $Expected, $Unit, $RunId, $PSScriptRoot, $UnitConfig))) {
     Fail 2 'start-gate: paths, the unit and the run id must not contain white space'
 }
 if (-not (Test-Path -LiteralPath $WorkDir -PathType Container)) { Fail 2 "start-gate: no work directory $WorkDir" }
@@ -1439,7 +1671,12 @@ if ($Detach -ne '') {
 $volume = $TargetDir
 if (-not (Test-Path -LiteralPath $volume -PathType Container)) { $volume = Split-Path -Parent $TargetDir }
 $pf = Join-Path $PSScriptRoot 'preflight.ps1'
-& $pf -Volume $volume -DiskFloorGb $DiskFloorGb -RamFloorGb $RamFloorGb -CommitFloorGb $CommitFloorGb -Guard $Guard -CapsFile $CapsFile
+if ($null -ne $unitCfg) {
+    # The disk floor is the config's floor_gb, which the pre-flight reads from the config itself.
+    & $pf -Volume $volume -UnitConfig $UnitConfig -UnitConfigSha256 $UnitConfigSha256 -RamFloorGb $RamFloorGb -CommitFloorGb $CommitFloorGb -Guard $Guard -CapsFile $CapsFile
+} else {
+    & $pf -Volume $volume -DiskFloorGb $DiskFloorGb -RamFloorGb $RamFloorGb -CommitFloorGb $CommitFloorGb -Guard $Guard -CapsFile $CapsFile
+}
 $pfCode = $LASTEXITCODE
 if ($pfCode -eq 2) { Stop-Start 2 'start-gate: the pre-flight could not run (exit 2)' }
 if ($pfCode -ne 0) { Stop-Start 1 "start-gate: pre-flight refused (exit $pfCode): nothing started" }
@@ -1448,7 +1685,8 @@ $hash = Get-KitHash
 New-Item -ItemType Directory -Path $RunDir | Out-Null
 $params = @(
     "unit=$Unit", "run_id=$RunId", "kind=$Kind", "workdir=$WorkDir", "target_dir=$TargetDir", "jobs=$Jobs",
-    ('budget_min={0}' -f $BudgetMin.ToString($script:Inv)), "expected=$Expected", "lock=$lock", "kit=$hash", "head=$head"
+    ('budget_min={0}' -f $BudgetMin.ToString($script:Inv)), "expected=$Expected", "lock=$lock", "kit=$hash", "head=$head",
+    "unit_config=$UnitConfig", "test_threads=$threads"
 )
 Write-Text (Join-Path $RunDir 'params.txt') (($params -join "`n") + "`n")
 Write-Text (Join-Path $RunDir 'cmd.txt') (($argv -join "`n") + "`n")
@@ -1484,7 +1722,7 @@ exit 0
 # (updated when the run left Cargo.lock or fuzz/Cargo.lock changed). Verdicts and exit codes: PASS 0; FAIL 1 (the
 # command exited non-zero, a row failed, an expected test is missing, a test binary has no package, or the run
 # changed a file other than a lockfile); VACUOUS 7 (nothing to count: no gate rows or zero tests); VOID 8 (the runner
-# failed); HANG 124 (past the budget).
+# failed); HANG 124 (past the budget). A test_threads value in params.txt (a unit config's) sets RUST_TEST_THREADS.
 param([Parameter(Mandatory = $true)][string]$RunDir)
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
@@ -1504,6 +1742,7 @@ $changes = ''
 try {
     $env:CARGO_TARGET_DIR = $Par['target_dir']
     if ($Par['jobs'] -ne '') { $env:CARGO_BUILD_JOBS = $Par['jobs'] }
+    if ($Par.ContainsKey('test_threads') -and $Par['test_threads'] -ne '') { $env:RUST_TEST_THREADS = $Par['test_threads'] }
     if ($Par['kind'] -eq 'tests') { $env:MOIRAI_TEST_TIER = 'pr' }
     $app = Get-Command -Name $argv[0] -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -eq $app) { throw ('not found: {0}' -f $argv[0]) }
@@ -1710,15 +1949,19 @@ exit 0
 # preflight.ps1 - refuse a big build below the RAM, commit-charge or disk floor (docs/m0/workflow.md sections 7 and
 # 10, Appendix A).
 #
-#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/preflight.ps1 -Volume <dir on the work volume>
-#     [-DiskFloorGb 25] [-RamFloorGb 1.5] [-CommitFloorGb 4] [-Guard <exe>] [-CapsFile <file>] [-InjectFreeGb <gb>]
-#     [-InjectRamGb <gb>] [-InjectCommitGb <gb>]
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/preflight.ps1 [-Volume <dir on the work volume>]
+#     [-UnitConfig <unit.toml> -UnitConfigSha256 <hex>] [-DiskFloorGb 25] [-RamFloorGb 1.5] [-CommitFloorGb 4]
+#     [-Guard <exe>] [-CapsFile <file>] [-InjectFreeGb <gb>] [-InjectRamGb <gb>] [-InjectCommitGb <gb>]
+#
+# -UnitConfig with its -UnitConfigSha256 (docs/m0/workflow.md section 7 "The unit config", kit-common's
+# Read-UnitConfig): the disk floor is its floor_gb, and an explicit -DiskFloorGb that differs exits 2; -Volume defaults
+# to its target_dir, or that directory's parent while it does not exist. Without a config, -Volume is required.
 #
 # The disk floor is on the headroom of [MP 8.1]: the volume's available space less each counted directory's remaining
 # growth up to its cap, as the nightly runner counts it. The counted directories and their caps are the lines
 # "<absolute dir>=<cap>" of -CapsFile (default <kit>/caps.txt, copied from xtask/nightly.toml [guard.caps]; "#"
 # comments; caps in the guard's units, such as 40GB); a missing file or one with no directory is refused (exit 2).
-# While units build only in lane A, caps.txt counts laneA alone and keeps the other entries as comments (RULINGS R-11).
+# caps.txt counts the lanes the slots in use build in, with the caps the orchestrator records there (RULINGS R-26).
 # With the guard binary (default <kit>/guard.exe, a copy of moirai-probes-bin guard, [MP 8]) it asks the guard:
 # guard --volume <dir> --dir <dir> <cap>... --ram-floor <gb>GB --disk-floor <gb>GB, the injections as
 # --inject-volume-available and --inject-available-physical. Without it, it reads the volume's available space, the
@@ -1730,7 +1973,7 @@ exit 0
 # GB is 10^9 bytes ([MP 1.3]). The -Inject options exist to red-prove this script and are never passed by a real run.
 # Exit codes: 0 pass; 1 refused; 2 usage or unreadable.
 param(
-    [Parameter(Mandatory = $true)][string]$Volume,
+    [string]$Volume = '',
     [double]$DiskFloorGb = 25,
     [double]$RamFloorGb = 1.5,
     [double]$CommitFloorGb = 4,
@@ -1738,10 +1981,22 @@ param(
     [string]$CapsFile = '',
     [double]$InjectFreeGb = -1,
     [double]$InjectRamGb = -1,
-    [double]$InjectCommitGb = -1
+    [double]$InjectCommitGb = -1,
+    [string]$UnitConfig = '',
+    [string]$UnitConfigSha256 = ''
 )
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
+if ($UnitConfig -ne '' -or $UnitConfigSha256 -ne '') {
+    $unitCfg = Read-UnitConfig $UnitConfig $UnitConfigSha256 'preflight'
+    if ($PSBoundParameters.ContainsKey('DiskFloorGb') -and $DiskFloorGb -ne [double]$unitCfg['floor_gb']) { Fail 2 ("preflight: -DiskFloorGb {0} differs from the unit config's floor_gb {1}" -f $DiskFloorGb, $unitCfg['floor_gb']) }
+    $DiskFloorGb = [double]$unitCfg['floor_gb']
+    if ($Volume -eq '') {
+        $Volume = $unitCfg['target_dir']
+        if (-not (Test-Path -LiteralPath $Volume -PathType Container)) { $Volume = Split-Path -Parent $Volume }
+    }
+}
+if ($Volume -eq '') { Fail 2 'preflight: no -Volume (and no -UnitConfig to take it from)' }
 if (-not (Test-Path -LiteralPath $Volume -PathType Container)) { Fail 2 "preflight: no directory $Volume" }
 if ($Guard -eq '') { $Guard = Join-Path $PSScriptRoot 'guard.exe' }
 if ($CapsFile -eq '') { $CapsFile = Join-Path $PSScriptRoot 'caps.txt' }
@@ -1880,7 +2135,7 @@ exit 0
 ```powershell
 # local-settings.ps1 - add the workflow's local keys to a checkout's .claude/settings.local.json, keeping every key
 # and rule already there (docs/m0/workflow.md sections 8 and 15, Appendix A). Under RULINGS R-8 and R-9 it is run for
-# the main checkout only; its deny-rule part below serves only a return to unit sessions in role worktrees.
+# the main checkout only (section 15 step 6).
 #
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/local-settings.ps1 -Worktree <checkout>
 #     -Orch <ORCH> -WtRoot <worktree root> [-AllowFile <kit>/unit-allow.txt]
@@ -2019,7 +2274,8 @@ exit $Code
 # when the command itself exits 0, zero rows or zero tests must not pass, a missing expected test must fail, test ids
 # must carry the package, a hang must be stopped by its PID tree, a busy work directory must be refused, and the
 # pre-flight must refuse below its floors (disk, RAM and the commit charge), counting the reserve of the capped
-# directories. Prints one line per case and "selftest: PASS" or "selftest: FAIL". Exit codes: 0 every case behaved;
+# directories, the unit config must be checked and applied (K1-*), and the cargo wrapper must set the config's
+# environment and pass its arguments intact (K2-*). Prints one line per case and "selftest: PASS" or "selftest: FAIL". Exit codes: 0 every case behaved;
 # 1 a case misbehaved. Takes about three minutes. Never run beside a unit's gate in the same work directory.
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
@@ -2362,9 +2618,254 @@ $t5 = (Invoke-Git $repo @('rev-parse', 'm0/demo-lock')).Out.Trim()
 Add-Result 'lockfile-equal-to-branch-staged-and-switched' "start 0, HEAD $t5" ('start {0}, HEAD {1}' -f $c5.Start.Code, $h5) ($c5.Start.Code -eq 0 -and $h5 -eq $t5)
 if ($c5.Start.Code -eq 0) { Wait-Done $c5.Run | Out-Null }
 
+# The unit config (K1, docs/m0/workflow.md section 7 "The unit config"): its keys and sha256, the floor it gives the
+# pre-flight, a differing option, the gate worktree and the test threads. Every reading is injected or every floor is
+# 0, and every pre-flight runs the fallback (a missing guard path), whose line has headroom=.
+function New-UnitConfig([string]$Name, [string]$Target, [string]$GateWt, [int]$Jobs, [int]$Threads, [int]$Floor, [string]$Extra = '') {
+    $p = Join-Path $base ($Name + '.toml')
+    $t = ('target_dir = "{0}"' -f $Target.Replace('\', '/')) + "`n" + ('gate_wt = "{0}"' -f $GateWt.Replace('\', '/')) + "`n" + ("jobs = {0}`ntest_threads = {1}`nfloor_gb = {2}`n" -f $Jobs, $Threads, $Floor) + $Extra
+    Write-Text $p $t
+    return @{ Path = $p; Sha = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() }
+}
+function Test-SameDir([string]$A, [string]$B) { return [string]::Equals($A.Replace('\', '/').TrimEnd('/'), $B.Replace('\', '/').TrimEnd('/'), [System.StringComparison]::OrdinalIgnoreCase) }
+function New-Dir([string]$Name) { $d = Join-Path $base $Name; New-Item -ItemType Directory -Path $d | Out-Null; return $d }
+$k1t = New-Dir 'k1-target'
+$k1g = New-Dir 'k1-gatewt'
+$cf13 = New-UnitConfig 'k1-floor13' $k1t $k1g 3 5 13
+$d1 = Invoke-Kit 'preflight.ps1' @('-UnitConfig', $cf13.Path, '-UnitConfigSha256', $cf13.Sha, '-InjectFreeGb', '100', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps)
+$cf0 = New-UnitConfig 'k1-floor0' $k1t $k1g 3 5 0
+$k1run = Join-Path $base 'run-k1-defaults'
+$savedJobs = $env:CARGO_BUILD_JOBS
+$env:CARGO_BUILD_JOBS = '9'
+$d2 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cf0.Path, '-UnitConfigSha256', $cf0.Sha, '-RunDir', $k1run, '-Unit', 'selftest', '-RunId', 'selftest-k1-defaults',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd (New-Lines 'k1-defaults' $pass) 0 0), '-BudgetMin', '2', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+$env:CARGO_BUILD_JOBS = $savedJobs
+$d2v = ''
+$d2p = @{}
+if ($d2.Code -eq 0) { $d2v = (Wait-Done $k1run).Done['verdict']; $d2p = Read-KeyValues (Join-Path $k1run 'params.txt') }
+$okD1 = ($d1.Code -eq 0 -and [regex]::IsMatch($d1.Out, 'headroom=[0-9.]+GB floor=13GB'))
+$okD2 = ($d2.Code -eq 0 -and $d2v -eq 'PASS' -and [regex]::IsMatch($d2.Out, 'headroom=[0-9.]+GB floor=0GB'))
+$okD3 = ($d2p.ContainsKey('unit_config') -and $d2p['unit_config'] -eq $cf0.Path -and $d2p['test_threads'] -eq '5' -and (Test-SameDir $d2p['target_dir'] $k1t) -and $d2p['jobs'] -eq '3')
+Add-Result 'K1-defaults' 'preflight 0 floor=13GB; start-gate 0, PASS, floor=0GB; params unit_config, test_threads 5, target and jobs 3 from the config' ('preflight {0} {1}; start-gate {2} {3}: {4}; params {5}' -f $d1.Code, $okD1, $d2.Code, $d2v, (Get-Brief $d2.Out), (($d2p.Keys | Sort-Object | ForEach-Object { '{0}={1}' -f $_, $d2p[$_] }) -join ' ')) ($okD1 -and $okD2 -and $okD3)
+$f1 = Invoke-Kit 'preflight.ps1' @('-UnitConfig', $cf13.Path, '-UnitConfigSha256', $cf13.Sha, '-InjectFreeGb', '12', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps)
+$okF = ($f1.Code -eq 1 -and [regex]::IsMatch($f1.Out, 'verdict=refuse disk-low ') -and -not [regex]::IsMatch($f1.Out, 'ram-low|commit-low') -and [regex]::IsMatch($f1.Out, 'headroom=[0-9.]+GB floor=13GB'))
+Add-Result 'K1-floor' '1, refuse disk-low only, headroom= floor=13GB' ('{0}: {1}' -f $f1.Code, (Get-Brief $f1.Out)) $okF
+$mrun = Join-Path $base 'run-k1-mismatch'
+$m1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cf0.Path, '-UnitConfigSha256', $cf0.Sha, '-TargetDir', (Join-Path $base 'other'), '-RunDir', $mrun, '-Unit', 'selftest', '-RunId', 'selftest-k1-mismatch',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+# Each other explicit value that differs exits 2 naming it: start-gate's -Jobs, -DiskFloorGb and a gate's -WorkDir,
+# each with no run directory, and preflight's -DiskFloorGb. The controls pass the config's own values first: start-gate
+# runs to PASS, and preflight passes with floor=13GB. A leg's message is compared with its white space removed.
+function Test-Says([string]$Out, [string]$Want) { return ($Out -replace '\s', '').Contains(($Want -replace '\s', '')) }
+function Get-Leg([string]$Leg, [int]$Code, [bool]$Ok, [string]$Out) {
+    if ($Ok) { return ('{0} {1} ok' -f $Leg, $Code) }
+    return ('{0} {1} BAD: {2}' -f $Leg, $Code, (Get-Brief $Out))
+}
+function Invoke-K1Gate([string]$Leg, [string[]]$Extra, [string[]]$Lines) {
+    $run = Join-Path $base ('run-k1-' + $Leg)
+    $lf = ''
+    if ($Lines.Count -gt 0) { $lf = New-Lines ('k1-' + $Leg) $Lines }
+    $a = @('-UnitConfig', $cf0.Path, '-UnitConfigSha256', $cf0.Sha, '-RunDir', $run, '-Unit', 'selftest', '-RunId', ('selftest-k1-' + $Leg),
+        '-Kind', 'gate', '-CmdLine', (Get-FakeCmd $lf 0 0), '-BudgetMin', '2', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps) + $Extra
+    return @{ Run = $run; R = (Invoke-Kit 'start-gate.ps1' $a) }
+}
+$mOk = ($m1.Code -eq 2 -and $m1.Out.Contains('-TargetDir') -and -not (Test-Path -LiteralPath $mrun))
+$mGot = New-Object System.Collections.ArrayList
+[void]$mGot.Add((Get-Leg 'targetdir' $m1.Code $mOk $m1.Out))
+$ce = Invoke-K1Gate 'equal' @('-TargetDir', $k1t, '-Jobs', '3', '-DiskFloorGb', '0', '-WorkDir', $k1g) $pass
+$cev = ''
+if ($ce.R.Code -eq 0) { $cev = (Wait-Done $ce.Run).Done['verdict'] }
+$ok = ($ce.R.Code -eq 0 -and $cev -eq 'PASS')
+if (-not $ok) { $mOk = $false }
+[void]$mGot.Add((Get-Leg ('equal-control ' + $cev) $ce.R.Code $ok $ce.R.Out))
+$pfe = Invoke-Kit 'preflight.ps1' @('-UnitConfig', $cf13.Path, '-UnitConfigSha256', $cf13.Sha, '-DiskFloorGb', '13', '-InjectFreeGb', '100', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps)
+$ok = ($pfe.Code -eq 0 -and [regex]::IsMatch($pfe.Out, 'headroom=[0-9.]+GB floor=13GB'))
+if (-not $ok) { $mOk = $false }
+[void]$mGot.Add((Get-Leg 'preflight-equal-control' $pfe.Code $ok $pfe.Out))
+$k1o = New-Dir 'k1-other-wt'
+$mLegs = @(
+    @{ Leg = 'jobs'; Extra = @('-Jobs', '9'); Want = '-Jobs 9 differs' },
+    @{ Leg = 'floor'; Extra = @('-DiskFloorGb', '12'); Want = '-DiskFloorGb 12 differs' },
+    @{ Leg = 'workdir'; Extra = @('-WorkDir', $k1o); Want = "differs from the unit config's gate_wt" })
+foreach ($l in $mLegs) {
+    $x = Invoke-K1Gate $l.Leg $l.Extra @()
+    $ok = ($x.R.Code -eq 2 -and (Test-Says $x.R.Out $l.Want) -and -not (Test-Path -LiteralPath $x.Run))
+    if (-not $ok) { $mOk = $false }
+    [void]$mGot.Add((Get-Leg $l.Leg $x.R.Code $ok $x.R.Out))
+}
+$pfm = Invoke-Kit 'preflight.ps1' @('-UnitConfig', $cf13.Path, '-UnitConfigSha256', $cf13.Sha, '-DiskFloorGb', '12', '-InjectFreeGb', '100', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps)
+$ok = ($pfm.Code -eq 2 -and (Test-Says $pfm.Out '-DiskFloorGb 12 differs'))
+if (-not $ok) { $mOk = $false }
+[void]$mGot.Add((Get-Leg 'preflight-floor' $pfm.Code $ok $pfm.Out))
+Add-Result 'K1-mismatch' '2 naming the option and no run dir for -TargetDir, -Jobs, -DiskFloorGb and -WorkDir, preflight 2 for -DiskFloorGb; the equal controls 0' ($mGot -join '; ') $mOk
+$cfu = New-UnitConfig 'k1-unknown' $k1t $k1g 3 5 0 "colour = `"red`"`n"
+$u1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cfu.Path, '-UnitConfigSha256', $cfu.Sha, '-RunDir', (Join-Path $base 'run-k1-unknown'), '-Unit', 'selftest', '-RunId', 'selftest-k1-unknown',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+# The other parse refusals, each through preflight on injected readings: a key twice, a key missing and a value of the
+# wrong kind exit 2 naming the key; the control, a config with a comment and a blank line, passes with floor=0GB.
+function New-RawConfig([string]$Name, [string]$Text) {
+    $p = Join-Path $base ($Name + '.toml')
+    Write-Text $p $Text
+    return @{ Path = $p; Sha = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() }
+}
+function Invoke-K1Pre($Cfg) {
+    return (Invoke-Kit 'preflight.ps1' @('-UnitConfig', $Cfg.Path, '-UnitConfigSha256', $Cfg.Sha, '-InjectFreeGb', '100', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps))
+}
+$uOk = ($u1.Code -eq 2 -and $u1.Out.Contains('colour'))
+$uGot = New-Object System.Collections.ArrayList
+[void]$uGot.Add((Get-Leg 'unknown' $u1.Code $uOk $u1.Out))
+$kp = ('target_dir = "{0}"' -f $k1t.Replace('\', '/')) + "`n" + ('gate_wt = "{0}"' -f $k1g.Replace('\', '/')) + "`n"
+$uc = Invoke-K1Pre (New-RawConfig 'k1-comment' ("# a comment`n`n" + $kp + "jobs = 3`ntest_threads = 5`nfloor_gb = 0`n"))
+$ok = ($uc.Code -eq 0 -and [regex]::IsMatch($uc.Out, 'headroom=[0-9.]+GB floor=0GB'))
+if (-not $ok) { $uOk = $false }
+[void]$uGot.Add((Get-Leg 'comment-control' $uc.Code $ok $uc.Out))
+$uLegs = @(
+    @{ Leg = 'twice'; Text = ($kp + "jobs = 3`ntest_threads = 5`nfloor_gb = 0`njobs = 4`n"); Want = @('the key jobs twice') },
+    @{ Leg = 'missing'; Text = ($kp + "jobs = 3`ntest_threads = 5`n"); Want = @('no key floor_gb') },
+    @{ Leg = 'kind'; Text = ($kp + "jobs = `"3`"`ntest_threads = 5`nfloor_gb = 0`n"); Want = @('the key jobs in', 'must be a integer') })
+foreach ($l in $uLegs) {
+    $x = Invoke-K1Pre (New-RawConfig ('k1-' + $l.Leg) $l.Text)
+    $ok = ($x.Code -eq 2)
+    foreach ($w in $l.Want) { if (-not (Test-Says $x.Out $w)) { $ok = $false } }
+    if (-not $ok) { $uOk = $false }
+    [void]$uGot.Add((Get-Leg $l.Leg $x.Code $ok $x.Out))
+}
+Add-Result 'K1-unknown' '2 naming the key for an unknown key, a key twice, a key missing and a value of the wrong kind; the comment control 0' ($uGot -join '; ') $uOk
+$zero = '0' * 64
+$s1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cf0.Path, '-UnitConfigSha256', $zero, '-RunDir', (Join-Path $base 'run-k1-sha'), '-Unit', 'selftest', '-RunId', 'selftest-k1-sha',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+# The config and its sha go together: either one alone exits 2 saying so.
+$sOk = ($s1.Code -eq 2 -and $s1.Out.Contains($zero))
+$sGot = New-Object System.Collections.ArrayList
+[void]$sGot.Add((Get-Leg 'zero-sha' $s1.Code $sOk $s1.Out))
+$sLegs = @(
+    @{ Leg = 'config-alone'; Args = @('-UnitConfig', $cf0.Path) },
+    @{ Leg = 'sha-alone'; Args = @('-UnitConfigSha256', $cf0.Sha, '-Volume', $base) })
+foreach ($l in $sLegs) {
+    $x = Invoke-Kit 'preflight.ps1' ($l.Args + @('-InjectFreeGb', '100', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps))
+    $ok = ($x.Code -eq 2 -and (Test-Says $x.Out '-UnitConfig and -UnitConfigSha256 go together'))
+    if (-not $ok) { $sOk = $false }
+    [void]$sGot.Add((Get-Leg $l.Leg $x.Code $ok $x.Out))
+}
+Add-Result 'K1-sha' '2 naming the sha; 2, go together, for the config or the sha alone' ($sGot -join '; ') $sOk
+$k1g2 = New-Dir 'k1-gatewt-2'
+$cfg2 = New-UnitConfig 'k1-gatewd' $k1t $k1g2 3 5 0
+$grun = Join-Path $base 'run-k1-gatewd'
+$g1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cfg2.Path, '-UnitConfigSha256', $cfg2.Sha, '-RunDir', $grun, '-Unit', 'selftest', '-RunId', 'selftest-k1-gatewd',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd (New-Lines 'k1-gatewd' $pass) 0 0), '-BudgetMin', '2', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+$gp = @{}
+if ($g1.Code -eq 0) { Wait-Done $grun | Out-Null; $gp = Read-KeyValues (Join-Path $grun 'params.txt') }
+Add-Result 'K1-gatewd' "start 0, workdir $k1g2" ('start {0}, workdir {1}' -f $g1.Code, $gp['workdir']) ($g1.Code -eq 0 -and $gp.ContainsKey('workdir') -and (Test-SameDir $gp['workdir'] $k1g2))
+$pe = Join-Path $base 'printenv.ps1'
+Write-Text $pe ("[Console]::Out.WriteLine('RUST_TEST_THREADS=' + `$env:RUST_TEST_THREADS)`n" + (($pass | ForEach-Object { "[Console]::Out.WriteLine('" + $_ + "')" }) -join "`n") + "`nexit 0`n")
+$k1g3 = New-Dir 'k1-gatewt-3'
+$cft = New-UnitConfig 'k1-threads' $k1t $k1g3 3 3 0
+$trun = Join-Path $base 'run-k1-threads'
+$savedThreads = $env:RUST_TEST_THREADS
+$env:RUST_TEST_THREADS = '7'
+$t1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cft.Path, '-UnitConfigSha256', $cft.Sha, '-RunDir', $trun, '-Unit', 'selftest', '-RunId', 'selftest-k1-threads',
+    '-Kind', 'gate', '-CmdLine', ('{0} -NoProfile -ExecutionPolicy Bypass -File {1}' -f $PS, $pe), '-BudgetMin', '2', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+$env:RUST_TEST_THREADS = $savedThreads
+$tp = @{}
+$tl3 = ''
+if ($t1.Code -eq 0) { Wait-Done $trun | Out-Null; $tp = Read-KeyValues (Join-Path $trun 'params.txt'); $tl3 = (Read-Lines (Join-Path $trun 'log.txt')) -join ' ' }
+Add-Result 'K1-threads' 'params test_threads=3, the command printed RUST_TEST_THREADS=3' ('start {0}, test_threads={1}, log: {2}' -f $t1.Code, $tp['test_threads'], (Get-Brief $tl3)) ($t1.Code -eq 0 -and $tp['test_threads'] -eq '3' -and $tl3.Contains('RUST_TEST_THREADS=3'))
+# The no-config control: the call of gate-pass-rows-exit-3, with no -UnitConfig, keeps today's behaviour.
+Test-Verdict 'K1-control' 'gate' $pass 3 'FAIL' 1 | Out-Null
+
+# The cargo wrapper (K2): a fake cargo first on PATH prints the environment, its arguments and its directory; the
+# session's three variables hold other values and MOIRAI_TEST_TIER is unset for the calls.
+$fakebin = New-Dir 'fakebin'
+Write-Text (Join-Path $fakebin 'cargo.cmd') ("@echo off`r`necho CARGO_TARGET_DIR=%CARGO_TARGET_DIR%`r`necho CARGO_BUILD_JOBS=%CARGO_BUILD_JOBS%`r`necho RUST_TEST_THREADS=%RUST_TEST_THREADS%`r`necho MOIRAI_TEST_TIER=%MOIRAI_TEST_TIER%`r`necho ARGS=%*`r`necho CWD=%CD%`r`nexit /b 0`r`n")
+$k2w = New-Dir 'k2-tree'
+$cf2 = New-UnitConfig 'k2' $k1t $k1g 3 5 0
+$saved = @{ Path = $env:Path; T = $env:CARGO_TARGET_DIR; J = $env:CARGO_BUILD_JOBS; R = $env:RUST_TEST_THREADS; M = $env:MOIRAI_TEST_TIER }
+$env:Path = $fakebin + ';' + $env:Path
+$env:CARGO_TARGET_DIR = 'D:/elsewhere'
+$env:CARGO_BUILD_JOBS = '9'
+$env:RUST_TEST_THREADS = '7'
+$env:MOIRAI_TEST_TIER = $null
+$e1 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, 'build -p demo')
+$e2 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, '-TestTier', 'pr', 'test --locked -p demo')
+$e3 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', (Join-Path $base 'no-such.toml'), '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, 'build -p demo')
+$e4 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, 'fmt -p demo -- --check')
+$e5 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', ('f' * 64), '-WorkDir', $k2w, 'build -p demo')
+# The wrapper's own refusals: a tier other than pr, no -WorkDir, and a metacharacter in the cargo arguments.
+$e6 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, '-TestTier', 'nightly', 'test --locked -p demo')
+$e7 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, 'build -p demo')
+$e8 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, 'build -p demo%x')
+$env:Path = $saved.Path
+$env:CARGO_TARGET_DIR = $saved.T
+$env:CARGO_BUILD_JOBS = $saved.J
+$env:RUST_TEST_THREADS = $saved.R
+$env:MOIRAI_TEST_TIER = $saved.M
+$t2 = $k1t.Replace('\', '/')
+$okE1 = ($e1.Code -eq 0 -and $e1.Out.Contains("CARGO_TARGET_DIR=$t2") -and $e1.Out.Contains('CARGO_BUILD_JOBS=3') -and $e1.Out.Contains('RUST_TEST_THREADS=5') -and $e1.Out.Contains("CWD=$k2w"))
+Add-Result 'K2-env' "0, CARGO_TARGET_DIR=$t2 CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=5 in the tree" ('{0}: {1}' -f $e1.Code, (Get-Brief $e1.Out)) $okE1
+$okT = ($e2.Code -eq 0 -and $e2.Out.Contains('MOIRAI_TEST_TIER=pr'))
+$okT6 = ($e6.Code -eq 2 -and (Test-Says $e6.Out '-TestTier takes pr only, not nightly') -and -not $e6.Out.Contains('ARGS='))
+Add-Result 'K2-tier' '0, MOIRAI_TEST_TIER=pr; 2 for -TestTier nightly, cargo not run' ('{0}: {1}; {2}' -f $e2.Code, (Get-Brief $e2.Out), (Get-Leg 'nightly' $e6.Code $okT6 $e6.Out)) ($okT -and $okT6)
+$okM = ($e3.Code -eq 2 -and $e3.Out.Contains('no-such.toml'))
+$okM7 = ($e7.Code -eq 2 -and (Test-Says $e7.Out "cargo: no work directory ''") -and -not $e7.Out.Contains('ARGS='))
+Add-Result 'K2-missing' '2, names the path; 2 for no -WorkDir, cargo not run' ('{0}: {1}; {2}' -f $e3.Code, (Get-Brief $e3.Out), (Get-Leg 'no-workdir' $e7.Code $okM7 $e7.Out)) ($okM -and $okM7)
+$args4 = @($e4.Out -split "`r?`n" | Where-Object { $_.StartsWith('ARGS=') })
+$okA = ($e4.Code -eq 0 -and $args4.Count -eq 1 -and $args4[0].TrimEnd() -eq 'ARGS=fmt -p demo -- --check')
+$okA8 = ($e8.Code -eq 2 -and (Test-Says $e8.Out 'the cargo arguments must not contain') -and -not $e8.Out.Contains('ARGS='))
+Add-Result 'K2-args' '0, exactly ARGS=fmt -p demo -- --check; 2 for a metacharacter, cargo not run' ('{0}: {1}; {2}' -f $e4.Code, ($args4 -join ' | '), (Get-Leg 'metacharacter' $e8.Code $okA8 $e8.Out)) ($okA -and $okA8)
+Add-Result 'K2-sha' '2, names the sha' ('{0}: {1}' -f $e5.Code, (Get-Brief $e5.Out)) ($e5.Code -eq 2 -and $e5.Out.Contains('f' * 64))
+
 $bad = @($results | Where-Object { -not $_.Ok })
 Write-Output ('selftest: {0} of {1} cases behaved; kit {2}; runs in {3}' -f ($results.Count - $bad.Count), $results.Count, (Get-KitHash), $base)
 if ($bad.Count -gt 0) { Write-Output 'selftest: FAIL'; exit 1 }
 Write-Output 'selftest: PASS'
 exit 0
+```
+
+### A.12 `kit/cargo.ps1`
+
+```powershell
+# cargo.ps1 - run one cargo command of a unit agent with its unit config's target directory, jobs and test threads
+# (docs/m0/workflow.md section 7 "The unit config", Appendix A; RULINGS R-178 OQ-1).
+#
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/cargo.ps1 -UnitConfig <ORCH>/<unit>/unit.toml
+#     -UnitConfigSha256 <hex> -WorkDir <tree> [-TestTier pr] "<cargo arguments>"
+#
+# The cargo arguments are one quoted string, split on white space (no word may contain a space, and none of
+# & | < > ^ % or a double quote may appear): a bare -- is PowerShell's own end-of-parameters token and a bare -p an
+# unknown parameter, while one string never meets the binder, so "fmt -p x -- --check" reaches cargo intact. The unit
+# config is checked as start-gate.ps1 checks it (kit-common's Read-UnitConfig): a missing file, a wrong sha256 or a
+# bad key exits 2. It sets CARGO_TARGET_DIR, CARGO_BUILD_JOBS and RUST_TEST_THREADS from target_dir, jobs and
+# test_threads, and MOIRAI_TEST_TIER=pr under -TestTier pr (any other value is refused), then runs cargo from PATH in
+# -WorkDir, its output unchanged. Its first output line names the four values, the tree and the words. No parameter
+# is mandatory, so a missing one never prompts. Exit codes: cargo's own; 2 refused (usage, the config, the
+# arguments).
+[CmdletBinding(PositionalBinding = $false)]
+param(
+    [string]$UnitConfig = '',
+    [string]$UnitConfigSha256 = '',
+    [string]$WorkDir = '',
+    [string]$TestTier = '',
+    [Parameter(Position = 0)][string]$CargoArgs = ''
+)
+. (Join-Path $PSScriptRoot 'kit-common.ps1')
+
+if ($UnitConfig -eq '') { Fail 2 'cargo: no -UnitConfig: a unit agent runs cargo with its unit config (docs/m0/workflow.md section 7)' }
+$cfg = Read-UnitConfig $UnitConfig $UnitConfigSha256 'cargo'
+if ($WorkDir -eq '' -or -not (Test-Path -LiteralPath $WorkDir -PathType Container)) { Fail 2 "cargo: no work directory '$WorkDir' (-WorkDir <tree>)" }
+if ($TestTier -ne '' -and $TestTier -ne 'pr') { Fail 2 "cargo: -TestTier takes pr only, not $TestTier" }
+if ($CargoArgs -match '[&|<>^%"]') { Fail 2 'cargo: the cargo arguments must not contain & | < > ^ % or a double quote' }
+$words = @($CargoArgs.Trim() -split '\s+' | Where-Object { $_ -ne '' })
+if ($words.Count -lt 1) { Fail 2 'cargo: no cargo arguments: pass them as one quoted string' }
+$app = Get-Command -Name 'cargo' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($null -eq $app) { Fail 2 'cargo: no cargo on PATH' }
+$env:CARGO_TARGET_DIR = $cfg['target_dir']
+$env:CARGO_BUILD_JOBS = $cfg['jobs']
+$env:RUST_TEST_THREADS = $cfg['test_threads']
+if ($TestTier -eq 'pr') { $env:MOIRAI_TEST_TIER = 'pr' }
+[Console]::Out.WriteLine(('cargo.ps1: CARGO_TARGET_DIR={0} CARGO_BUILD_JOBS={1} RUST_TEST_THREADS={2} MOIRAI_TEST_TIER={3} in {4}: cargo {5}' -f $env:CARGO_TARGET_DIR, $env:CARGO_BUILD_JOBS, $env:RUST_TEST_THREADS, $env:MOIRAI_TEST_TIER, $WorkDir, ($words -join ' ')))
+Set-Location -LiteralPath $WorkDir
+$old = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try { & $app.Path @words } finally { $ErrorActionPreference = $old }
+exit $LASTEXITCODE
 ```
