@@ -848,9 +848,10 @@ or stop it.
   dies (the orphaned command is stopped by its recorded PID), the pre-flight below each floor and with a capped
   directory's reserve, through the fallback and the guard, the pre-flight below the commit floor on both paths, with
   the floor's default pinned, and start-gate passing the floor on, the embedded copy, the local settings, the
-  `-Detach` checkout with its lockfile rules, the unit config (`K1-*`: its keys, its sha256, the floor it gives
-  the pre-flight, a differing option, the gate worktree and the test threads, with a no-config control), and the cargo
-  wrapper (`K2-*`: the environment it sets, the test tier, a missing config, a wrong sha256 and `-- --check` intact). Each script's own red-proof is the selftest case named after it in
+  `-Detach` checkout with its lockfile rules, the unit config (`K1-*`: its keys, an unknown, repeated, missing or
+  wrongly typed one refused, its sha256, the floor it gives the pre-flight, each differing option refused, the gate
+  worktree and the test threads, with a no-config control), and the cargo wrapper (`K2-*`: the environment it sets,
+  the test tier, a missing config or work directory, a wrong sha256, a metacharacter refused and `-- --check` intact). Each script's own red-proof is the selftest case named after it in
   Appendix A.
 
 ## 8. Settings
@@ -1214,7 +1215,7 @@ and its exit codes. The red-proof of each is the `selftest.ps1` case that names 
 | `run-gate.ps1` | `gate-fail-row-exit-0`, `gate-pass-rows-exit-3`, `gate-nothing-exit-0`, `tests-zero`, `tests-missing-expected`, `tests-failed-exit-101`, `tests-unannounced-binary`, `tests-ids-carry-package`, `hang-stopped-by-pid-tree`, `detach-records-head-and-tree`, `lockfile-update-reported`, `summary-stamped-with-kit-hash`, `K1-threads`; the passing controls `gate-pass`, `tests-pass`, `tests-ids-by-name`, `tests-two-packages` |
 | `wait-gate.ps1` | `wait-slice-running`, `dead-runner-reported` |
 | `stop-gate.ps1` | `stop-gate-archives-and-kills`, `orphan-killed-by-pid`, `lock-released-after-stop` |
-| `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-fallback-commit-low`, `preflight-commit-default-floor`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`, `preflight-guard-commit-low`, `K1-floor`, `K1-defaults`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-fallback-commit-control`, `preflight-guard-pass`, `preflight-guard-cap-control`, `preflight-guard-commit-control` |
+| `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-fallback-commit-low`, `preflight-commit-default-floor`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`, `preflight-guard-commit-low`, `K1-floor`, `K1-defaults`, `K1-mismatch`, `K1-unknown`, `K1-sha`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-fallback-commit-control`, `preflight-guard-pass`, `preflight-guard-cap-control`, `preflight-guard-commit-control` |
 | `embed.ps1` | `embed-no-marker-refused`, `embed-two-markers-refused`, `embed-writes-lf-copy` |
 | `local-settings.ps1` | `local-settings-malformed-refused`, `local-settings-adds-and-keeps`, `local-settings-idempotent` |
 | `cargo.ps1` | `K2-env`, `K2-tier`, `K2-missing`, `K2-args`, `K2-sha` |
@@ -2652,15 +2653,101 @@ Add-Result 'K1-floor' '1, refuse disk-low only, headroom= floor=13GB' ('{0}: {1}
 $mrun = Join-Path $base 'run-k1-mismatch'
 $m1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cf0.Path, '-UnitConfigSha256', $cf0.Sha, '-TargetDir', (Join-Path $base 'other'), '-RunDir', $mrun, '-Unit', 'selftest', '-RunId', 'selftest-k1-mismatch',
     '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
-Add-Result 'K1-mismatch' '2, names -TargetDir, no run dir' ('{0}, run dir {1}: {2}' -f $m1.Code, (Test-Path -LiteralPath $mrun), (Get-Brief $m1.Out)) ($m1.Code -eq 2 -and $m1.Out.Contains('-TargetDir') -and -not (Test-Path -LiteralPath $mrun))
+# Each other explicit value that differs exits 2 naming it: start-gate's -Jobs, -DiskFloorGb and a gate's -WorkDir,
+# each with no run directory, and preflight's -DiskFloorGb. The controls pass the config's own values first: start-gate
+# runs to PASS, and preflight passes with floor=13GB. A leg's message is compared with its white space removed.
+function Test-Says([string]$Out, [string]$Want) { return ($Out -replace '\s', '').Contains(($Want -replace '\s', '')) }
+function Get-Leg([string]$Leg, [int]$Code, [bool]$Ok, [string]$Out) {
+    if ($Ok) { return ('{0} {1} ok' -f $Leg, $Code) }
+    return ('{0} {1} BAD: {2}' -f $Leg, $Code, (Get-Brief $Out))
+}
+function Invoke-K1Gate([string]$Leg, [string[]]$Extra, [string[]]$Lines) {
+    $run = Join-Path $base ('run-k1-' + $Leg)
+    $lf = ''
+    if ($Lines.Count -gt 0) { $lf = New-Lines ('k1-' + $Leg) $Lines }
+    $a = @('-UnitConfig', $cf0.Path, '-UnitConfigSha256', $cf0.Sha, '-RunDir', $run, '-Unit', 'selftest', '-RunId', ('selftest-k1-' + $Leg),
+        '-Kind', 'gate', '-CmdLine', (Get-FakeCmd $lf 0 0), '-BudgetMin', '2', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps) + $Extra
+    return @{ Run = $run; R = (Invoke-Kit 'start-gate.ps1' $a) }
+}
+$mOk = ($m1.Code -eq 2 -and $m1.Out.Contains('-TargetDir') -and -not (Test-Path -LiteralPath $mrun))
+$mGot = New-Object System.Collections.ArrayList
+[void]$mGot.Add((Get-Leg 'targetdir' $m1.Code $mOk $m1.Out))
+$ce = Invoke-K1Gate 'equal' @('-TargetDir', $k1t, '-Jobs', '3', '-DiskFloorGb', '0', '-WorkDir', $k1g) $pass
+$cev = ''
+if ($ce.R.Code -eq 0) { $cev = (Wait-Done $ce.Run).Done['verdict'] }
+$ok = ($ce.R.Code -eq 0 -and $cev -eq 'PASS')
+if (-not $ok) { $mOk = $false }
+[void]$mGot.Add((Get-Leg ('equal-control ' + $cev) $ce.R.Code $ok $ce.R.Out))
+$pfe = Invoke-Kit 'preflight.ps1' @('-UnitConfig', $cf13.Path, '-UnitConfigSha256', $cf13.Sha, '-DiskFloorGb', '13', '-InjectFreeGb', '100', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps)
+$ok = ($pfe.Code -eq 0 -and [regex]::IsMatch($pfe.Out, 'headroom=[0-9.]+GB floor=13GB'))
+if (-not $ok) { $mOk = $false }
+[void]$mGot.Add((Get-Leg 'preflight-equal-control' $pfe.Code $ok $pfe.Out))
+$k1o = New-Dir 'k1-other-wt'
+$mLegs = @(
+    @{ Leg = 'jobs'; Extra = @('-Jobs', '9'); Want = '-Jobs 9 differs' },
+    @{ Leg = 'floor'; Extra = @('-DiskFloorGb', '12'); Want = '-DiskFloorGb 12 differs' },
+    @{ Leg = 'workdir'; Extra = @('-WorkDir', $k1o); Want = "differs from the unit config's gate_wt" })
+foreach ($l in $mLegs) {
+    $x = Invoke-K1Gate $l.Leg $l.Extra @()
+    $ok = ($x.R.Code -eq 2 -and (Test-Says $x.R.Out $l.Want) -and -not (Test-Path -LiteralPath $x.Run))
+    if (-not $ok) { $mOk = $false }
+    [void]$mGot.Add((Get-Leg $l.Leg $x.R.Code $ok $x.R.Out))
+}
+$pfm = Invoke-Kit 'preflight.ps1' @('-UnitConfig', $cf13.Path, '-UnitConfigSha256', $cf13.Sha, '-DiskFloorGb', '12', '-InjectFreeGb', '100', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps)
+$ok = ($pfm.Code -eq 2 -and (Test-Says $pfm.Out '-DiskFloorGb 12 differs'))
+if (-not $ok) { $mOk = $false }
+[void]$mGot.Add((Get-Leg 'preflight-floor' $pfm.Code $ok $pfm.Out))
+Add-Result 'K1-mismatch' '2 naming the option and no run dir for -TargetDir, -Jobs, -DiskFloorGb and -WorkDir, preflight 2 for -DiskFloorGb; the equal controls 0' ($mGot -join '; ') $mOk
 $cfu = New-UnitConfig 'k1-unknown' $k1t $k1g 3 5 0 "colour = `"red`"`n"
 $u1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cfu.Path, '-UnitConfigSha256', $cfu.Sha, '-RunDir', (Join-Path $base 'run-k1-unknown'), '-Unit', 'selftest', '-RunId', 'selftest-k1-unknown',
     '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
-Add-Result 'K1-unknown' '2, names colour' ('{0}: {1}' -f $u1.Code, (Get-Brief $u1.Out)) ($u1.Code -eq 2 -and $u1.Out.Contains('colour'))
+# The other parse refusals, each through preflight on injected readings: a key twice, a key missing and a value of the
+# wrong kind exit 2 naming the key; the control, a config with a comment and a blank line, passes with floor=0GB.
+function New-RawConfig([string]$Name, [string]$Text) {
+    $p = Join-Path $base ($Name + '.toml')
+    Write-Text $p $Text
+    return @{ Path = $p; Sha = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() }
+}
+function Invoke-K1Pre($Cfg) {
+    return (Invoke-Kit 'preflight.ps1' @('-UnitConfig', $Cfg.Path, '-UnitConfigSha256', $Cfg.Sha, '-InjectFreeGb', '100', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps))
+}
+$uOk = ($u1.Code -eq 2 -and $u1.Out.Contains('colour'))
+$uGot = New-Object System.Collections.ArrayList
+[void]$uGot.Add((Get-Leg 'unknown' $u1.Code $uOk $u1.Out))
+$kp = ('target_dir = "{0}"' -f $k1t.Replace('\', '/')) + "`n" + ('gate_wt = "{0}"' -f $k1g.Replace('\', '/')) + "`n"
+$uc = Invoke-K1Pre (New-RawConfig 'k1-comment' ("# a comment`n`n" + $kp + "jobs = 3`ntest_threads = 5`nfloor_gb = 0`n"))
+$ok = ($uc.Code -eq 0 -and [regex]::IsMatch($uc.Out, 'headroom=[0-9.]+GB floor=0GB'))
+if (-not $ok) { $uOk = $false }
+[void]$uGot.Add((Get-Leg 'comment-control' $uc.Code $ok $uc.Out))
+$uLegs = @(
+    @{ Leg = 'twice'; Text = ($kp + "jobs = 3`ntest_threads = 5`nfloor_gb = 0`njobs = 4`n"); Want = @('the key jobs twice') },
+    @{ Leg = 'missing'; Text = ($kp + "jobs = 3`ntest_threads = 5`n"); Want = @('no key floor_gb') },
+    @{ Leg = 'kind'; Text = ($kp + "jobs = `"3`"`ntest_threads = 5`nfloor_gb = 0`n"); Want = @('the key jobs in', 'must be a integer') })
+foreach ($l in $uLegs) {
+    $x = Invoke-K1Pre (New-RawConfig ('k1-' + $l.Leg) $l.Text)
+    $ok = ($x.Code -eq 2)
+    foreach ($w in $l.Want) { if (-not (Test-Says $x.Out $w)) { $ok = $false } }
+    if (-not $ok) { $uOk = $false }
+    [void]$uGot.Add((Get-Leg $l.Leg $x.Code $ok $x.Out))
+}
+Add-Result 'K1-unknown' '2 naming the key for an unknown key, a key twice, a key missing and a value of the wrong kind; the comment control 0' ($uGot -join '; ') $uOk
 $zero = '0' * 64
 $s1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cf0.Path, '-UnitConfigSha256', $zero, '-RunDir', (Join-Path $base 'run-k1-sha'), '-Unit', 'selftest', '-RunId', 'selftest-k1-sha',
     '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
-Add-Result 'K1-sha' '2, names the sha' ('{0}: {1}' -f $s1.Code, (Get-Brief $s1.Out)) ($s1.Code -eq 2 -and $s1.Out.Contains($zero))
+# The config and its sha go together: either one alone exits 2 saying so.
+$sOk = ($s1.Code -eq 2 -and $s1.Out.Contains($zero))
+$sGot = New-Object System.Collections.ArrayList
+[void]$sGot.Add((Get-Leg 'zero-sha' $s1.Code $sOk $s1.Out))
+$sLegs = @(
+    @{ Leg = 'config-alone'; Args = @('-UnitConfig', $cf0.Path) },
+    @{ Leg = 'sha-alone'; Args = @('-UnitConfigSha256', $cf0.Sha, '-Volume', $base) })
+foreach ($l in $sLegs) {
+    $x = Invoke-Kit 'preflight.ps1' ($l.Args + @('-InjectFreeGb', '100', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps))
+    $ok = ($x.Code -eq 2 -and (Test-Says $x.Out '-UnitConfig and -UnitConfigSha256 go together'))
+    if (-not $ok) { $sOk = $false }
+    [void]$sGot.Add((Get-Leg $l.Leg $x.Code $ok $x.Out))
+}
+Add-Result 'K1-sha' '2 naming the sha; 2, go together, for the config or the sha alone' ($sGot -join '; ') $sOk
 $k1g2 = New-Dir 'k1-gatewt-2'
 $cfg2 = New-UnitConfig 'k1-gatewd' $k1t $k1g2 3 5 0
 $grun = Join-Path $base 'run-k1-gatewd'
@@ -2703,6 +2790,10 @@ $e2 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $c
 $e3 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', (Join-Path $base 'no-such.toml'), '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, 'build -p demo')
 $e4 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, 'fmt -p demo -- --check')
 $e5 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', ('f' * 64), '-WorkDir', $k2w, 'build -p demo')
+# The wrapper's own refusals: a tier other than pr, no -WorkDir, and a metacharacter in the cargo arguments.
+$e6 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, '-TestTier', 'nightly', 'test --locked -p demo')
+$e7 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, 'build -p demo')
+$e8 = Invoke-Kit 'cargo.ps1' @('-UnitConfig', $cf2.Path, '-UnitConfigSha256', $cf2.Sha, '-WorkDir', $k2w, 'build -p demo%x')
 $env:Path = $saved.Path
 $env:CARGO_TARGET_DIR = $saved.T
 $env:CARGO_BUILD_JOBS = $saved.J
@@ -2711,10 +2802,16 @@ $env:MOIRAI_TEST_TIER = $saved.M
 $t2 = $k1t.Replace('\', '/')
 $okE1 = ($e1.Code -eq 0 -and $e1.Out.Contains("CARGO_TARGET_DIR=$t2") -and $e1.Out.Contains('CARGO_BUILD_JOBS=3') -and $e1.Out.Contains('RUST_TEST_THREADS=5') -and $e1.Out.Contains("CWD=$k2w"))
 Add-Result 'K2-env' "0, CARGO_TARGET_DIR=$t2 CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=5 in the tree" ('{0}: {1}' -f $e1.Code, (Get-Brief $e1.Out)) $okE1
-Add-Result 'K2-tier' '0, MOIRAI_TEST_TIER=pr' ('{0}: {1}' -f $e2.Code, (Get-Brief $e2.Out)) ($e2.Code -eq 0 -and $e2.Out.Contains('MOIRAI_TEST_TIER=pr'))
-Add-Result 'K2-missing' '2, names the path' ('{0}: {1}' -f $e3.Code, (Get-Brief $e3.Out)) ($e3.Code -eq 2 -and $e3.Out.Contains('no-such.toml'))
+$okT = ($e2.Code -eq 0 -and $e2.Out.Contains('MOIRAI_TEST_TIER=pr'))
+$okT6 = ($e6.Code -eq 2 -and (Test-Says $e6.Out '-TestTier takes pr only, not nightly') -and -not $e6.Out.Contains('ARGS='))
+Add-Result 'K2-tier' '0, MOIRAI_TEST_TIER=pr; 2 for -TestTier nightly, cargo not run' ('{0}: {1}; {2}' -f $e2.Code, (Get-Brief $e2.Out), (Get-Leg 'nightly' $e6.Code $okT6 $e6.Out)) ($okT -and $okT6)
+$okM = ($e3.Code -eq 2 -and $e3.Out.Contains('no-such.toml'))
+$okM7 = ($e7.Code -eq 2 -and (Test-Says $e7.Out "cargo: no work directory ''") -and -not $e7.Out.Contains('ARGS='))
+Add-Result 'K2-missing' '2, names the path; 2 for no -WorkDir, cargo not run' ('{0}: {1}; {2}' -f $e3.Code, (Get-Brief $e3.Out), (Get-Leg 'no-workdir' $e7.Code $okM7 $e7.Out)) ($okM -and $okM7)
 $args4 = @($e4.Out -split "`r?`n" | Where-Object { $_.StartsWith('ARGS=') })
-Add-Result 'K2-args' '0, exactly ARGS=fmt -p demo -- --check' ('{0}: {1}' -f $e4.Code, ($args4 -join ' | ')) ($e4.Code -eq 0 -and $args4.Count -eq 1 -and $args4[0].TrimEnd() -eq 'ARGS=fmt -p demo -- --check')
+$okA = ($e4.Code -eq 0 -and $args4.Count -eq 1 -and $args4[0].TrimEnd() -eq 'ARGS=fmt -p demo -- --check')
+$okA8 = ($e8.Code -eq 2 -and (Test-Says $e8.Out 'the cargo arguments must not contain') -and -not $e8.Out.Contains('ARGS='))
+Add-Result 'K2-args' '0, exactly ARGS=fmt -p demo -- --check; 2 for a metacharacter, cargo not run' ('{0}: {1}; {2}' -f $e4.Code, ($args4 -join ' | '), (Get-Leg 'metacharacter' $e8.Code $okA8 $e8.Out)) ($okA -and $okA8)
 Add-Result 'K2-sha' '2, names the sha' ('{0}: {1}' -f $e5.Code, (Get-Brief $e5.Out)) ($e5.Code -eq 2 -and $e5.Out.Contains('f' * 64))
 
 $bad = @($results | Where-Object { -not $_.Ok })
