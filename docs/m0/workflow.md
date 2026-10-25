@@ -609,9 +609,16 @@ or stop it.
   `local-settings.ps1` (§8: the main checkout only, §15 step 6), `kit-hash.ps1`, `kit-common.ps1` (shared helpers),
   `selftest.ps1` and `selftest-fake.ps1` (the red-proof). Beside them: `budgets.txt` (`gate=<minutes>`,
   `tests=<minutes>`, §15 step 9), `caps.txt` (the counted directories of the pre-flight and their caps, `<dir>=<cap>`
-  per line, from `xtask/nightly.toml` `[guard.caps]`, §10; laneA only while units build only in lane A, R-11),
-  `unit-allow.txt` (§8), `guard.exe` (a copy of `moirai-probes-bin guard`, §15 step 5) and `locks/` (one lock per
-  work directory).
+  per line, from `xtask/nightly.toml` `[guard.caps]`, §10), `unit-allow.txt` (§8), `guard.exe` (a copy of
+  `moirai-probes-bin guard`, §15 step 5) and `locks/` (one lock per work directory).
+- **The unit config** (K1; RULINGS R-150, R-178 OQ-1, R-184): `<ORCH>/<unit>/unit.toml`, written at the unit's
+  pre-launch (§5.2) and read-only to unit agents, holds flat TOML lines, each key once and no other key:
+  `target_dir` and `gate_wt` (strings) and `jobs`, `test_threads` and `floor_gb` (integers). The unit's args carry
+  its sha256 (`unitTomlSha`, §6.2). `start-gate.ps1` and `preflight.ps1` take `-UnitConfig <path>
+  -UnitConfigSha256 <hex>`: the file must exist, match the sha and parse, else exit 2; it supplies `-TargetDir`,
+  `-Jobs`, the disk floor and, for `-Kind gate`, `-WorkDir` (`gate_wt`), and an explicit value that differs exits 2.
+  `params.txt` records `unit_config=` and `test_threads=`, and `run-gate.ps1` sets `RUST_TEST_THREADS` from it.
+  Without the option the kit behaves as before, for the orchestrator's own runs.
 - **A run directory** holds `params.txt` and `cmd.txt` (written before the start), `PID` and `owner.txt` (unit, run
   id, kind, the runner's PID and start time, the budget, the work directory, the kit hash, `head`), then `child.pid`,
   `tree.txt` (every process of the run's tree, `pid=start time`), `peak.txt` (the tree's peak working set in bytes),
@@ -625,17 +632,21 @@ or stop it.
   PID tree). A tests run also fails when a test binary has no package (§7 "Test IDs"). `start-gate.ps1` exits 0
   (started), 1 (pre-flight refused: its line names the reasons, `ram-low`, `disk-low`, `commit-low`, or `guard`), 2
   (usage or precondition: an existing run directory, no `CARGO_TARGET_DIR`, a gate worktree that is not clean, a tests
-  run of cargo without `--message-format=json-render-diagnostics`, no `caps.txt`) or 6 (the work directory is busy).
+  run of cargo without `--message-format=json-render-diagnostics`, no `caps.txt`, a unit config that is missing, does
+  not match its sha256 or does not parse, or an explicit option that differs from it) or 6 (the work directory is
+  busy).
   `wait-gate.ps1` exits 0 (DONE), 3 (still running within the budget), 4 (past the budget: a hang) or 5 (the runner
   is gone without DONE).
 - **Commands agents run** (from the Bash tool, each after `cd` into its directory):
   - the full gate (the mechanic): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/start-gate.ps1
-    -RunDir <ORCH>/<unit>/gate_r<n> -WorkDir <gateWt> -Unit <unit> -RunId <unit>-r<n> -Kind gate -Detach m0/<role>
-    -DiskFloorGb <floor> -CmdLine "cargo xtask gate --branch m0/<role>"`;
-  - tests counted by name (the tester or the verifier): the same script with `-RunDir <ORCH>/<unit>/tests_r<n>-<m>
-    -WorkDir <the tree under test> -RunId <unit>-t<n>-<m> -Kind tests -Expected <ORCH>/<unit>/expected_r<n>.tsv
-    -CmdLine "cargo test --locked --message-format=json-render-diagnostics -p <crate> … --no-fail-fast"` (the kit
-    sets `MOIRAI_TEST_TIER=pr`; `.claude/agents/tester.md` carries the whole sequence);
+    -UnitConfig <ORCH>/<unit>/unit.toml -UnitConfigSha256 <unitTomlSha> -RunDir <ORCH>/<unit>/gate_r<n> -Unit <unit>
+    -RunId <unit>-r<n> -Kind gate -Detach m0/<role> -CmdLine "<gateCmd>"`, with no `-WorkDir`, `-TargetDir` or
+    `-DiskFloorGb`: the unit config gives the gate worktree, the lane and the floor;
+  - tests counted by name (the tester or the verifier): the same script with `-UnitConfig <ORCH>/<unit>/unit.toml
+    -UnitConfigSha256 <unitTomlSha> -RunDir <ORCH>/<unit>/tests_r<n>-<m> -WorkDir <the tree under test> -RunId
+    <unit>-t<n>-<m> -Kind tests -Expected <ORCH>/<unit>/expected_r<n>.tsv -CmdLine "cargo test --locked
+    --message-format=json-render-diagnostics -p <crate> … --no-fail-fast"` (the kit sets `MOIRAI_TEST_TIER=pr` and
+    `RUST_TEST_THREADS`; `.claude/agents/tester.md` carries the whole sequence);
   - a bounded wait: `… wait-gate.ps1 -RunDir <run dir>` (540 s by default; the shell tool's timeout above it), one
     call per slice, never a sleep loop in the shell;
   - a stop: `… stop-gate.ps1 -RunDir <run dir> -Reason "<why>"`. Never `taskkill /IM` or any kill by image name: it
@@ -677,8 +688,9 @@ or stop it.
   stopped by its PID tree, a bounded wait on a live run, a busy work directory, a stop and its archive, a runner that
   dies (the orphaned command is stopped by its recorded PID), the pre-flight below each floor and with a capped
   directory's reserve, through the fallback and the guard, the pre-flight below the commit floor on both paths, with
-  the floor's default pinned, and start-gate passing the floor on, the embedded copy, the local settings, and the
-  `-Detach` checkout with its lockfile rules. Each script's own red-proof is the selftest case named after it in
+  the floor's default pinned, and start-gate passing the floor on, the embedded copy, the local settings, the
+  `-Detach` checkout with its lockfile rules, and the unit config (`K1-*`: its keys, its sha256, the floor it gives
+  the pre-flight, a differing option, the gate worktree and the test threads, with a no-config control). Each script's own red-proof is the selftest case named after it in
   Appendix A.
 
 ## 8. Settings
@@ -783,17 +795,16 @@ unit.
   (`peak.txt`) leaves less than 1.5 GB free while the owner works.
 - **Build jobs.** `git config moirai.build-jobs` = half the logical cores divided by the number of lanes that may build
   at once (two), until measurement 21 sets the lane cap (`xtask/src/worktree.rs`, `.cargo/config.toml`). Role
-  worktrees made after a change get the new value. Under R-8 and R-9 every unit builds with the orchestrator
-  session's `CARGO_BUILD_JOBS` (4, from the main checkout's `settings.local.json`, §8); the value that `xtask worktree`
-  writes into a role worktree is unused.
-- **Disk.** Before every gate start, the pre-flight's floor (`diskFloorGb`, by default 25 GB, [MP §8.1]) on the
-  headroom: the available space less the growth the directories of `kit/caps.txt` may still take up to their caps.
+  worktrees made after a change get the new value. A unit builds with the `jobs` and `test_threads` of its
+  `<ORCH>/<unit>/unit.toml`, through the kit (§7 "The unit config"); the value that `xtask worktree` writes into a role
+  worktree is unused.
+- **Disk.** Before every gate start, the pre-flight's floor (the unit config's `floor_gb`; the kit's default 25 GB,
+  [MP §8.1]) on the headroom: the available space less the growth the directories of `kit/caps.txt` may still take up to their caps.
   They are the four counted directories under the target root (`laneA`, `laneB`, `fuzz`, `mutants`) with the caps
   of `xtask/nightly.toml` `[guard.caps]` (nightly.md §3), as the nightly runner passes them to the guard; a change of
   `[guard.caps]` on `master` is copied into `caps.txt`. With today's caps the headroom on the PC can be 0 (nightly.md
-  §7 item 3): §15 step 5 checks it before the first gate. While units build only in lane A (R-8, R-9), `caps.txt`
-  counts `laneA` alone and keeps the other three lines as comments (R-11). Restore the full `[guard.caps]` set before
-  any nightly run or any lane B unit.
+  §7 item 3): §15 step 5 checks it before the first gate. `caps.txt` counts the lanes the slots in use build in, with
+  the caps the orchestrator records there (R-26).
 - **Commit charge** (R-10). Every kit start refuses while the free commit charge
   (`Win32_OperatingSystem.FreeVirtualMemory`) is below `-CommitFloorGb`: 4 GB by default, operational policy like the
   other floors. The refusal makes no run directory, and the pre-flight line says `verdict=refuse commit-low` when the
@@ -936,9 +947,8 @@ differed, the step says so.
 5. **The kit.** Write every file of Appendix A into `D:/orch/moirai/kit/` exactly as printed (ASCII, CRLF line
    endings), then `budgets.txt` with `gate=30` and `tests=30` (until step 9), `unit-allow.txt` as in §8, and
    `caps.txt`: a comment line naming `master`'s sha, then one line per entry of `xtask/nightly.toml` `[guard.caps]` on
-   `master`, `<target root>/<name>=<cap>` (`D:/moirai-target/laneA=40GB`, `laneB`, `fuzz`, `mutants`). While units
-   build only in lane A, `caps.txt` holds only `D:/moirai-target/laneA=40GB` and the other three entries as comments
-   (R-11, §10). Build the guard
+   `master`, `<target root>/<name>=<cap>` (`D:/moirai-target/laneA=40GB`, `laneB`, `fuzz`, `mutants`); the
+   orchestrator then keeps the lanes the slots in use build in counted (R-26, §10). Build the guard
    (`cargo build -p moirai-probes-bin --bin guard --locked` with `CARGO_TARGET_DIR=D:/moirai-target/laneA`) and copy
    the executable to `D:/orch/moirai/kit/guard.exe` (the nightly runner keeps its own copy, nightly.md §1). Run
    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/orch/moirai/kit/selftest.ps1`: it must end with
@@ -1037,14 +1047,14 @@ and its exit codes. The red-proof of each is the `selftest.ps1` case that names 
 
 | Script | Red-proof cases in `selftest.ps1` |
 |---|---|
-| `start-gate.ps1` | `run-dir-reuse-refused`, `start-refused-below-disk-floor`, `lock-released-after-refusal`, `start-refused-without-target-dir`, `start-refused-cmd-metacharacter`, `tests-kind-needs-json-messages`, `start-refused-below-commit-floor`, `start-passes-default-commit-floor`, `busy-work-dir-refused`, `detach-dirty-refused`, `foreign-lockfile-refused`, `lockfile-equal-to-branch-staged-and-switched` |
-| `run-gate.ps1` | `gate-fail-row-exit-0`, `gate-pass-rows-exit-3`, `gate-nothing-exit-0`, `tests-zero`, `tests-missing-expected`, `tests-failed-exit-101`, `tests-unannounced-binary`, `tests-ids-carry-package`, `hang-stopped-by-pid-tree`, `detach-records-head-and-tree`, `lockfile-update-reported`, `summary-stamped-with-kit-hash`; the passing controls `gate-pass`, `tests-pass`, `tests-ids-by-name`, `tests-two-packages` |
+| `start-gate.ps1` | `run-dir-reuse-refused`, `start-refused-below-disk-floor`, `lock-released-after-refusal`, `start-refused-without-target-dir`, `start-refused-cmd-metacharacter`, `tests-kind-needs-json-messages`, `start-refused-below-commit-floor`, `start-passes-default-commit-floor`, `busy-work-dir-refused`, `detach-dirty-refused`, `foreign-lockfile-refused`, `lockfile-equal-to-branch-staged-and-switched`, `K1-defaults`, `K1-mismatch`, `K1-unknown`, `K1-sha`, `K1-gatewd`; the control `K1-control` |
+| `run-gate.ps1` | `gate-fail-row-exit-0`, `gate-pass-rows-exit-3`, `gate-nothing-exit-0`, `tests-zero`, `tests-missing-expected`, `tests-failed-exit-101`, `tests-unannounced-binary`, `tests-ids-carry-package`, `hang-stopped-by-pid-tree`, `detach-records-head-and-tree`, `lockfile-update-reported`, `summary-stamped-with-kit-hash`, `K1-threads`; the passing controls `gate-pass`, `tests-pass`, `tests-ids-by-name`, `tests-two-packages` |
 | `wait-gate.ps1` | `wait-slice-running`, `dead-runner-reported` |
 | `stop-gate.ps1` | `stop-gate-archives-and-kills`, `orphan-killed-by-pid`, `lock-released-after-stop` |
-| `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-fallback-commit-low`, `preflight-commit-default-floor`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`, `preflight-guard-commit-low`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-fallback-commit-control`, `preflight-guard-pass`, `preflight-guard-cap-control`, `preflight-guard-commit-control` |
+| `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-fallback-commit-low`, `preflight-commit-default-floor`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`, `preflight-guard-commit-low`, `K1-floor`, `K1-defaults`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-fallback-commit-control`, `preflight-guard-pass`, `preflight-guard-cap-control`, `preflight-guard-commit-control` |
 | `embed.ps1` | `embed-no-marker-refused`, `embed-two-markers-refused`, `embed-writes-lf-copy` |
 | `local-settings.ps1` | `local-settings-malformed-refused`, `local-settings-adds-and-keeps`, `local-settings-idempotent` |
-| `kit-common.ps1`, `kit-hash.ps1` | every case above; `summary-stamped-with-kit-hash` |
+| `kit-common.ps1`, `kit-hash.ps1` | every case above; `summary-stamped-with-kit-hash`; `K1-unknown` and `K1-sha` (`Read-UnitConfig`) |
 
 `selftest.ps1` is red-proved once by a deliberate defect: change the last line of `selftest-fake.ps1` to `exit 0`;
 the case `gate-pass-rows-exit-3` (and others) must then report `FAIL` and the run must end `selftest: FAIL` with exit
@@ -1097,6 +1107,40 @@ function Read-KeyValues([string]$Path) {
         if ($i -gt 0) { $h[$line.Substring(0, $i).Trim()] = $line.Substring($i + 1).Trim() }
     }
     return $h
+}
+
+function Read-UnitConfig([string]$Path, [string]$Sha256, [string]$Who) {
+    # The unit config <ORCH>/<unit>/unit.toml (docs/m0/workflow.md section 7 "The unit config"): flat TOML lines,
+    # each key once and no other key: target_dir and gate_wt (basic strings with no quote, backslash or white space),
+    # jobs, test_threads and floor_gb (integers). Its SHA-256 must equal the one the unit's args carry. Anything else
+    # exits 2, naming the path, the shas, the key or the line.
+    if ([string]::IsNullOrEmpty($Path) -or [string]::IsNullOrEmpty($Sha256)) { Fail 2 "${Who}: -UnitConfig and -UnitConfigSha256 go together" }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Fail 2 "${Who}: no unit config $Path" }
+    $got = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($got -ne $Sha256.ToLowerInvariant()) { Fail 2 "${Who}: the unit config $Path has sha256 $got, not $Sha256" }
+    $kinds = @{ target_dir = 'string'; gate_wt = 'string'; jobs = 'integer'; test_threads = 'integer'; floor_gb = 'integer' }
+    $h = @{}
+    foreach ($line in (Read-Lines $Path)) {
+        $t = $line.Trim()
+        if ($t -eq '' -or $t.StartsWith('#')) { continue }
+        $m = [regex]::Match($t, '^([A-Za-z0-9_-]+)\s*=\s*(?:"([^"\\\s]*)"|([0-9]+))$')
+        if (-not $m.Success) { Fail 2 "${Who}: not '<key> = <value>' in ${Path}: $t" }
+        $k = $m.Groups[1].Value
+        if (-not $kinds.ContainsKey($k)) { Fail 2 "${Who}: unknown key $k in $Path" }
+        if ($h.ContainsKey($k)) { Fail 2 "${Who}: the key $k twice in $Path" }
+        $isText = $m.Groups[2].Success
+        if (($kinds[$k] -eq 'string') -ne $isText) { Fail 2 ("${Who}: the key $k in $Path must be a {0}" -f $kinds[$k]) }
+        if ($isText) { $h[$k] = $m.Groups[2].Value } else { $h[$k] = $m.Groups[3].Value }
+    }
+    foreach ($k in $kinds.Keys) { if (-not $h.ContainsKey($k)) { Fail 2 "${Who}: no key $k in $Path" } }
+    return $h
+}
+
+function Test-SamePath([string]$A, [string]$B) {
+    # Paths compared with / for \, no trailing /, case-insensitive (Windows).
+    $x = $A.Replace('\', '/').TrimEnd('/')
+    $y = $B.Replace('\', '/').TrimEnd('/')
+    return [string]::Equals($x, $y, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
 function Get-KitHash {
@@ -1332,28 +1376,34 @@ function ConvertTo-ClaudeAbs([string]$Path) {
 # start-gate.ps1 - start one long gate detached, in its own minimized console, under a time budget
 # (docs/m0/workflow.md section 7 and Appendix A).
 #
-#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/start-gate.ps1 -RunDir <new dir> -WorkDir <dir>
-#     -Unit <unit> -RunId <id> -Kind gate|tests -CmdLine "<command>" [-Detach <branch>] [-BudgetMin <min>]
-#     [-TargetDir <dir>] [-Jobs <n>] [-Expected <tsv>] [-DiskFloorGb <gb>] [-RamFloorGb <gb>] [-CommitFloorGb <gb>]
-#     [-Guard <exe>] [-CapsFile <file>]
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/start-gate.ps1 -RunDir <new dir> [-WorkDir <dir>]
+#     -Unit <unit> -RunId <id> -Kind gate|tests -CmdLine "<command>" [-UnitConfig <unit.toml> -UnitConfigSha256 <hex>]
+#     [-Detach <branch>] [-BudgetMin <min>] [-TargetDir <dir>] [-Jobs <n>] [-Expected <tsv>] [-DiskFloorGb <gb>]
+#     [-RamFloorGb <gb>] [-CommitFloorGb <gb>] [-Guard <exe>] [-CapsFile <file>]
 #
+# -UnitConfig <ORCH>/<unit>/unit.toml with its -UnitConfigSha256 (the unit's args carry it; docs/m0/workflow.md
+# section 7 "The unit config"): the file must exist, match the sha and parse (kit-common's Read-UnitConfig), else exit
+# 2. It supplies -TargetDir and -Jobs, the pre-flight's disk floor (floor_gb, which preflight.ps1 reads from it) and,
+# for -Kind gate, -WorkDir (gate_wt); an explicit -TargetDir, -Jobs, -DiskFloorGb or (gate kind) -WorkDir that
+# differs from it exits 2. params.txt records unit_config= and test_threads= (both empty without a config); run-gate
+# sets RUST_TEST_THREADS from test_threads. Without -UnitConfig, -WorkDir is required and the defaults below hold.
 # -Detach <branch> (the gate worktree): under the lock, the work directory must be clean - except Cargo.lock and
 # fuzz/Cargo.lock when they equal the branch's, which are then staged - and is switched to the branch tip, detached
 # (git switch --detach), as cargo xtask gate --branch requires; the tip is recorded as head.
 # The command's words are split on white space (no word may contain a space), and the runner hands them to cmd.exe,
 # so none of & | < > ^ % " may appear in them. The run directory must not exist. A tests run of cargo needs
 # --message-format=json-render-diagnostics: its test ids take the package from cargo's compiler-artifact messages.
-# Defaults: -BudgetMin from <kit>/budgets.txt (<kind>=<minutes>), -TargetDir and -Jobs from CARGO_TARGET_DIR and
-# CARGO_BUILD_JOBS (the session's environment; the main checkout's settings.local.json sets them, docs/m0/workflow.md
-# section 8), -CommitFloorGb 4 (RULINGS R-10), -Guard <kit>/guard.exe, -CapsFile <kit>/caps.txt (the counted
-# directories of the pre-flight, preflight.ps1).
+# Defaults: -BudgetMin from <kit>/budgets.txt (<kind>=<minutes>), -TargetDir and -Jobs from the unit config, else from
+# CARGO_TARGET_DIR and CARGO_BUILD_JOBS (the orchestrator session's environment, docs/m0/workflow.md section 8),
+# -CommitFloorGb 4 (RULINGS R-10), -Guard <kit>/guard.exe, -CapsFile <kit>/caps.txt (the counted directories of the
+# pre-flight, preflight.ps1).
 # One run per work directory at a time: the lock is <kit>/locks/<work dir>.lock.
 # Writes in the run directory: params.txt and cmd.txt (before the start), PID and owner.txt (after it); the runner
 # (run-gate.ps1) writes the rest. Exit codes: 0 started; 1 pre-flight refused (the pre-flight line names its
 # reasons); 2 usage or precondition; 6 the work directory is busy (another live run holds its lock).
 param(
     [Parameter(Mandatory = $true)][string]$RunDir,
-    [Parameter(Mandatory = $true)][string]$WorkDir,
+    [string]$WorkDir = '',
     [Parameter(Mandatory = $true)][string]$Unit,
     [Parameter(Mandatory = $true)][string]$RunId,
     [Parameter(Mandatory = $true)][ValidateSet('gate', 'tests')][string]$Kind,
@@ -1367,11 +1417,28 @@ param(
     [double]$RamFloorGb = 1.5,
     [double]$CommitFloorGb = 4,
     [string]$Guard = '',
-    [string]$CapsFile = ''
+    [string]$CapsFile = '',
+    [string]$UnitConfig = '',
+    [string]$UnitConfigSha256 = ''
 )
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
-if (-not (Test-NoSpace @($RunDir, $WorkDir, $TargetDir, $Expected, $Unit, $RunId, $PSScriptRoot))) {
+# The unit config (K1): it supplies the target directory, the jobs and, for a gate, the work directory.
+$unitCfg = $null
+$threads = ''
+if ($UnitConfig -ne '' -or $UnitConfigSha256 -ne '') {
+    $unitCfg = Read-UnitConfig $UnitConfig $UnitConfigSha256 'start-gate'
+    if ($PSBoundParameters.ContainsKey('TargetDir') -and -not (Test-SamePath $TargetDir $unitCfg['target_dir'])) { Fail 2 ("start-gate: -TargetDir {0} differs from the unit config's target_dir {1}" -f $TargetDir, $unitCfg['target_dir']) }
+    if ($PSBoundParameters.ContainsKey('Jobs') -and $Jobs -ne $unitCfg['jobs']) { Fail 2 ("start-gate: -Jobs {0} differs from the unit config's jobs {1}" -f $Jobs, $unitCfg['jobs']) }
+    if ($PSBoundParameters.ContainsKey('DiskFloorGb') -and $DiskFloorGb -ne [double]$unitCfg['floor_gb']) { Fail 2 ("start-gate: -DiskFloorGb {0} differs from the unit config's floor_gb {1}" -f $DiskFloorGb, $unitCfg['floor_gb']) }
+    if ($Kind -eq 'gate' -and $WorkDir -ne '' -and -not (Test-SamePath $WorkDir $unitCfg['gate_wt'])) { Fail 2 ("start-gate: -WorkDir {0} differs from the unit config's gate_wt {1}" -f $WorkDir, $unitCfg['gate_wt']) }
+    $TargetDir = $unitCfg['target_dir']
+    $Jobs = $unitCfg['jobs']
+    $threads = $unitCfg['test_threads']
+    if ($Kind -eq 'gate' -and $WorkDir -eq '') { $WorkDir = $unitCfg['gate_wt'] }
+}
+if ($WorkDir -eq '') { Fail 2 'start-gate: no -WorkDir (a gate takes gate_wt from -UnitConfig; a tests run names its tree)' }
+if (-not (Test-NoSpace @($RunDir, $WorkDir, $TargetDir, $Expected, $Unit, $RunId, $PSScriptRoot, $UnitConfig))) {
     Fail 2 'start-gate: paths, the unit and the run id must not contain white space'
 }
 if (-not (Test-Path -LiteralPath $WorkDir -PathType Container)) { Fail 2 "start-gate: no work directory $WorkDir" }
@@ -1439,7 +1506,12 @@ if ($Detach -ne '') {
 $volume = $TargetDir
 if (-not (Test-Path -LiteralPath $volume -PathType Container)) { $volume = Split-Path -Parent $TargetDir }
 $pf = Join-Path $PSScriptRoot 'preflight.ps1'
-& $pf -Volume $volume -DiskFloorGb $DiskFloorGb -RamFloorGb $RamFloorGb -CommitFloorGb $CommitFloorGb -Guard $Guard -CapsFile $CapsFile
+if ($null -ne $unitCfg) {
+    # The disk floor is the config's floor_gb, which the pre-flight reads from the config itself.
+    & $pf -Volume $volume -UnitConfig $UnitConfig -UnitConfigSha256 $UnitConfigSha256 -RamFloorGb $RamFloorGb -CommitFloorGb $CommitFloorGb -Guard $Guard -CapsFile $CapsFile
+} else {
+    & $pf -Volume $volume -DiskFloorGb $DiskFloorGb -RamFloorGb $RamFloorGb -CommitFloorGb $CommitFloorGb -Guard $Guard -CapsFile $CapsFile
+}
 $pfCode = $LASTEXITCODE
 if ($pfCode -eq 2) { Stop-Start 2 'start-gate: the pre-flight could not run (exit 2)' }
 if ($pfCode -ne 0) { Stop-Start 1 "start-gate: pre-flight refused (exit $pfCode): nothing started" }
@@ -1448,7 +1520,8 @@ $hash = Get-KitHash
 New-Item -ItemType Directory -Path $RunDir | Out-Null
 $params = @(
     "unit=$Unit", "run_id=$RunId", "kind=$Kind", "workdir=$WorkDir", "target_dir=$TargetDir", "jobs=$Jobs",
-    ('budget_min={0}' -f $BudgetMin.ToString($script:Inv)), "expected=$Expected", "lock=$lock", "kit=$hash", "head=$head"
+    ('budget_min={0}' -f $BudgetMin.ToString($script:Inv)), "expected=$Expected", "lock=$lock", "kit=$hash", "head=$head",
+    "unit_config=$UnitConfig", "test_threads=$threads"
 )
 Write-Text (Join-Path $RunDir 'params.txt') (($params -join "`n") + "`n")
 Write-Text (Join-Path $RunDir 'cmd.txt') (($argv -join "`n") + "`n")
@@ -1484,7 +1557,7 @@ exit 0
 # (updated when the run left Cargo.lock or fuzz/Cargo.lock changed). Verdicts and exit codes: PASS 0; FAIL 1 (the
 # command exited non-zero, a row failed, an expected test is missing, a test binary has no package, or the run
 # changed a file other than a lockfile); VACUOUS 7 (nothing to count: no gate rows or zero tests); VOID 8 (the runner
-# failed); HANG 124 (past the budget).
+# failed); HANG 124 (past the budget). A test_threads value in params.txt (a unit config's) sets RUST_TEST_THREADS.
 param([Parameter(Mandatory = $true)][string]$RunDir)
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
@@ -1504,6 +1577,7 @@ $changes = ''
 try {
     $env:CARGO_TARGET_DIR = $Par['target_dir']
     if ($Par['jobs'] -ne '') { $env:CARGO_BUILD_JOBS = $Par['jobs'] }
+    if ($Par.ContainsKey('test_threads') -and $Par['test_threads'] -ne '') { $env:RUST_TEST_THREADS = $Par['test_threads'] }
     if ($Par['kind'] -eq 'tests') { $env:MOIRAI_TEST_TIER = 'pr' }
     $app = Get-Command -Name $argv[0] -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -eq $app) { throw ('not found: {0}' -f $argv[0]) }
@@ -1710,15 +1784,19 @@ exit 0
 # preflight.ps1 - refuse a big build below the RAM, commit-charge or disk floor (docs/m0/workflow.md sections 7 and
 # 10, Appendix A).
 #
-#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/preflight.ps1 -Volume <dir on the work volume>
-#     [-DiskFloorGb 25] [-RamFloorGb 1.5] [-CommitFloorGb 4] [-Guard <exe>] [-CapsFile <file>] [-InjectFreeGb <gb>]
-#     [-InjectRamGb <gb>] [-InjectCommitGb <gb>]
+#   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/preflight.ps1 [-Volume <dir on the work volume>]
+#     [-UnitConfig <unit.toml> -UnitConfigSha256 <hex>] [-DiskFloorGb 25] [-RamFloorGb 1.5] [-CommitFloorGb 4]
+#     [-Guard <exe>] [-CapsFile <file>] [-InjectFreeGb <gb>] [-InjectRamGb <gb>] [-InjectCommitGb <gb>]
+#
+# -UnitConfig with its -UnitConfigSha256 (docs/m0/workflow.md section 7 "The unit config", kit-common's
+# Read-UnitConfig): the disk floor is its floor_gb, and an explicit -DiskFloorGb that differs exits 2; -Volume defaults
+# to its target_dir, or that directory's parent while it does not exist. Without a config, -Volume is required.
 #
 # The disk floor is on the headroom of [MP 8.1]: the volume's available space less each counted directory's remaining
 # growth up to its cap, as the nightly runner counts it. The counted directories and their caps are the lines
 # "<absolute dir>=<cap>" of -CapsFile (default <kit>/caps.txt, copied from xtask/nightly.toml [guard.caps]; "#"
 # comments; caps in the guard's units, such as 40GB); a missing file or one with no directory is refused (exit 2).
-# While units build only in lane A, caps.txt counts laneA alone and keeps the other entries as comments (RULINGS R-11).
+# caps.txt counts the lanes the slots in use build in, with the caps the orchestrator records there (RULINGS R-26).
 # With the guard binary (default <kit>/guard.exe, a copy of moirai-probes-bin guard, [MP 8]) it asks the guard:
 # guard --volume <dir> --dir <dir> <cap>... --ram-floor <gb>GB --disk-floor <gb>GB, the injections as
 # --inject-volume-available and --inject-available-physical. Without it, it reads the volume's available space, the
@@ -1730,7 +1808,7 @@ exit 0
 # GB is 10^9 bytes ([MP 1.3]). The -Inject options exist to red-prove this script and are never passed by a real run.
 # Exit codes: 0 pass; 1 refused; 2 usage or unreadable.
 param(
-    [Parameter(Mandatory = $true)][string]$Volume,
+    [string]$Volume = '',
     [double]$DiskFloorGb = 25,
     [double]$RamFloorGb = 1.5,
     [double]$CommitFloorGb = 4,
@@ -1738,10 +1816,22 @@ param(
     [string]$CapsFile = '',
     [double]$InjectFreeGb = -1,
     [double]$InjectRamGb = -1,
-    [double]$InjectCommitGb = -1
+    [double]$InjectCommitGb = -1,
+    [string]$UnitConfig = '',
+    [string]$UnitConfigSha256 = ''
 )
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
+if ($UnitConfig -ne '' -or $UnitConfigSha256 -ne '') {
+    $unitCfg = Read-UnitConfig $UnitConfig $UnitConfigSha256 'preflight'
+    if ($PSBoundParameters.ContainsKey('DiskFloorGb') -and $DiskFloorGb -ne [double]$unitCfg['floor_gb']) { Fail 2 ("preflight: -DiskFloorGb {0} differs from the unit config's floor_gb {1}" -f $DiskFloorGb, $unitCfg['floor_gb']) }
+    $DiskFloorGb = [double]$unitCfg['floor_gb']
+    if ($Volume -eq '') {
+        $Volume = $unitCfg['target_dir']
+        if (-not (Test-Path -LiteralPath $Volume -PathType Container)) { $Volume = Split-Path -Parent $Volume }
+    }
+}
+if ($Volume -eq '') { Fail 2 'preflight: no -Volume (and no -UnitConfig to take it from)' }
 if (-not (Test-Path -LiteralPath $Volume -PathType Container)) { Fail 2 "preflight: no directory $Volume" }
 if ($Guard -eq '') { $Guard = Join-Path $PSScriptRoot 'guard.exe' }
 if ($CapsFile -eq '') { $CapsFile = Join-Path $PSScriptRoot 'caps.txt' }
@@ -2019,7 +2109,7 @@ exit $Code
 # when the command itself exits 0, zero rows or zero tests must not pass, a missing expected test must fail, test ids
 # must carry the package, a hang must be stopped by its PID tree, a busy work directory must be refused, and the
 # pre-flight must refuse below its floors (disk, RAM and the commit charge), counting the reserve of the capped
-# directories. Prints one line per case and "selftest: PASS" or "selftest: FAIL". Exit codes: 0 every case behaved;
+# directories, and the unit config must be checked and applied (K1-*). Prints one line per case and "selftest: PASS" or "selftest: FAIL". Exit codes: 0 every case behaved;
 # 1 a case misbehaved. Takes about three minutes. Never run beside a unit's gate in the same work directory.
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
@@ -2361,6 +2451,75 @@ $h5 = (Invoke-Git $repo @('rev-parse', 'HEAD')).Out.Trim()
 $t5 = (Invoke-Git $repo @('rev-parse', 'm0/demo-lock')).Out.Trim()
 Add-Result 'lockfile-equal-to-branch-staged-and-switched' "start 0, HEAD $t5" ('start {0}, HEAD {1}' -f $c5.Start.Code, $h5) ($c5.Start.Code -eq 0 -and $h5 -eq $t5)
 if ($c5.Start.Code -eq 0) { Wait-Done $c5.Run | Out-Null }
+
+# The unit config (K1, docs/m0/workflow.md section 7 "The unit config"): its keys and sha256, the floor it gives the
+# pre-flight, a differing option, the gate worktree and the test threads. Every reading is injected or every floor is
+# 0, and every pre-flight runs the fallback (a missing guard path), whose line has headroom=.
+function New-UnitConfig([string]$Name, [string]$Target, [string]$GateWt, [int]$Jobs, [int]$Threads, [int]$Floor, [string]$Extra = '') {
+    $p = Join-Path $base ($Name + '.toml')
+    $t = ('target_dir = "{0}"' -f $Target.Replace('\', '/')) + "`n" + ('gate_wt = "{0}"' -f $GateWt.Replace('\', '/')) + "`n" + ("jobs = {0}`ntest_threads = {1}`nfloor_gb = {2}`n" -f $Jobs, $Threads, $Floor) + $Extra
+    Write-Text $p $t
+    return @{ Path = $p; Sha = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() }
+}
+function Test-SameDir([string]$A, [string]$B) { return [string]::Equals($A.Replace('\', '/').TrimEnd('/'), $B.Replace('\', '/').TrimEnd('/'), [System.StringComparison]::OrdinalIgnoreCase) }
+function New-Dir([string]$Name) { $d = Join-Path $base $Name; New-Item -ItemType Directory -Path $d | Out-Null; return $d }
+$k1t = New-Dir 'k1-target'
+$k1g = New-Dir 'k1-gatewt'
+$cf13 = New-UnitConfig 'k1-floor13' $k1t $k1g 3 5 13
+$d1 = Invoke-Kit 'preflight.ps1' @('-UnitConfig', $cf13.Path, '-UnitConfigSha256', $cf13.Sha, '-InjectFreeGb', '100', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps)
+$cf0 = New-UnitConfig 'k1-floor0' $k1t $k1g 3 5 0
+$k1run = Join-Path $base 'run-k1-defaults'
+$savedJobs = $env:CARGO_BUILD_JOBS
+$env:CARGO_BUILD_JOBS = '9'
+$d2 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cf0.Path, '-UnitConfigSha256', $cf0.Sha, '-RunDir', $k1run, '-Unit', 'selftest', '-RunId', 'selftest-k1-defaults',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd (New-Lines 'k1-defaults' $pass) 0 0), '-BudgetMin', '2', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+$env:CARGO_BUILD_JOBS = $savedJobs
+$d2v = ''
+$d2p = @{}
+if ($d2.Code -eq 0) { $d2v = (Wait-Done $k1run).Done['verdict']; $d2p = Read-KeyValues (Join-Path $k1run 'params.txt') }
+$okD1 = ($d1.Code -eq 0 -and [regex]::IsMatch($d1.Out, 'headroom=[0-9.]+GB floor=13GB'))
+$okD2 = ($d2.Code -eq 0 -and $d2v -eq 'PASS' -and [regex]::IsMatch($d2.Out, 'headroom=[0-9.]+GB floor=0GB'))
+$okD3 = ($d2p.ContainsKey('unit_config') -and $d2p['unit_config'] -eq $cf0.Path -and $d2p['test_threads'] -eq '5' -and (Test-SameDir $d2p['target_dir'] $k1t) -and $d2p['jobs'] -eq '3')
+Add-Result 'K1-defaults' 'preflight 0 floor=13GB; start-gate 0, PASS, floor=0GB; params unit_config, test_threads 5, target and jobs 3 from the config' ('preflight {0} {1}; start-gate {2} {3}: {4}; params {5}' -f $d1.Code, $okD1, $d2.Code, $d2v, (Get-Brief $d2.Out), (($d2p.Keys | Sort-Object | ForEach-Object { '{0}={1}' -f $_, $d2p[$_] }) -join ' ')) ($okD1 -and $okD2 -and $okD3)
+$f1 = Invoke-Kit 'preflight.ps1' @('-UnitConfig', $cf13.Path, '-UnitConfigSha256', $cf13.Sha, '-InjectFreeGb', '12', '-InjectRamGb', '8', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps)
+$okF = ($f1.Code -eq 1 -and [regex]::IsMatch($f1.Out, 'verdict=refuse disk-low ') -and -not [regex]::IsMatch($f1.Out, 'ram-low|commit-low') -and [regex]::IsMatch($f1.Out, 'headroom=[0-9.]+GB floor=13GB'))
+Add-Result 'K1-floor' '1, refuse disk-low only, headroom= floor=13GB' ('{0}: {1}' -f $f1.Code, (Get-Brief $f1.Out)) $okF
+$mrun = Join-Path $base 'run-k1-mismatch'
+$m1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cf0.Path, '-UnitConfigSha256', $cf0.Sha, '-TargetDir', (Join-Path $base 'other'), '-RunDir', $mrun, '-Unit', 'selftest', '-RunId', 'selftest-k1-mismatch',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+Add-Result 'K1-mismatch' '2, names -TargetDir, no run dir' ('{0}, run dir {1}: {2}' -f $m1.Code, (Test-Path -LiteralPath $mrun), (Get-Brief $m1.Out)) ($m1.Code -eq 2 -and $m1.Out.Contains('-TargetDir') -and -not (Test-Path -LiteralPath $mrun))
+$cfu = New-UnitConfig 'k1-unknown' $k1t $k1g 3 5 0 "colour = `"red`"`n"
+$u1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cfu.Path, '-UnitConfigSha256', $cfu.Sha, '-RunDir', (Join-Path $base 'run-k1-unknown'), '-Unit', 'selftest', '-RunId', 'selftest-k1-unknown',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+Add-Result 'K1-unknown' '2, names colour' ('{0}: {1}' -f $u1.Code, (Get-Brief $u1.Out)) ($u1.Code -eq 2 -and $u1.Out.Contains('colour'))
+$zero = '0' * 64
+$s1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cf0.Path, '-UnitConfigSha256', $zero, '-RunDir', (Join-Path $base 'run-k1-sha'), '-Unit', 'selftest', '-RunId', 'selftest-k1-sha',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+Add-Result 'K1-sha' '2, names the sha' ('{0}: {1}' -f $s1.Code, (Get-Brief $s1.Out)) ($s1.Code -eq 2 -and $s1.Out.Contains($zero))
+$k1g2 = New-Dir 'k1-gatewt-2'
+$cfg2 = New-UnitConfig 'k1-gatewd' $k1t $k1g2 3 5 0
+$grun = Join-Path $base 'run-k1-gatewd'
+$g1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cfg2.Path, '-UnitConfigSha256', $cfg2.Sha, '-RunDir', $grun, '-Unit', 'selftest', '-RunId', 'selftest-k1-gatewd',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd (New-Lines 'k1-gatewd' $pass) 0 0), '-BudgetMin', '2', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+$gp = @{}
+if ($g1.Code -eq 0) { Wait-Done $grun | Out-Null; $gp = Read-KeyValues (Join-Path $grun 'params.txt') }
+Add-Result 'K1-gatewd' "start 0, workdir $k1g2" ('start {0}, workdir {1}' -f $g1.Code, $gp['workdir']) ($g1.Code -eq 0 -and $gp.ContainsKey('workdir') -and (Test-SameDir $gp['workdir'] $k1g2))
+$pe = Join-Path $base 'printenv.ps1'
+Write-Text $pe ("[Console]::Out.WriteLine('RUST_TEST_THREADS=' + `$env:RUST_TEST_THREADS)`n" + (($pass | ForEach-Object { "[Console]::Out.WriteLine('" + $_ + "')" }) -join "`n") + "`nexit 0`n")
+$k1g3 = New-Dir 'k1-gatewt-3'
+$cft = New-UnitConfig 'k1-threads' $k1t $k1g3 3 3 0
+$trun = Join-Path $base 'run-k1-threads'
+$savedThreads = $env:RUST_TEST_THREADS
+$env:RUST_TEST_THREADS = '7'
+$t1 = Invoke-Kit 'start-gate.ps1' @('-UnitConfig', $cft.Path, '-UnitConfigSha256', $cft.Sha, '-RunDir', $trun, '-Unit', 'selftest', '-RunId', 'selftest-k1-threads',
+    '-Kind', 'gate', '-CmdLine', ('{0} -NoProfile -ExecutionPolicy Bypass -File {1}' -f $PS, $pe), '-BudgetMin', '2', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+$env:RUST_TEST_THREADS = $savedThreads
+$tp = @{}
+$tl3 = ''
+if ($t1.Code -eq 0) { Wait-Done $trun | Out-Null; $tp = Read-KeyValues (Join-Path $trun 'params.txt'); $tl3 = (Read-Lines (Join-Path $trun 'log.txt')) -join ' ' }
+Add-Result 'K1-threads' 'params test_threads=3, the command printed RUST_TEST_THREADS=3' ('start {0}, test_threads={1}, log: {2}' -f $t1.Code, $tp['test_threads'], (Get-Brief $tl3)) ($t1.Code -eq 0 -and $tp['test_threads'] -eq '3' -and $tl3.Contains('RUST_TEST_THREADS=3'))
+# The no-config control: the call of gate-pass-rows-exit-3, with no -UnitConfig, keeps today's behaviour.
+Test-Verdict 'K1-control' 'gate' $pass 3 'FAIL' 1 | Out-Null
 
 $bad = @($results | Where-Object { -not $_.Ok })
 Write-Output ('selftest: {0} of {1} cases behaved; kit {2}; runs in {3}' -f ($results.Count - $bad.Count), $results.Count, (Get-KitHash), $base)
