@@ -134,6 +134,9 @@ if (!impl || impl.verdict !== 'DONE') return { ok: false, tier: A.tier, stage: '
 // relaunch that changes it re-runs the gate and every checker after it while round 1's review replays (section 6.4).
 const GRT = A.gateRun ? ' Gate run ' + A.gateRun + '.' : ''
 const GF = { type: 'string', enum: ['MATCH', 'MISMATCH'] }
+// The tester's answer for the triage skip (U5): only the test row is red and its FAILED ids are the named set.
+const EXP = { expected_only: BOOL, sha_ok: BOOL, by_count_reds: { type: 'integer' } }
+const EXPCHK = round => ` Write every FAILED gate id, one per line in X/gate-ids.sh's form <binary>|<source>|<test>, to ${SP}failed_r${round}.tsv. Return sha_ok true when the expected-red file matches its sha256 (true when there is none); by_count_reds, the number of reds you saw by count only (a crate whose failure text the limit withholds); and expected_only true only when the gate's test row is its only non-PASS row, its FAILED ids equal the expected-red file by name (none missing, none extra), no other red and no Critical or Important of yours remain, and by_count_reds is 0.`
 // The mechanic's fields, which the tester or the verifier checks against the kit's own files (U4, R-164 ruling 5).
 const FIELDS = (g, round) => ` The mechanic returned: outcome ${g.outcome}, head ${g.head}, tree ${g.tree}, kit ${g.kit}, rows ${g.rows}; the gate command: ${A.gateCmd}. Return gate_fields MATCH when those equal ${SP}gate_r${round}/DONE and summary.tsv's row count, ${SP}gate_r${round}/cmd.txt (one word per line) is the gate command word for word, and the log's range line is the range the command implies (master..${A.branch}, or its --range); else MISMATCH.`
 const COUNTS = ' Return critical and important as the counts of CONFIRMED Critical and Important items only, and plausible_ci as the count of PLAUSIBLE Critical and Important items; list every item in the report.'
@@ -167,8 +170,8 @@ const verify = async (round, since, logic) => {
     const testArm = async () => {
       const gate = await gateArm()
       if (!reached(gate)) return { gate, test: null }
-      const test = await run(`test-r${round}`, 'Verify', 'tester', S(['GREEN', 'RED'], Object.assign({ gate_fields: GF }, slim ? { logic: BOOL } : {})),
-        `ROLE: tester, round ${round}.${GRT} ${gateCheck}${FIELDS(gate, round)} Expected-red set: ${A.expectedRed ? A.expectedRed + ', sha256 ' + A.expectedRedSha + '; check the file against that sha' : 'none'}. Scope: ${scope}. ${muts}; the pins; ${tests('your role file gives')}. A gate outcome other than PASS is RED. Never commit, never edit ${A.wt}. Save ${SP}test_r${round}.md.`)
+      const test = await run(`test-r${round}`, 'Verify', 'tester', S(['GREEN', 'RED'], Object.assign({ gate_fields: GF }, EXP, slim ? { logic: BOOL } : {})),
+        `ROLE: tester, round ${round}.${GRT} ${gateCheck}${FIELDS(gate, round)} Expected-red set: ${A.expectedRed ? A.expectedRed + ', sha256 ' + A.expectedRedSha + '; check the file against that sha' : 'none'}.${EXPCHK(round)} Scope: ${scope}. ${muts}; the pins; ${tests('your role file gives')}. A gate outcome other than PASS is RED. Never commit, never edit ${A.wt}. Save ${SP}test_r${round}.md.`)
       return { gate, test }
     }
     if (!slim) {
@@ -216,9 +219,25 @@ const broken = v => {
   return ''
 }
 
+// The triage skip (U5; docs/m0/workflow.md section 6.4): every red is in the named expected-red set, by the tester's
+// count by name, with its file's sha checked and no red seen by count only; the review, when due, found nothing.
+const skip = v => HEAVY
+  && !!A.expectedRed // U5-1
+  && !!v.gate && v.gate.outcome === 'FAIL' // U5-2
+  && !!v.test && v.test.expected_only === true // U5-3a
+  && v.test.sha_ok === true // U5-3b
+  && v.test.by_count_reds === 0 // U5-3c
+  && (!v.reviewDue || ok0(v.review)) // U5-4
+const parked = v => ({
+  ok: false, unit: A.unit, tier: A.tier, class: A.class, stage: 'expected', note: 'every red is in the named expected-red set: the parked form; no triage',
+  failedIds: SP + 'failed_r' + round + '.tsv', round, crit: CRIT, gate: v.gate.outcome, head: v.gate.head, tree: v.gate.tree, kit: v.gate.kit,
+  rows: v.gate.rows, test: v.test && v.test.verdict, review: v.review && v.review.verdict, reports: SP,
+})
+
 let round = R0
 let v = await verify(round, SINCE0 || A.base, SINCE0 ? A.deltaLogic !== false : true)
 while (!green(v) && !broken(v) && round < T.maxRounds) {
+  if (skip(v)) return parked(v)
   phase('Fix')
   let items
   if (has('triage')) {
@@ -248,6 +267,7 @@ while (!green(v) && !broken(v) && round < T.maxRounds) {
   v = await verify(round, since, fix.logic !== false)
 }
 const why = broken(v)
+if (!why && skip(v)) return parked(v)
 const rep = has('verifier') ? v.ver : v.review
 return {
   ok: !why && !!green(v), unit: A.unit, tier: A.tier, class: A.class, stage: why ? why.split(':')[0] : 'verify', note: why, round, crit: CRIT,
