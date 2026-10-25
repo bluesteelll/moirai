@@ -72,14 +72,14 @@ orchestration state outside the repository (workflow.md §3).
 - **Separation of duties.** Stage roles (architect, architecture-critic, developer, tester, verifier, code-reviewer,
   which also triages, researcher, project-analyst, results-analyst, doc-writer, mechanic) sit on top of PLAN §3.1's
   author roles. Every agent of a unit obeys the unit's author role: S1–S6 and the write map of `docs/m0/authors.md` §3.
-  The role's `deny_read` path rules in `xtask/roles.toml` are not applied to unit agents (workflow.md §2, R-8). A
-  reading limit that a unit's spec or brief sets for a separation rule binds every way of reading, Bash included (`cat`,
-  `rg`, `git show <rev>:<path>`, a `git diff` over those paths). A file you need but may not read is a review finding in
-  your report; never read it. The developer never gives the final verdict; the tester, or in a STANDARD unit the
-  verifier, owns the full suite, the pins and the mutations, never commits and never fixes; the reviewer finds and never
-  fixes; the critic critiques and never redesigns; the researcher and the analysts never edit the repository; the
-  mechanic runs and summarises and never gives a verdict. An agent that meets an ambiguity stops and escalates in its
-  report.
+  Every limit on what a unit agent may read is in the role files' section "Reading limit": its common rule, the author
+  role's row there and the header's extras (workflow.md §2; R-8, R-178, R-179). The limit binds every way of reading,
+  Bash included (`cat`, `rg`, `git show <rev>:<path>`, a `git diff` over those paths). A file you need but may not read
+  is a review finding in your report; never read it. The developer never gives the final verdict; the tester, or in a
+  STANDARD unit the verifier, owns the full suite, the pins and the mutations, never commits and never fixes; the
+  reviewer finds and never fixes; the critic critiques and never redesigns; the researcher and the analysts never edit
+  the repository; the mechanic runs and summarises and never gives a verdict. An agent that meets an ambiguity stops and
+  escalates in its report.
 - **Plan Mode.** An interactive change that touches three or more files goes through Plan Mode. Inside a unit the
   approved plan is `cut.md`: the architect's, critiqued, in a HEAVY unit, and the developer's own in a STANDARD unit;
   a LIGHT unit follows its spec. A subagent never enters Plan Mode.
