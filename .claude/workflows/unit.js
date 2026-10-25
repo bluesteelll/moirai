@@ -130,6 +130,12 @@ const impl = await run('implement', 'Implement', 'developer', S(['DONE', 'STOPPE
   `${A.resumeNote ? 'RESUME NOTE: ' + A.resumeNote + '\n' : ''}ROLE: developer, in ${A.wt}. ${START[A.tier]}`)
 if (!impl || impl.verdict !== 'DONE') return { ok: false, tier: A.tier, stage: 'implement', crit: CRIT, impl }
 
+// The gate run token (U4): in the gate's, tester's, verifier's, triage's and fix's prompts, never the review's, so a
+// relaunch that changes it re-runs the gate and every checker after it while round 1's review replays (section 6.4).
+const GRT = A.gateRun ? ' Gate run ' + A.gateRun + '.' : ''
+const GF = { type: 'string', enum: ['MATCH', 'MISMATCH'] }
+// The mechanic's fields, which the tester or the verifier checks against the kit's own files (U4, R-164 ruling 5).
+const FIELDS = (g, round) => ` The mechanic returned: outcome ${g.outcome}, head ${g.head}, tree ${g.tree}, kit ${g.kit}, rows ${g.rows}; the gate command: ${A.gateCmd}. Return gate_fields MATCH when those equal ${SP}gate_r${round}/DONE and summary.tsv's row count, ${SP}gate_r${round}/cmd.txt (one word per line) is the gate command word for word, and the log's range line is the range the command implies (master..${A.branch}, or its --range); else MISMATCH.`
 const COUNTS = ' Return critical and important as the counts of CONFIRMED Critical and Important items only, and plausible_ci as the count of PLAUSIBLE Critical and Important items; list every item in the report.'
 const verify = async (round, since, logic) => {
   const delta = round > 1 || since !== A.base
@@ -140,7 +146,7 @@ const verify = async (round, since, logic) => {
     ? `DELTA since ${since}${round > 1 ? ' (' + SP + 'fix_r' + (round - 1) + '.md)' : ''}, the unit's own changes only: list them with git log --first-parent --format="%H %P %s" ${since}..HEAD; a commit with one parent is read with git show --name-only --format= <c>, then git show <c> -- <the lock-set paths>; a merge commit (a trunk sync) only through its conflict resolutions, git show --remerge-diff --name-only --format= <c>, then git show --remerge-diff <c> -- <the lock-set paths>. Never git diff ${since}..HEAD, git log -p or git show of a trunk commit: across a trunk sync they show other roles' changes. A listed path outside the lock set is a finding; never open it`
     : `the whole unit: git log ${A.trunk}..HEAD, git diff --name-only ${A.trunk}...HEAD, then git diff ${A.trunk}...HEAD -- <the lock-set paths>. A listed path outside the lock set is a finding; never open it`
   const gateArm = () => run(`gate-r${round}`, 'Verify', 'mechanic', GATE,
-    `ROLE: mechanic, round ${round}.${A.gateRun ? ' Gate run ' + A.gateRun + '.' : ''} Run the full gate of ${A.branch} through the kit as your role file describes and summarise it; you give no verdict. From ${SP}: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ${A.orch}/kit/start-gate.ps1 -UnitConfig ${SP}unit.toml -UnitConfigSha256 ${A.unitTomlSha} -RunDir ${SP}gate_r${round} -Unit ${A.unit} -RunId ${A.unit}-r${round} -Kind gate -Detach ${A.branch} -CmdLine "${A.gateCmd}" (the config gives the gate worktree, the target directory, the jobs and the floor). Save ${SP}gate_r${round}.md. Return the outcome (the verdict of DONE, or LOCKFILE when DONE says lockfile=updated), head, tree and kit copied from DONE, and rows, the number of summary.tsv rows. For a crate whose failure text your reading limit withholds, report its FAILED ids, count lines and log line numbers only.`)
+    `ROLE: mechanic, round ${round}.${GRT} Run the full gate of ${A.branch} through the kit as your role file describes and summarise it; you give no verdict. From ${SP}: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ${A.orch}/kit/start-gate.ps1 -UnitConfig ${SP}unit.toml -UnitConfigSha256 ${A.unitTomlSha} -RunDir ${SP}gate_r${round} -Unit ${A.unit} -RunId ${A.unit}-r${round} -Kind gate -Detach ${A.branch} -CmdLine "${A.gateCmd}" (the config gives the gate worktree, the target directory, the jobs and the floor). Save ${SP}gate_r${round}.md. Return the outcome (the verdict of DONE, or LOCKFILE when DONE says lockfile=updated), head, tree and kit copied from DONE, and rows, the number of summary.tsv rows. For a crate whose failure text your reading limit withholds, report its FAILED ids, count lines and log line numbers only.`)
   const reached = g => !!g && (g.outcome === 'PASS' || g.outcome === 'FAIL')
   const gateCheck = `First check ${SP}gate_r${round}.md exists, else STOP; check it against the kit's own files in ${SP}gate_r${round}/ (DONE, summary.tsv) and record any disagreement as a mechanic escape in your report.`
   const tests = how => `the tests of the crates the unit touches, run through the kit as ${how} (-UnitConfig ${SP}unit.toml -UnitConfigSha256 ${A.unitTomlSha}; -RunDir ${SP}tests_r${round}-<m> and -RunId ${A.unit}-t${round}-<m>, m = 1, 2, ... per run this round; -Kind tests; -Expected ${SP}expected_r${round}.tsv, which you write from cut.md's expected set and ${SP}baseline_unit.tsv, never from ${A.orch}/baseline.tsv), counted BY NAME (zero tests = RED)`
@@ -161,8 +167,8 @@ const verify = async (round, since, logic) => {
     const testArm = async () => {
       const gate = await gateArm()
       if (!reached(gate)) return { gate, test: null }
-      const test = await run(`test-r${round}`, 'Verify', 'tester', slim ? S(['GREEN', 'RED'], { logic: BOOL }) : S(['GREEN', 'RED']),
-        `ROLE: tester, round ${round}. ${gateCheck} Scope: ${scope}. ${muts}; the pins; ${tests('your role file gives')}. A gate outcome other than PASS is RED. Never commit, never edit ${A.wt}. Save ${SP}test_r${round}.md.`)
+      const test = await run(`test-r${round}`, 'Verify', 'tester', S(['GREEN', 'RED'], Object.assign({ gate_fields: GF }, slim ? { logic: BOOL } : {})),
+        `ROLE: tester, round ${round}.${GRT} ${gateCheck}${FIELDS(gate, round)} Expected-red set: ${A.expectedRed ? A.expectedRed + ', sha256 ' + A.expectedRedSha + '; check the file against that sha' : 'none'}. Scope: ${scope}. ${muts}; the pins; ${tests('your role file gives')}. A gate outcome other than PASS is RED. Never commit, never edit ${A.wt}. Save ${SP}test_r${round}.md.`)
       return { gate, test }
     }
     if (!slim) {
@@ -181,8 +187,8 @@ const verify = async (round, since, logic) => {
       ? `re-run the main red-first that ${SP}cut.md marks, red on the parent and green on HEAD; 1 mutation of your own at a line the unit changed that a named test must catch`
       : logic ? `${redo}; 1 new mutation of your own at a line the delta changed that a named test must catch`
       : `${redo}; no new mutation: ${flag}; that item is not counted in critical or important, since its mutation ran in this round`
-    const ver = await run(`verifier-r${round}`, 'Verify', 'verifier', S(['GREEN', 'RED'], RATED_P),
-      `ROLE: verifier, round ${round}. ${gateCheck} Scope: ${scope}. Review the scope as your role file gives${round === 1 ? '' : ', and whether the fix closes the CONFIRMED Critical and Important items of ' + SP + 'verify_r' + prev + '.md'}. Then ${muts}; the pins; the developer's expected set in ${SP}cut.md against the tests the diff removes; ${tests('tester.md "The tests of a round" gives')}. A gate FAIL is the unit's when its row is of a crate the unit touches or of a crate that depends on a changed one; any other FAIL is environmental only on R-10's terms (docs/m0/workflow.md section 10). Line-cited findings, each Critical, Important or Minor, and CONFIRMED or PLAUSIBLE; a surviving mutation, a missing expected test, a by-name mismatch or a red-first that is not red is an Important CONFIRMED.${COUNTS} A gate outcome other than PASS is RED. Never commit, never edit ${A.wt}. Save ${SP}verify_r${round}.md.`)
+    const ver = await run(`verifier-r${round}`, 'Verify', 'verifier', S(['GREEN', 'RED'], Object.assign({ gate_fields: GF }, RATED_P)),
+      `ROLE: verifier, round ${round}.${GRT} ${gateCheck}${FIELDS(gate, round)} Scope: ${scope}. Review the scope as your role file gives${round === 1 ? '' : ', and whether the fix closes the CONFIRMED Critical and Important items of ' + SP + 'verify_r' + prev + '.md'}. Then ${muts}; the pins; the developer's expected set in ${SP}cut.md against the tests the diff removes; ${tests('tester.md "The tests of a round" gives')}. A gate FAIL is the unit's when its row is of a crate the unit touches or of a crate that depends on a changed one; any other FAIL is environmental only on R-10's terms (docs/m0/workflow.md section 10). Line-cited findings, each Critical, Important or Minor, and CONFIRMED or PLAUSIBLE; a surviving mutation, a missing expected test, a by-name mismatch or a red-first that is not red is an Important CONFIRMED.${COUNTS} A gate outcome other than PASS is RED. Never commit, never edit ${A.wt}. Save ${SP}verify_r${round}.md.`)
     return { gate, ver, slim, scope }
   }
   const [review, gate] = await parallel([reviewArm, gateArm])
@@ -204,6 +210,8 @@ const broken = v => {
   if (has('test') && !v.test) return 'test: the tester returned nothing'
   if (has('verifier') && !v.ver) return 'verifier: the verifier returned nothing'
   if (v.reviewDue && !v.review) return 'review: the reviewer returned nothing'
+  // The tester's or the verifier's check of the mechanic's fields against DONE (U4).
+  if ((v.test && v.test.gate_fields === 'MISMATCH') || (v.ver && v.ver.gate_fields === 'MISMATCH')) return 'gate: mechanic fields disagree with DONE'
   if (v.review && !sameHead(v.review.head, v.gate.head)) return `review: the review examined ${norm(v.review.head) || 'no head'} and the gate verified ${v.gate.head}: not a review of the verified head (one replayed from an earlier launch, or a misreported head); after a gateRun-only relaunch of round n's gate, relaunch DELTA SINCE the head gate_r<n-1>.md verified, with deltaRound n (docs/m0/workflow.md sections 5.3 and 6.4)`
   return ''
 }
@@ -215,7 +223,7 @@ while (!green(v) && !broken(v) && round < T.maxRounds) {
   let items
   if (has('triage')) {
     const tri = await run(`triage-r${round}`, 'Fix', 'code-reviewer', S(['DONE'], { confirmed: { type: 'integer' } }),
-      `ROLE: code-reviewer as the adversarial verifier (triage), read-only except scratch probes under ${SP}. Try to REFUTE every red in ${SP}test_r${round}.md, a FAIL in ${SP}gate_r${round}.md${v.review ? ' and every Critical and Important in ' + SP + 'review_r' + round + '.md' : ' (a slim round: no review ran)'}, against HEAD, reading code only within the round's scope: ${v.scope}. Per item: CONFIRMED, REFUTED or OUT-OF-SCOPE, with the reason. Save ${SP}triage_r${round}.md.`)
+      `ROLE: code-reviewer as the adversarial verifier (triage).${GRT} Read-only except scratch probes under ${SP}. Try to REFUTE every red in ${SP}test_r${round}.md, a FAIL in ${SP}gate_r${round}.md${v.review ? ' and every Critical and Important in ' + SP + 'review_r' + round + '.md' : ' (a slim round: no review ran)'}, against HEAD, reading code only within the round's scope: ${v.scope}. Per item: CONFIRMED, REFUTED or OUT-OF-SCOPE, with the reason. Save ${SP}triage_r${round}.md.`)
     if (!tri || tri.confirmed === 0) return { ok: false, tier: A.tier, stage: 'triage', note: 'nothing confirmed: the orchestrator rules on any remaining red', gate: v.gate, test: v.test, review: v.review, tri, reports: SP }
     items = `the CONFIRMED items of ${SP}triage_r${round}.md`
   } else {
@@ -234,7 +242,7 @@ while (!green(v) && !broken(v) && round < T.maxRounds) {
   }
   const since = v.gate.head
   const fix = await run(`fix-r${round}`, 'Fix', 'developer', S(['DONE', 'STOPPED'], { logic: BOOL }),
-    `ROLE: developer, in ${A.wt}. Fix ${items} as follow-up commits (never amend), each behavioural fix red-first; re-run the per-commit gates the fix touches. Refute an item you find wrong with evidence in ${SP}fix_r${round}.md instead of fixing it. An item marked "escalate"${HEAVY ? '' : ', or one whose fix would meet a HEAVY trigger,'} is a STOP with the reason "escalate: <trigger>", never a fix. Return logic = true when any fix commit changed non-test, non-comment code, and state it in ${SP}fix_r${round}.md. Save ${SP}fix_r${round}.md.`)
+    `ROLE: developer, in ${A.wt}.${GRT} Fix ${items} as follow-up commits (never amend), each behavioural fix red-first; re-run the per-commit gates the fix touches. Refute an item you find wrong with evidence in ${SP}fix_r${round}.md instead of fixing it. An item marked "escalate"${HEAVY ? '' : ', or one whose fix would meet a HEAVY trigger,'} is a STOP with the reason "escalate: <trigger>", never a fix. Return logic = true when any fix commit changed non-test, non-comment code, and state it in ${SP}fix_r${round}.md. Save ${SP}fix_r${round}.md.`)
   if (!fix || fix.verdict !== 'DONE') return { ok: false, tier: A.tier, stage: 'fix', round, fix, reports: SP }
   round++
   v = await verify(round, since, fix.logic !== false)
