@@ -1,7 +1,8 @@
 # The agent workflow: units, the orchestrator and the gate kit
 
 - **Status:** set up on 2026-10-07 from the owner's brief and the plan the owner approved that day, and updated on
-  2026-10-11 for R-5 to R-11 and on 2026-10-12 for R-23 (the tiers, the stop-list, two units after a trial pair); R-HARN
+  2026-10-11 for R-5 to R-11, on 2026-10-12 for R-23 (the tiers, the stop-list, two units after a trial pair) and on
+  2026-10-25 for LEAN-1 (R-149, R-150, R-178, R-179: the short header, the unit config, the lean stage rules); R-HARN
   (`docs/m0/**`, [authors.md](authors.md) §3), reviewed like any other `docs/m0/` file. The orchestrator reads this
   file. Every other agent reads only AGENTS.md "Agent work", its role file in `.claude/agents/` and its brief; an agent
   of a LIGHT or STANDARD unit may also read §5.1 (the tiers and their triggers), and the verifier also reads `tester.md`
@@ -14,7 +15,8 @@
   on 2026-10-07 (code.claude.com/docs/en/: `settings`, `settings-reference`, `permissions`, `sub-agents`,
   `workflows`, `prompt-caching`, `agent-view`); a fact that moves with a release is checked again in §15.
 - **Rulings:** R-1 to R-4 (§2) are the owner's answers of 2026-10-07. Later rulings are numbered on from R-5 in
-  `<ORCH>/RULINGS.md`, and units cite them by number. §2 summarises R-5 to R-11 and R-23.
+  `<ORCH>/RULINGS.md`, and units cite them by number. §2 summarises R-5 to R-11, R-23, R-149, R-150, R-178 and
+  R-179.
 
 ## 1. Terms and places
 
@@ -29,30 +31,26 @@
 - **Author role** (PLAN §3.1: R-HARN-I, R-MODEL, …) and **stage role** (`.claude/agents/`: architect,
   architecture-critic, developer, tester, verifier, code-reviewer, researcher, project-analyst, results-analyst,
   doc-writer, mechanic). Every agent of a unit is a stage role acting for the unit's author role, bound by that role's
-  S1–S6 and write map (AGENTS.md "Agent work") and by any reading limit its spec sets; the role's `deny_read` path rules
-  are not applied (R-8).
+  S1–S6 and write map (AGENTS.md "Agent work") and by its reading limit: the role files' section "Reading limit", the
+  author role's row there and the header's extras (R-8, R-178, R-179).
 - **Gate worktree**: a neutral, non-authoring worktree, detached, where only the full gate runs
   (`cargo xtask gate --branch m0/<role>`, PLAN §3.1 "The gate worktree"). There is one per PLAN lane, `gate-a` for
   the lane-A roles and `gate-b` for the lane-B roles of `xtask/roles.toml`, because the gate runs with the target
   directory of the branch's lane: units of different lanes then gate at once, and units of one lane take turns on the
-  kit's lock of that worktree (they would wait on cargo's build lock of the shared target directory anyway). While
-  units build only in lane A, every unit gates in `gate-a` with lane A's target directory, whatever its role's lane
-  (R-8, R-9); two open units take turns there on the kit's lock (R-23, §4).
+  kit's lock of that worktree (they would wait on cargo's build lock of the shared target directory anyway). Since
+  R-26 each slot has its own: slot A builds into `laneA` and gates in `gate-a`, slot B into `laneB` and `gate-b`, and
+  a unit's `<ORCH>/<unit>/unit.toml` names its gate worktree and lane (§7 "The unit config").
 - **Lock set**: the paths a unit may write. **Red-first**, **pin**: AGENTS.md "Agent work". **Mutation**: a deliberate
   bug that a named gate must catch. **Delta-scoped**: only what the last fix or sync changed.
 - **Tier**: LIGHT, STANDARD or HEAVY, the depth of a unit's checks (§5.1), which sets its stages (§6.1).
 - **Kit**: the PowerShell scripts in `<ORCH>/kit/` that run long gates detached under a budget (§7, Appendix A).
 - **Orchestrator session**: an interactive Claude Code session in the main checkout, on `master`. It plans, launches
   each unit's workflow itself (§6.3), reads verdicts, rules, merges and pushes; it never does a stage's work. Its
-  environment (the main checkout's `.claude/settings.local.json`, §8) gives every unit agent lane A's target
-  directory and 4 build jobs (R-8, R-9).
-- **Unit session** (superseded by R-8 and R-9; used under R-1 to R-7, up to the trial unit): a Claude Code session
-  started in the role worktree, which launched the unit workflow and nothing else. A subagent starts in the launching
-  session's working directory and inherits that session's permission rules and environment (Claude Code sub-agents
-  documentation). So a unit's agents now take the orchestrator session's rules and environment, and work in the role
-  worktree by starting every shell command with a `cd` into it (the unit header, §6.1). The role worktree's
-  `.claude/settings.local.json`, which `xtask worktree` still writes with the role's `deny_read` rules and its lane's
-  `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS` (`xtask/src/worktree.rs`), is unused.
+  environment (the main checkout's `.claude/settings.local.json`, §8) serves its own builds; a unit agent's cargo
+  calls take the target directory, the jobs and the test threads of the unit's `unit.toml` through the kit (§7;
+  R-178 OQ-1).
+- **Unit session** (superseded by R-8 and R-9): a session started in the role worktree up to the trial unit; a unit's
+  agents now run inside the orchestrator session and `cd` into the role worktree (the unit header, §6.1).
 
 | Place | Path | Made by |
 |---|---|---|
@@ -60,7 +58,7 @@
 | `<WT_ROOT>`, the worktree root | `D:/moirai-wt` | `git config moirai.worktree-root` (R-1) |
 | Role worktree, one per open unit | `<WT_ROOT>/<role>`, branch `m0/<role>` | `cargo xtask worktree <role> --base master` |
 | Gate worktrees | `<WT_ROOT>/gate-a`, `<WT_ROOT>/gate-b` | `git worktree add --detach`, once (§15 step 6) |
-| Lane target directories | `D:/moirai-target/laneA`, `D:/moirai-target/laneB` | `git config moirai.target-root` (PLAN §2.1); the orchestrator session's environment sets lane A for every unit (§8, R-8) |
+| Lane target directories | `D:/moirai-target/laneA`, `D:/moirai-target/laneB` | `git config moirai.target-root` (PLAN §2.1); a unit's `unit.toml` names its slot's lane (§5.2 step 6, §7; R-26) |
 | `<ORCH>`, the orchestration state | `D:/orch/moirai` | §15 step 3 (R-1) |
 
 ## 2. The owner's rulings
@@ -100,31 +98,52 @@ Later rulings, in short (the full text is in `<ORCH>/RULINGS.md`; units cite the
 - **R-7 Unit sessions through the app** (2026-10-08; superseded by R-8). A unit session started from the command
   line had no login of its own on the PC, so the orchestrator started unit sessions through the Claude app.
 - **R-8 Units from the orchestrator session** (2026-10-08; amended by R-9). The orchestrator session launches each
-  unit itself with the Workflow tool, from the embedded copy. There is no unit session and no CLI login, and the
-  role's `deny_read` path rules are not applied. S1–S6 and the write map of authors.md §3 still bind what a unit
-  writes. Builds take the main checkout's settings, lane A's target directory and 4 jobs, and every unit gates in
-  `gate-a`. R-8 first ran units in the main checkout itself; R-9 moved them into the role worktree.
+  unit itself with the Workflow tool, from the embedded copy. There is no unit session and no CLI login. The tool
+  rules of `xtask/roles.toml` are not applied; a unit agent's reading limit is its role file's section "Reading
+  limit", the author role's row there and the header's extras (R-178, R-179). S1–S6 and the write map of authors.md
+  §3 still bind what a unit writes. R-8 first ran units in the main checkout itself, with one shared target
+  directory; R-9 moved them into the role worktree, R-26 gave each slot its lane, and the unit config now carries it
+  (§7).
 - **R-9 A unit works in its own folder** (2026-10-08; in force). `wt` is the role worktree made by
   `cargo xtask worktree <role> --base master`, so the main checkout stays on `master`. `kit/local-settings.ps1` is
   not run for the role worktree, and the settings `xtask worktree` writes there go unused (§5.2).
 - **R-10 The commit charge and an environmental FAIL** (2026-10-08; in force). No full gate or other kit run starts
   while the free commit charge is below 4 GB, and the kit refuses such a start (§7, §10). A gate FAIL caused by the
   machine is re-run once on the same head; a second one is a STOP for the owner.
-- **R-11 The kit counts lane A only** (2026-10-11; in force until a nightly run or a lane B unit). `kit/caps.txt`
-  counts `D:/moirai-target/laneA` alone and keeps the other entries as comments. The full `[guard.caps]` set is
-  restored before any nightly run or any lane B unit (§10).
+- **R-11 The kit counted lane A only** (2026-10-11; superseded by R-26, which counts lane B again for the second
+  slot). `kit/caps.txt` holds the counted directories and the caps the orchestrator sets (§10).
 - **R-23 The lean workflow** (2026-10-12; in force). The owner chose risk tiers and a stop-list. Every unit runs at
   a tier, LIGHT, STANDARD or HEAVY (§5.1, §6.1), as the lean design states it with the amendments of its adversarial
   check: the merge-verdict machinery and every kit script are HEAVY; normative text brought in line with code is not
   exempt; a PLAUSIBLE Critical or Important blocks `ok`; tests are counted by name in every tier; and lower-tier units
   are audited, every one for the first 8, then 1 in 2 (§5.6). The stop-list says what is not built yet (§5.5). Two
   units run at once after a trial pair (§4, §10). The matching change of AGENTS.md is the owner's commit.
+- **R-149 A host fault, widened; the tester re-runs on a gate re-run** (2026-10-24; in force). A test binary that
+  ends abnormally with no FAILED line while the commit charge is below the kit's floor is a host fault, like a rustc
+  or cargo crash (R-142 ruling 4): it is re-run alone once, and a second fault of the same run is a STOP. A relaunch
+  that changes only `gateRun` must re-run the tester too (ruling 2), so the token reaches the checkers' prompts (§6.4).
+- **R-150 The lean process** (2026-10-24; the owner's answers and the orchestrator's Phase 0; in force). LEAN-1, one
+  R-HARN-I unit with no other unit in flight, brings the short header with the environment in a kit config, one full
+  gate at the final head for a markdown-only unit, the triage skipped when every red is expected by name, the
+  product-only critique for map renames, `gateRun` in the tester's prompt, and the tier trial closed with the 1-in-2
+  audit kept. Every reading limit in force stays, written once per role. Phase 0: rulings cited by id, one
+  product-only check of a new spec with a scoped recheck only after an applied Important, owner questions at once,
+  and short briefs from templates (§5.2).
+- **R-178 The LEAN-1 brief** (2026-10-24; in force). One kit cargo wrapper carries the lane, the jobs and the test
+  threads of every cargo call (OQ-1 (A)); `gateRun` reaches the tester's, verifier's, triage's and fix's prompts, not
+  the review's (OQ-2 (b)); a unit's limit beyond its row goes into `extras` (OQ-3 (a)); class M stays HEAVY and only
+  selects the product-only critique (OQ-4); the clean rule is a role-file rule (OQ-6 (a)); the mechanic returns a
+  checked `rows`, and no unit agent uses LSP (OQ-7 (a)).
+- **R-179 No reading limit retired** (2026-10-24; in force). Every limit in force stays (retiring one is the owner's
+  call); unit-scoped limits stay unit-scoped, as `extras` seeds; R-74 ruling 5's pointer strip and the unit
+  directory's lists are pre-launch duties (§5.2); one keyed limits file gives each limit its home.
 
 R-12 (2026-10-11) settles the questions of one unit, and §7 "The kit hash" carries its rule for re-installing the
 kit. Such unit rulings are not summarised here.
 
-§9 applies R-3. §10 applies R-4, R-5, R-10 and R-11, and §7 and Appendix A apply R-10 and R-11 to the kit. §1, §3 to
-§6, §8, §12, §13 and §15 apply R-8 and R-9. §4, §5, §6, §10 and §11 apply R-23. Chat with the owner may be in Russian;
+§9 applies R-3. §10 applies R-4, R-5, R-10 and R-26, and §7 and Appendix A apply R-10 to the kit. §1, §3 to §6,
+§8, §12, §13 and §15 apply R-8 and R-9. §4, §5, §6, §10 and §11 apply R-23. §5, §6, §7 and the role files apply
+R-149, R-150, R-178 and R-179. Chat with the owner may be in Russian;
 every file in the repository and in `<ORCH>` is in English (AGENTS.md).
 
 ## 3. The orchestration state: `<ORCH>`
@@ -141,8 +160,8 @@ rewrite of `RESUME.md`, and never pushed to the public repository (R-1). It hold
 | `baseline.tsv` | the test IDs (`<package>\|<source>\|<test>`, §7) and statuses of the whole workspace at tier `pr` on `master` (§15 step 8), refreshed per package at each merge (§5.4 step 6); no unit agent reads it (§5.2 step 6) |
 | `mechanic-escapes.tsv` | the mechanic's escapes (§9) |
 | `embed/<unit>.src.js`, `embed/<unit>.js`, `embed/args_<unit>.json` | the copy of `unit.js` taken at the unit's first launch, the embedded copy made from it, and the arguments of every launch (§6.3, §6.4) |
-| `<unit>/` | `spec.md`, `baseline_unit.tsv`, `run_<k>.txt` and `result_<k>.json` (written by the orchestrator, §6.3), `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's or the verifier's kit runs), `test_r<n>.md`, `verify_r<n>.md`, `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `audit_test.md` and `audit_review.md` (the audit of a LIGHT or STANDARD unit, §5.6), `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees), `kit-<commit>/` (the scratch kits of a unit that changes Appendix A, §7) |
-| `arms.tsv` | one row per finding of a tiered unit's checkers and of its audit, for the trial of the tiers (§5.6) |
+| `<unit>/` | `spec.md` (or `brief.md`), `baseline_unit.tsv`, `unit.toml`, `gates.md`, `extras.tsv`, `lock.md`, `expected-red.tsv` and `rulings.md` (written by the orchestrator at the pre-launch and read-only to unit agents, §5.2), `run_<k>.txt` and `result_<k>.json` (written by the orchestrator, §6.3), `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's or the verifier's kit runs), `test_r<n>.md`, `verify_r<n>.md`, `final_r<n>.md` (a finalGate round's final check, §6.1), `failed_r<n>.tsv` (the tester's FAILED gate ids), `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `audit_test.md` and `audit_review.md` (the audit of a LIGHT or STANDARD unit, §5.6), `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees), `kit-<commit>/` (the scratch kits of a unit that changes Appendix A, §7) |
+| `arms.tsv` | one row per finding of a tiered unit's checkers and of its audit (§5.6) |
 | `kit/` | the scripts of Appendix A (`cargo.ps1`, the unit agents' cargo wrapper, among them), `budgets.txt`, `caps.txt`, `unit-allow.txt`, `guard.exe`, `locks/`, `selftest-runs/` |
 
 Its `.gitignore` holds `/*/wt-*/`, `/*/kit-*/`, `log.txt`, `/kit/locks/`, `/kit/selftest-runs/` and `/kit/guard.exe`.
@@ -178,22 +197,24 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 
 - **One worktree per unit**, the role worktree. `xtask worktree` still writes the role's `deny_read` rules, the lane's
   target directory and `CARGO_BUILD_JOBS` into its settings (`xtask/src/worktree.rs`), but no session starts there,
-  so they are unused: unit agents take the orchestrator session's rules and environment (§8, R-8, R-9). Two agents
+  so they are unused: unit agents take the orchestrator session's rules, and their cargo environment from the unit
+  config through the kit (§7, §8, R-8, R-9). Two agents
   never build or edit in one checkout at once:
   inside a unit the stages run one after another in the role worktree, and the tester and the reviewer, which run in
   parallel, only read it.
 - **Scratch worktrees** for red-firsts on the parent and for mutations: `git worktree add --detach
-  <ORCH>/<unit>/wt-<stage> <sha>`, removed with `git worktree remove` when done. They build into the session's lane
-  target directory, never into a private one (the disk headroom is the binding resource, [MP §8]); cargo's build
-  lock serialises them with the lane's other builds.
+  <ORCH>/<unit>/wt-<stage> <sha>`, removed with `git worktree remove` when done. They build only through the kit
+  (`cargo.ps1`, §7) into the unit's lane, never into a private target directory (the disk headroom is the binding
+  resource, [MP §8]); cargo's build lock serialises them with the lane's other builds. A package a scratch tree built
+  is cleaned before the lane's next counted run or gate (R-122 ruling 4, R-168 ruling 2: the role files' clean rule).
 - **Lock sets.** A file outside the unit's lock set, or in another open unit's set, is a STOP. The lock set lies
   inside what the author role may write (authors.md §3); two open units never share a path.
 - **Concurrency**: at most the capacity (§10), one open unit per role. Under R-23, two units run at once after a
   trial pair: the trial is a docs or spec unit beside another unit, and two code units follow only if RAM and D: hold
-  (the pre-flight's floors, `peak.txt`). Both gate in `gate-a`, serialised by the kit's lock (a busy start is exit 6:
-  the mechanic waits on the named run and starts again), so no second set of lane A artifacts is built. A `LOCKFILE`
-  outcome of one unit leaves `gate-a`'s lockfiles changed, and the other unit's next start there exits 2 ("lockfiles
-  differ") until that unit's lockfile commit lands: the orchestrator takes the lockfile steps below first, and two
+  (the pre-flight's floors, `peak.txt`). Since R-26 each slot has its own lane and gate worktree, named in its
+  units' `unit.toml`; two units of one slot would take turns on the kit's lock (a busy start is exit 6: the mechanic
+  waits on the named run and starts again). A `LOCKFILE` outcome of one unit leaves its gate worktree's lockfiles
+  changed, and the next start there exits 2 ("lockfiles differ") until that unit's lockfile commit lands: the orchestrator takes the lockfile steps below first, and two
   code units that may change a manifest do not run at once.
 - **Disk.** Every gate start checks the disk headroom first (the kit's pre-flight, §10): the volume's available space
   less the growth the counted directories of `kit/caps.txt` may still take up to their caps, as the guard counts it for
@@ -204,14 +225,14 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 - **Lockfile changes.** `Cargo.lock` and `fuzz/Cargo.lock` change only in the gate worktree (PLAN §3.1; authors.md
   §3), and every per-commit gate runs `--locked`. A unit that changes a manifest so that the lockfile must change:
   1. the developer commits the manifest change and STOPs with the reason `lockfile` (its `--locked` gates cannot run);
-  2. the orchestrator runs the full gate once itself, through the kit in the unit's gate worktree (`gate-a` with lane
-     A's target directory while units build only in lane A, R-8)
-     (`start-gate.ps1 -RunDir <ORCH>/<unit>/lock_<k> -WorkDir <gateWt> -Unit <unit> -RunId <unit>-lock<k> -Kind gate
-     -Detach m0/<role> -TargetDir <the lane's target directory> -CmdLine "cargo xtask gate --branch m0/<role>"`):
+  2. the orchestrator runs the full gate once itself, through the kit with the unit's config, which names its gate
+     worktree and lane (`start-gate.ps1 -UnitConfig <ORCH>/<unit>/unit.toml -UnitConfigSha256 <unitTomlSha> -RunDir
+     <ORCH>/<unit>/lock_<k> -Unit <unit> -RunId <unit>-lock<k> -Kind gate -Detach m0/<role> -CmdLine "cargo xtask
+     gate --branch m0/<role>"`):
      its DONE says `lockfile=updated` (the `lock` step resolved the branch's manifests and the build steps ran on the
      result). A unit whose mechanic reported `LOCKFILE` on its own joins here with that run;
   3. the orchestrator relaunches with the resume note `Copy Cargo.lock (and fuzz/Cargo.lock when DONE's changes
-     list it) from <gateWt> into <wt> byte for byte, commit it as WP-xx: Record the lockfile the gate resolved for
+     list it) from <the unit's gate_wt> into <wt> byte for byte, commit it as WP-xx: Record the lockfile the gate resolved for
      <change>, then continue cut.md`;
   4. at the next gate start the kit finds the gate worktree's lockfiles equal to the branch's, stages them and
      switches on (`start-gate.ps1 -Detach`).
@@ -257,8 +278,8 @@ The tier sets the unit's stages (§6.1).
   role files where H6 does not hold.
 - **Rules.**
   - The spec states the tier on a `Tier:` line with the six answers, "H1: no" … "H6: yes: <why>", and below HEAVY
-    either "L1–L3 hold" or "code, no trigger".
-  - When in doubt, the higher tier.
+    either "L1–L3 hold" or "code, no trigger"; and beside it the class on a `Class:` line with one line of why (below).
+  - When in doubt, the higher tier, and the higher class.
   - A unit whose arguments name no tier was launched before the tiers and is HEAVY; its relaunches keep its embedded
     script (§6.3), and the role files say so.
   - **Escalation.** An agent below HEAVY that meets a trigger, or a LIGHT developer whose change needs new behaviour
@@ -272,16 +293,49 @@ The tier sets the unit's stages (§6.1).
   - **Batching.** LIGHT or STANDARD items of one role that carry no decision may share one unit across that role's
     WPs; each commit names its own WP (§1).
 
+**Classes** (R-150 ruling 0; R-178 OQ-4; R-190 ruling 3). The spec or brief names the class with one line of why;
+when in doubt, the higher class. The Tier column is the class's tier, the higher one when in doubt.
+
+| Class | What it is | Tier |
+|---|---|---|
+| M | Mechanical by map. Every changed token is a row of a checked map. No behaviour changes. Every derived value that changes is listed, or none changes; the bytes are already fixed by merged text and a ruling | HEAVY, with the product-only critique (R-178 OQ-4) |
+| MD | Mechanical, with derived values the map does not fix: a rename that changes a hash, an id, an order or a golden computed from the renamed strings | HEAVY |
+| R | An evidence or review report: Markdown that judges other text, with no normative change | STANDARD |
+| N | Normative spec text with no open decision: a rule text whose content rulings settle | HEAVY (H4) |
+| D | A format or design decision: the text fixes bytes, layout or a merge rule | HEAVY |
+| B | Code with behaviour: the model, the oracle, `xtask`, the toy log or product code whose behaviour changes | HEAVY |
+| V | Byte or fixture values: hex fixtures and digests recomputed under new values | HEAVY |
+| L | A LIGHT text fix: no behaviour changes and no test is added, removed or renamed (L-1's "Unchanged" line; L-10) | LIGHT |
+
+- **Class M's admission:** a map rename of the u44/u45/u47 profile, with no expected-red set and no census hit;
+  anything else is MD. A class M unit stays HEAVY: `class` `M` selects only the product-only critique (§6.1), and the
+  script refuses class M below HEAVY.
+- `finalGate` (one full gate, at the final head) needs class R, N, D or L and the condition of §5.2; the script
+  refuses it with any other class (§6.2).
+
 ### 5.2 Launch a unit
 
 1. **Spec.** Write `<ORCH>/<unit>/spec.md`: the WP and its author role (authors.md §2), the tier with its six answers
-   (§5.1), the goal, the acceptance gates, each per-commit gate marked "expected red on master" or "must pass on
-   master", what is out of scope, the RULINGS it rests on, the lock set. Units are named `u<nn>-<slug>`. Then the
-   **pre-launch check** (§5.1): run each per-commit gate once on `master` and check it against its mark, and cite a
+   and the class (§5.1), the goal, the acceptance gates, each per-commit gate marked "expected red on master" or "must
+   pass on master", what is out of scope, the RULINGS it rests on, the lock set. Units are named `u<nn>-<slug>`. Then
+   the **pre-launch check** (§5.1): run each per-commit gate once on `master` and check it against its mark, and cite a
    file:line for every claim the spec makes about the tree; a gate that cannot pass on any tree is fixed in the spec
-   before the launch.
+   before the launch. As R-150 ruling 1 practises it (L-10 to L-17):
+   - specs and briefs come from the template, within its caps (L-12); a class B unit gets a short brief only when its
+     cut decides nothing (I-8), else a spec;
+   - rulings are cited by id, not by line (L-18), and every citation an agent needs lies inside its reading list
+     (R-179 ruling 3; the pre-launch duties below);
+   - one product-only check of a new spec, folded by the orchestrator, with a scoped recheck only after an applied
+     Important (L-13; L-14 with I-5); an apply is made only by an agent bound by the unit's author role (I-21);
+   - owner questions go out at once (L-16), no unit launches with an open decision (m-7), and the budgets of L-17
+     apply;
+   - the spec's dry-run table (I-6) has, for each must-pass gate, a failing row and a kill for its predicted reason, a
+     seeded trunk sync, and the counts by tool; a coupled unit's census comes from the owning role's analyst, as the
+     bare fact of a coupling (R-74 ruling 5).
 2. **Lock set.** Estimate it from the spec, inside the role's write map and disjoint from every open unit's set
-   (`RESUME.md`). The cut STOPs if its touch set leaves it; the orchestrator rules and relaunches.
+   (`RESUME.md`). The cut STOPs if its touch set leaves it; the orchestrator rules and relaunches. The args' `lock` and
+   `others` hold repository paths only, one line each; their named sections (a WP's lines, a parked unit's note) go to
+   `<ORCH>/<unit>/lock.md` (I-5), so that the header stays within its 5,000 characters.
 3. **Room.** The open units are fewer than the capacity, the role has no open unit, and the last `RESUME.md` row of
    the role is closed.
 4. **Worktree.** In the main checkout (on `master`, clean): `cargo xtask worktree <role> --base master`. The command
@@ -292,28 +346,77 @@ The tier sets the unit's stages (§6.1).
 5. **No local settings** (R-8, R-9): `kit/local-settings.ps1` is not run for the role worktree; unit agents run under
    the main checkout's settings (§8). Until R-8 this step ran it for the role worktree, to add the additional
    directories, the allow rules and the role's `deny_read` rules there.
-6. **Arguments and the unit's baseline.** Write `<ORCH>/embed/args_<unit>.json` (§6.2): `base` = `git rev-parse master`,
-   `gateWt` = `gate-a` while units build only in lane A (otherwise the gate worktree of the role's lane), `tier` = the
-   spec's tier, `dryRun` = `false`, `resumeNote` = `""`, `gateRun` = `""`, `deltaLogic` = `true`, `deltaRound` = `1`.
+6. **The unit's files, its arguments and its baseline** (R-184). The orchestrator writes, read-only to unit agents:
+   - `<ORCH>/<unit>/unit.toml`, the kit config (§7 "The unit config"): `target_dir` and `gate_wt` of the slot, `jobs`,
+     `test_threads` and `floor_gb`;
+   - `<ORCH>/<unit>/gates.md`, the per-commit gates, lane-free (no target directory, jobs or floor: `unit.toml` holds
+     them), under its legend line "CLEAN is the role files' clean rule (U8); HOST FAULTS are the role files'
+     host-fault rule (R3); a cargo call runs through K2, which holds the lane." (R-186 ruling 7);
+   - `<ORCH>/<unit>/extras.tsv`, the unit's limits beyond its row: the rows of the limits' seeds file that the role's
+     last unit and the unit's scope give it, verbatim under the header row, narrowed only with a reason in their
+     `narrowing` cell (R-178 OQ-3 (a); R-179; R-186 rulings 4 and 5), or no file and `extras` `none`;
+   - `<ORCH>/<unit>/expected-red.tsv` for a named expected-red set: one id per line in the gate ids' form
+     `<binary>|<source>|<test>`, sorted bytewise, no header (R-184 ruling 6);
+   - `<ORCH>/<unit>/lock.md` (step 2) and `<ORCH>/<unit>/rulings.md`: a copy of `RULINGS.md` frozen at the launch, for
+     an S2-limited unit with the strip of the pre-launch duties below; a relaunch that cites a newer ruling appends it
+     there first, with the same strip (§5.3).
+
+   Then `<ORCH>/embed/args_<unit>.json` (§6.2): `base` = `git rev-parse master`, `tier` and `class` = the spec's,
+   `gates` = the path of `gates.md`, `extras` = `none` or `<ORCH>/<unit>/extras.tsv: <ids>`, `gateCmd`, `unitTomlSha`
+   = the sha256 of `unit.toml`, `expectedRed` and `expectedRedSha` (or `""`), `finalGate` (below), `dryRun` = `false`,
+   `resumeNote` = `""`, `gateRun` = `""`, `deltaLogic` = `true`, `deltaRound` = `1`. Old-form args (with `gateWt` or
+   `diskFloorGb`) are converted by the orchestrator's conversion tool, which `--check` verifies field by field.
    Write `<ORCH>/<unit>/baseline_unit.tsv`: the first line of `baseline.tsv`, then its rows whose package is one of the
-   unit's (the `-p` values of `gates`), for example `grep -E '^(xtask|moirai-vfs)[|]' <ORCH>/baseline.tsv`. A role
-   writes and reads its own packages; should a `deny_read` module pattern of the role (`xtask/roles.toml`) name one of
-   them, its rows whose test path lies in that module are dropped too, as the gate's filter drops them
+   unit's (the `-p` values of `<SP>gates.md`), for example `grep -E '^(xtask|moirai-vfs)[|]' <ORCH>/baseline.tsv`. A
+   role writes and reads its own packages; should a `deny_read` module pattern of the role (`xtask/roles.toml`) name
+   one of them, its rows whose test path lies in that module are dropped too, as the gate's filter drops them
    (`xtask/src/cargo.rs`). The tester or the verifier builds its expected set from this file; `baseline.tsv` itself
-   holds every crate's test names, which S2 withholds from most roles, and the unit header (§6.1, `unit.js`) limits
-   every agent's reads under `<ORCH>` to its unit's directory, `kit/` and `RULINGS.md`.
+   holds every crate's test names, which S2 withholds from most roles, and the role files' "Reading limit" limits every
+   unit agent's reads under `<ORCH>` to its unit's directory and `kit/`, with the rulings in its own `<SP>rulings.md`.
 7. **Embedded copy.** Copy the main checkout's `.claude/workflows/unit.js` (on `master`) to
    `<ORCH>/embed/<unit>.src.js`, then `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/embed.ps1
    -Script <ORCH>/embed/<unit>.src.js -ArgsFile <ORCH>/embed/args_<unit>.json -Out <ORCH>/embed/<unit>.js`.
 8. **Dry run** in the orchestrator session: `Workflow({ name: "unit", args: <the args with dryRun true> })` must
-   return `{ ok: true, args, stages, maxRounds }` with no agent started, and `stages` must equal §6.1's list for the
-   tier; it checks the script, the arguments and the tier. After a merge that changed `.claude/workflows/`, run
+   return `{ ok: true, args, stages, maxRounds, gatePlan, hdrChars }` with no agent started; `stages` must equal
+   §6.1's list for the tier, `gatePlan` must be `every round`, or `final head` for a `finalGate` unit, and `hdrChars`
+   is at most 5,000 (the script refuses a longer header); it checks the script, the arguments and the tier. After a merge that changed `.claude/workflows/`, run
    `/reload-skills` first, so that the session runs the merged script (Claude Code workflows documentation).
-9. **Launch** (§6.3): `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js" })` from this session; the run id it returns
-   goes to `<ORCH>/<unit>/run_1.txt`.
+9. **Launch** (§6.3): `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js" })` from this session. `<ORCH>/<unit>/run_1.txt`
+   records the run id it returns and the sha256 of `<SP>gates.md` and `<SP>extras.tsv` (R-186 ruling 2); before the
+   result is ruled the orchestrator re-checks both with R-162's fsck, and a mismatch is a STOP: the file is restored
+   and the unit relaunched.
 10. **Record.** A `RESUME.md` row: unit, role, WP, tier, branch, worktree, base, stage `launched`, the session (this
     orchestrator session, §6.4), the run id (`run_1.txt`), the script `<ORCH>/embed/<unit>.js`, the lock set. Commit
     `<ORCH>`.
+
+**The pre-launch duties** (R-74 ruling 5; R-135 ruling 2 (c); R-179 ruling 3; R-180 ruling 1). An S2-limited unit is
+one whose row or `extras` bars the model, the oracle or the toy log's bug module (R-74 ruling 5's S2 units). The
+orchestrator, at each pre-launch:
+
+- for S2-limited units, strips every file:line pointer into a path that the unit's row or `extras` bars from
+  agent-facing text; it is replaced by the test id and "(R-74's census)";
+- for S2-limited units, keeps in a unit directory only the may-hold list (its spec, tools, logs and `pre/`; copies and
+  excerpts of plans, rulings and reviews with every model, oracle and bug-module description removed; `rulings.md`;
+  `gate-ids.tsv` where the role's gate shows those names; a map extract without row A6);
+- for S2-limited units, keeps in it nothing of the never-holds list (scope reports or checks that describe model or
+  oracle code; `klotho-2026-10-13/k0-stdmd.md`; another role's R-MODEL, R-ORA or R-TOY cut, analyst report or census
+  report; another unit's tester counts by file);
+- leaves an R-MODEL, R-ORA or R-TOY unit its own pointers, cut and census; gives an R-ORA unit's directory oracle
+  material and never model material, and an R-MODEL unit's in a landing with an oracle unit the model census and never
+  oracle material (R-70 m-5);
+- puts every citation an agent needs inside its reading list: in an `X/` excerpt, restated with its repository or
+  ruling source, or marked "(orchestrator's record)".
+
+**`finalGate` may be true only when** no test reads the changed text, which the owning roles' analyst establishes at
+the base (R-150 ruling 0; R-178 I-7):
+- every lock-set path ends `.md` and lies outside `crates/`, `xtask/` and `fixtures/`;
+- a names-only grep for each file name and for each new file's directory, with counts over the barred paths, is 0;
+- a poison run in a scratch tree, each lock-set file in turn deleted, emptied and filled with garbage, with each
+  package cleaned in the run's lane and its `Compiling <pkg> (<tree>)` line checked, or the run in its own target
+  directory, changes no id by name, and the gate's doc rows, counted by status, are unchanged;
+- two positive controls each change their id, counted by name: `docs/spec/lq/std.md`
+  (`lq::tests::bind::the_catalog_texts_are_the_chapters_blocks`) and `docs/m0/authors.md`
+  (`authors::tests::reads_the_repository_ledger`).
 
 ### 5.3 Between runs
 
@@ -322,7 +425,10 @@ The tier sets the unit's stages (§6.1).
   is in the run record `~/.claude/projects/<project>/<session>/workflows/<run id>.json` (§6.4).
 - Read the result's fields only (§6.5). Open a report, by section (`rg -n`, ranged reads), only on `RED`,
   `CHANGES_REQUESTED`, `STOPPED`, a gate outcome other than `PASS`, or `ok: false`.
-- Answer a question as a numbered ruling in `RULINGS.md` and relaunch with a resume note that cites it (§6.4).
+- Answer a question as a numbered ruling in `RULINGS.md`, append it to the unit's `<SP>rulings.md` (with the strip
+  of §5.2 for an S2-limited unit), and relaunch with a resume note that cites it (§6.4).
+- A return with stage `expected` (HEAVY; §6.1): every red is in the named expected-red set, so no triage ran. Count
+  the tester's `failedIds` file by name against `<SP>expected-red.tsv`; equal, the unit is parked in that form.
 - A `LOCKFILE` outcome: §4 "Lockfile changes". A `HANG`, `VOID` or `VACUOUS` gate: read the kit run's DONE and the
   failure excerpt, rule, and relaunch (§6.4 "A gate re-run").
 - A return with stage `review` whose note says that the review examined another head than the gate verified: a
@@ -353,8 +459,8 @@ The tier sets the unit's stages (§6.1).
 2. **The trunk.** In the main checkout, on `master`, `git status --porcelain` prints nothing. If
    `git merge-base --is-ancestor master m0/<role>` fails, the trunk moved: relaunch the unit with the resume note
    `DELTA SINCE <head>: trunk sync only: git merge --no-ff master; resolve a conflict only in a lock-set path, by
-   editing and keeping both sides (a conflict in any other path is a STOP); then the per-commit gates of gates (the
-   role's own crates) only; no other change.` The re-run is delta-scoped to the unit's own changes and the merge's
+   editing and keeping both sides (a conflict in any other path is a STOP); then the per-commit gates of
+   `<SP>gates.md` (the role's own crates) only; no other change.` The re-run is delta-scoped to the unit's own changes and the merge's
    conflict resolutions, never a diff across the merge (§6.1); the mechanic's full gate, filtered for the role, covers
    the rest on the new head. Then start again at step 1.
 3. **Merge**: `git merge --no-ff m0/<role> -m "Merge m0/<role>: <unit>"`. The subject names no WP, so `xtask
@@ -392,16 +498,15 @@ Orchestrator rules for what is not built yet. Each holds until the owner, or a c
 - **S7. Minors never get a unit of their own.** At the merge, a review's Minor findings are folded into one fix-only
   relaunch (`DELTA SINCE <head>: fix …`) or dropped with a reason in `RESUME.md`.
 
-### 5.6 The tier trial and the audit (R-23)
+### 5.6 The audit (R-23, R-150)
 
-The tiers run as a measured trial, for the rest of M0 or for 25 tiered units, whichever comes first. No HEAVY arm is
-cut on this trial.
+The tier trial of R-23 is closed (R-150 ruling 0): the tiers stand as §5.1 gives them, and the audit stays.
 
 - **`<ORCH>/arms.tsv`**: one row per finding of a tiered unit's checkers and of its audit, with the columns `unit`,
   `tier`, `round`, `arm`, `id`, `severity`, `rating` (CONFIRMED or PLAUSIBLE), `class` (normative text, test,
   procedure or code), `unique` (no other arm, the audit included, found it), `merged` and `escaped_from` (filled when
   a later stage or unit finds a defect in this unit's change). A wrong `logic` flag is a row of the fix agent's arm.
-- **The audit.** Every LIGHT and STANDARD unit is audited for the first 8 such units, then 1 in 2.
+- **The audit.** One LIGHT or STANDARD unit in 2 is audited (R-150 ruling 0; L-9 with I-22).
   - After the merge (§5.4) and off the critical path, the orchestrator launches through the Agent tool a tester
     (at least two mutations of its own, the touched crates' tests counted by name) and a code-reviewer (the merged
     range, as a HEAVY round 1), each with the unit's header.
@@ -409,19 +514,20 @@ cut on this trial.
     `<ORCH>/<unit>/wt-audit`, a scratch worktree detached at the verified head (`git worktree add --detach
     <ORCH>/<unit>/wt-audit <head>`), and the scope is `git diff <base>...<head>` in lock-set paths. Both run
     read-only, write `audit_test.md` and `audit_review.md`, and the worktree is removed afterwards.
-  - The audit's tests run builds in lane A beside the open units: it counts as one unit for the capacity (§4, §10)
-    and starts only when there is room.
+  - The audit's tests build in a slot's lane through the kit, beside the open units: it counts as one unit for the
+    capacity (§4, §10) and starts only when there is room.
   - A real defect becomes a fix unit; Minors follow S7. The audit's unique Critical and Important findings are the
     tier's escapes.
-- **After 25 tiered units** a results-analyst repeats the stage analysis by tier. An escape that a skipped arm would
-  have caught adds or widens a trigger (§5.1).
+- **After the milestone's tag** a results-analyst repeats the stage analysis by tier and by class (§5.1; L-9, I-22).
+  An escape that a skipped arm would have caught adds or widens a trigger (§5.1).
 
 ## 6. The unit workflow
 
 ### 6.1 Stages
 
 `.claude/workflows/unit.js` (the named workflow `unit`) runs the stages of the unit's tier (§5.1). One stage table in
-the script drives both the control flow and the dry run, which returns it as `stages` and `maxRounds`:
+the script drives both the control flow and the dry run, which returns it as `stages` and `maxRounds`, with
+`gatePlan` (`every round`, or `final head` for a `finalGate` unit) and `hdrChars` (the header's length):
 
 | tier | `stages` | pipeline | verify rounds |
 |---|---|---|---|
@@ -429,8 +535,19 @@ the script drives both the control flow and the dry run, which returns it as `st
 | STANDARD | `implement`, `gate`, `verifier`, `fix` | **implement (with its own short cut) → mechanic's gate → verifier → fix → delta re-verify** | at most 2 |
 | LIGHT | `implement`, `gate`, `review`, `fix` | **implement → mechanic's gate ∥ review → fix → delta re-verify** | at most 2 |
 
+- **The header** every prompt starts with (R-150 ruling 0; R-178; R-184 ruling 1): the unit, the role, the class
+  and the tier; the spec, `<SP>rulings.md` cited by id and this procedure; S1–S6 and the write map; one line `Reading
+  limit:` naming the role file's section, the role's row and the `extras`, with the sentence that binds every way of
+  reading; the directory and write rule, with `unit.toml`, `expected-red.tsv`, `gates.md` and `extras.tsv` read-only;
+  the scratch-worktree rule; the branch, base, trunk, `lock` and `others` (paths only; their named sections in
+  `<SP>lock.md`); the tier line; `Per-commit gates: <SP>gates.md`, every cargo call through `cargo.ps1` with the unit
+  config (§7); the full verdict `gateCmd`, the mechanic's; the long-run, git and report lines. It is at most 5,000
+  characters: the script refuses a longer one at `args`, and the dry run returns its length as `hdrChars`.
 - **Cut** (architect, HEAVY): `cut.md`, the spec re-located on the tree, the touch set, the commits with their gates
   and red-firsts, the expected test set by name. **Critique** (architecture-critic, HEAVY), one round: `critique.md`.
+  For class M (§5.1) the critique prompt is product-only, with L-13's five questions (goals sourced, gates able to
+  fail, coupling named, a tight admission, derived values derived), and leaves out citation form, line numbers,
+  process, search forms, lanes and disk; every other prompt is class MD's (R-178 OQ-4).
 - **Implement** (developer): commit by commit, red-first, per-commit gates only.
   - HEAVY: it resolves each Critical and Important of the critique or refutes it in an addendum at the end of
     `cut.md`; a Critical that changes the design returns the unit to the orchestrator; the round-1 reviewer checks
@@ -440,7 +557,9 @@ the script drives both the control flow and the dry run, which returns it as `st
     red-first and the mutation it proposes to the verifier.
   - LIGHT: it makes the spec's change, with no behaviour or test change and no red-first.
 - **Verify.** The mechanic runs the full gate through the kit in every round (`gate_r<n>.md`), so the last round's run
-  is the verdict on the final head. Round 1 covers the whole unit (`git diff master...HEAD`, read only in lock-set
+  is the verdict on the final head; it returns `rows` with DONE's `outcome`, `head`, `tree` and `kit`, and the tester
+  or the verifier checks those fields against the kit's own files and returns `gate_fields` (a `MISMATCH` returns the
+  unit to the orchestrator: "gate: mechanic fields disagree with DONE"; R-164 ruling 5). Round 1 covers the whole unit (`git diff master...HEAD`, read only in lock-set
   paths); later rounds, and a round 1 after a `DELTA SINCE` relaunch, are delta-scoped to the unit's own changes
   (`git log --first-parent <since>..HEAD`: each commit's `git show`, and for a trunk sync only its conflict
   resolutions, `git show --remerge-diff`). A diff across a trunk sync (`git diff <since>..HEAD`) is never read: it
@@ -464,9 +583,22 @@ the script drives both the control flow and the dry run, which returns it as `st
   - LIGHT: the gate and the review in parallel, the review first. The reviewer is the only checker: it also re-answers
     H1–H6 on the diff, checks that the diff changes no behaviour and no test, and checks that every changed sentence
     that says what code does matches the code it cites.
+- **finalGate** (a markdown-only unit that no test reads, §5.2; R-150 ruling 0). A round runs its checkers on the
+  spec's doc checks with no gate first (in HEAVY the review ∥ the tester, or the slim order; in STANDARD the
+  verifier; in LIGHT the review). A round green apart from the gate gets the mechanic's gate on its head, then in
+  HEAVY and STANDARD `final-r<n>` (the tester or the verifier): the gate fields and the gate's ids by name and status
+  against the spec's reference (`final_r<n>.md`). `ok` needs that `PASS` and that `GREEN`. Once a round that ran the
+  gate is not green, every later round gates first, and a "gate re-run of round <n>" relaunch gates first. A round
+  that ran no gate is never returned for want of one.
 - **Triage** (HEAVY only; code-reviewer as the adversarial verifier) tries to refute every red, every gate FAIL and
   every Critical and Important of the review, when one ran; it narrows the fix to what it confirms. Nothing confirmed
   returns the unit to the orchestrator.
+- **The triage skip** (HEAVY; R-150 ruling 0, R-178 I-9). With a named expected-red set (`expectedRed`), a round
+  whose gate FAILs returns stage `expected`, with the tester's FAILED-id list `<SP>failed_r<n>.tsv` and no triage,
+  exactly when the tester returns `expected_only` true (only the `test` row is red, its FAILED ids equal the set by
+  name, no other red and no Critical or Important of its own), `sha_ok` true (the file matches `expectedRedSha`) and
+  `by_count_reds` 0 (no red seen by count only), and the review, when due, has no Critical or Important. Otherwise the
+  triage runs.
 - **Below HEAVY there is no triage**: the verifier's or the reviewer's CONFIRMED rating, made by the run or the read
   that shows the fault, is the confirmation. A surviving mutation, a missing expected test, a by-name mismatch or a
   red-first that is not red is an Important CONFIRMED. The checker returns `critical` and `important` as counts of
@@ -474,8 +606,8 @@ the script drives both the control flow and the dry run, which returns it as `st
   `ok`. With no CONFIRMED Critical or Important the unit returns to the orchestrator (§5.3).
 - **Fix** (developer): follow-up commits, never an amend, for the CONFIRMED items of the triage (HEAVY) or of the
   checker's report (below HEAVY); it returns `logic`. An item marked "escalate" is a STOP, never a fix.
-- A stage that returns nothing, a gate outcome other than `PASS` or `FAIL`, or a review whose `head` is not the head
-  the gate verified returns the unit to the orchestrator at once. The last is a review replayed from an earlier
+- A stage that returns nothing, a gate outcome other than `PASS` or `FAIL`, a `gate_fields` `MISMATCH`, or a review
+  whose `head` is not the head the gate verified returns the unit to the orchestrator at once. The last is a review replayed from an earlier
   launch (§6.4). A short sha is the same head; an empty `head` is none.
 - **Context pack** (optional, HEAVY): when two or more checkers need the same orientation, a scout first writes
   `<unit>/pack.md` (at most 15k tokens: files and line ranges, the delta, key facts) and the briefs point at it.
@@ -491,21 +623,29 @@ structured verdict and the script parses nothing.
 | `unit` | `u<nn>-<slug>` |
 | `orch` | `D:/orch/moirai` |
 | `wt` | `D:/moirai-wt/<role>` |
-| `gateWt` | `D:/moirai-wt/gate-a` while units build only in lane A (R-8); otherwise `gate-a` or `gate-b`, by the role's lane |
 | `branch` | `m0/<role>` (the script refuses anything else) |
 | `base` | the `master` sha the unit started from |
 | `trunk` | `master` |
 | `spec` | `D:/orch/moirai/<unit>/spec.md` |
-| `lock` | the lock set, as one string of paths |
-| `others` | the other open units and their lock sets, or `none` |
-| `gates` | the per-commit gate commands of AGENTS.md with the role's crates filled in |
-| `diskFloorGb` | the disk floor of the pre-flight (default 25, [MP §8.1]; operational policy, AGENTS.md) |
+| `lock` | the lock set, repository paths only, one line; named sections go to `<ORCH>/<unit>/lock.md` (§5.2 step 2) |
+| `others` | the other open units' lock sets, paths only, one line, or `none` |
+| `gates` | the path `<ORCH>/<unit>/gates.md`, the per-commit gates, lane-free (§5.2 step 6); described, not validated |
 | `tier` | `LIGHT`, `STANDARD` or `HEAVY`, as the spec states it (§5.1); the script refuses anything else |
+| `class` | `M`, `MD`, `R`, `N`, `D`, `B`, `V` or `L`, as the spec states it (§5.1's table); the script refuses anything else, and class `M` below HEAVY |
+| `extras` | `none`, or `<ORCH>/<unit>/extras.tsv: <ids>`, the seed ids in the seeds file's order (§5.2 step 6); described, not validated |
+| `gateCmd` | the full gate's command, `cargo xtask gate --branch <branch>`, optionally with ` --range <base>..<branch>`; the script refuses any other form |
+| `unitTomlSha` | the sha256 of `<ORCH>/<unit>/unit.toml` (§7 "The unit config") |
+| `expectedRed` | `<ORCH>/<unit>/expected-red.tsv`, the named expected-red set, or `""`; with `expectedRedSha`, its sha256 (§6.1, the triage skip) |
+| `finalGate` | optional, default `false`: one full gate at the final head (§5.2, §6.1); only with class `R`, `N`, `D` or `L`, else refused |
 | `resumeNote` | `""` on a first launch (§6.4) |
-| `gateRun` | optional, `""` on a first launch: a token that only the mechanic's prompt carries; a relaunch that must re-run round 1's gate changes it (§6.4) |
+| `gateRun` | optional, `""` on a first launch: a token in the gate's, tester's, verifier's, triage's and fix's prompts, never the review's; a relaunch that must re-run round 1's gate changes it (§6.4) |
 | `deltaLogic` | optional, default `true`; read only with a `DELTA SINCE` resume note: `false` says that the delta changed no non-test code and makes the relaunch's first verify round slim (§6.1, §6.4) |
 | `deltaRound` | optional, default `1`; read only with a `DELTA SINCE` resume note: the round the relaunch's first verify round is. A gate re-run of round n of 2 or more passes n, so that the relaunch repeats round n (§6.4). The script refuses a value that is not a round of the tier, one above 1 without a `DELTA SINCE` note, and one other than n with a note `DELTA SINCE <sha>: gate re-run of round <n>` |
-| `dryRun` | `true` returns `{ ok: true, args, stages, maxRounds }` (the tier's stages and round limit, §6.1) before any agent starts |
+| `dryRun` | `true` returns `{ ok: true, args, stages, maxRounds, gatePlan, hdrChars }` (the tier's stages and round limit, the gate plan and the header's length, §6.1) before any agent starts |
+
+Old-form args are refused at `args`: a `gateWt` or `diskFloorGb` field ("unconverted args"; both now live in
+`unit.toml`), and a header above 5,000 characters (shorten `lock` or `others`). Every refusal is `{ ok: false, stage:
+'args', error }`, with `missing` when a required field is absent.
 
 ### 6.3 Launching
 
@@ -521,7 +661,8 @@ structured verdict and the script parses nothing.
   - the launch is `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js" })`, run in the background of the session;
   - every agent of the unit starts in the session's directory, with its rules and environment, and starts each shell
     command with a `cd` into `wt` or the directory its stage names (the unit header);
-  - `<ORCH>/<unit>/run_<k>.txt` holds the run id the tool returns;
+  - `<ORCH>/<unit>/run_<k>.txt` records the run id the tool returns and the sha256 of `<SP>gates.md` and
+    `<SP>extras.tsv`, which the orchestrator re-checks with R-162's fsck before the result is ruled (§5.2 step 9);
   - `<ORCH>/<unit>/result_<k>.json` holds the workflow's return value, or
     `{"ok": false, "stage": "launch", "note": "<the error>"}` when it fails to start or ends with an error;
   - if the session ends before the workflow returns, the value is in the run record
@@ -546,8 +687,9 @@ structured verdict and the script parses nothing.
   non-comment code may pass `deltaLogic` `false`, which makes round 1 slim (§6.1); the tester or the verifier checks
   that flag.
 - **A gate re-run** (an environmental FAIL under R-10, a `HANG`, a `VOID`) depends on the round of the gate.
-  - **Round 1's gate**: change `gateRun` only. It is in every gate prompt, so the round-1 gate and every agent that
-    started after it run again. The cut, the critique, the implement stage and round 1's review start before that
+  - **Round 1's gate**: change `gateRun` only. It is in the gate's, the tester's, the verifier's, the triage's and
+    the fix's prompts and never the review's (R-149 ruling 2, R-178 OQ-2 (b)), so the round-1 gate and every agent
+    that started after it run again, the tester included. The cut, the critique, the implement stage and round 1's review start before that
     gate (HEAVY and LIGHT), so they return from the journal. Nothing was committed after that review started, so it
     is a review of the head the gate runs on again. A replayed agent does not rewrite its file: this relaunch copies
     `impl.md` and `review_r1.md` into `<unit>/run<k>/` instead of moving them, which also covers a review that runs
@@ -582,15 +724,24 @@ structured verdict and the script parses nothing.
   checkout and relaunch from it with the run id. Copying a run's directory under another session's directory in
   `~/.claude/projects/` is an undocumented internal path: a fallback only. A relaunch that reports "nothing to
   resume" starts over as a new run (new `k`).
+- **The migration to LEAN-1's script.** A unit launched before LEAN-1 keeps its `embed/<unit>.src.js` (§6.3); such a
+  copy is never relaunched after LEAN-1's merge, since the role files it relies on are not embedded: a rerun is a new
+  launch from the merged `unit.js` with converted args (§5.2 step 6), its cut and critique run again. The first unit
+  after the merge waits until the kit is installed and its selftest passes (§7 "The kit hash"); then `/reload-skills`,
+  the copy of `unit.js` to `embed/<unit>.src.js`, the converted args with `unit.toml`, `gates.md`, `extras.tsv` and
+  their shas, `embed.ps1`, and a dry run whose `stages` equal §6.1's, whose `gatePlan` is as the spec states and whose
+  `hdrChars` is at most 5,000.
 - Scripts are plain JavaScript; `Date.now()`, `Math.random()` and a bare `new Date()` throw in the runtime, so
   anything time-dependent comes in through the arguments.
 
 ### 6.5 What the workflow returns
 
-`ok`, `unit`, `tier`, `stage` (`verify` when the rounds ran out or finished; else the stage that returned it: `args`,
-`cut`, `critique`, `implement`, `gate`, `test`, `verifier`, `review`, `triage`, `fix`), `note`, `round`, `crit` (the
-critique's verdict, or `none` below HEAVY), `gate` (the mechanic's outcome), `head`, `tree`, `kit`, `test`, `ver` (the
-verifier's verdict), `review`, `critical` and `important` (the last round's checker: the review in HEAVY and LIGHT,
+`ok`, `unit`, `tier`, `class`, `stage` (`verify` when the rounds ran out or finished; else the stage that returned it:
+`args`, `cut`, `critique`, `implement`, `gate`, `test`, `verifier`, `final` (a finalGate round's final check), `review`,
+`expected` (the triage skip, with `failedIds`, the path of the tester's FAILED-id list), `triage`, `fix`), `note`
+(`gate: mechanic fields disagree with DONE` for a `gate_fields` `MISMATCH`), `round`, `crit` (the critique's
+verdict, or `none` below HEAVY), `gate` (the mechanic's outcome), `head`, `tree`, `kit`, `rows` (the mechanic's row
+count of `summary.tsv`), `test`, `ver` (the verifier's verdict), `review`, `critical` and `important` (the last round's checker: the review in HEAVY and LIGHT,
 absent in a slim round that ran no review, and the verifier in STANDARD), `plausible` (below HEAVY, the PLAUSIBLE
 Critical and Important items), `slim` (the last round was slim), `reports` (the unit's directory): verdicts and paths,
 about a few hundred tokens; the orchestrator copies it into `result_<k>.json`. Nothing else is read until a verdict
@@ -731,10 +882,10 @@ or stop it.
 
 **Local, `.claude/settings.local.json`** (this machine, untracked): `kit/local-settings.ps1` adds to the main checkout
 (§15 step 6) `permissions.additionalDirectories` `<ORCH>` and `<WT_ROOT>` and the allow rules of `kit/unit-allow.txt`.
-It is not run for role worktrees (R-8, R-9); its extension of a role's `deny_read` rules to `<WT_ROOT>/**` and
-`<ORCH>/**` serves only a return to unit sessions. The main checkout's file also sets `env.CARGO_TARGET_DIR`
-(`D:/moirai-target/laneA`) and `env.CARGO_BUILD_JOBS` (4), which the orchestrator session and every unit agent take
-(R-8). `unit-allow.txt` starts with the kit's one rule:
+It is not run for role worktrees (R-8, R-9). The main checkout's file also sets `env.CARGO_TARGET_DIR` and
+`env.CARGO_BUILD_JOBS`, which the orchestrator's own builds take; a unit agent's cargo calls take the unit config's
+values through the kit instead (§7; R-178 OQ-1). `unit-allow.txt` starts with the kit's one rule, which also covers
+every unit agent's `cargo.ps1` call in the header's form:
 
 ```text
 # Local allow rules for the main checkout (kit/local-settings.ps1).
@@ -790,7 +941,8 @@ unit.
 
 - **The share.** Half of the logical cores and half of the RAM while the owner works, and never more than profile
   L's daytime limits ([60 §3.15]): the build lanes with their build semaphore (cargo's lock on the lane's target
-  directory) and `CARGO_BUILD_JOBS` cap, no rust-analyzer in role worktrees, fuzzers sanitizer-off at no more than two
+  directory) and `CARGO_BUILD_JOBS` cap, no rust-analyzer in role worktrees and no LSP (R-102): no unit agent uses
+  an LSP query, fuzzers sanitizer-off at no more than two
   targets with `-rss_limit_mb=256`, gate jobs beside the agents within 1 GB in total, and everything refused below
   1.5 GB of free RAM.
 - **What the 1 GB covers** (R-5, ruled by the orchestrator on 2026-10-08 on the owner's delegation). [60 §3.15] lists
@@ -853,8 +1005,9 @@ unit.
   non-test code makes one new mutation, which can find the round's only defect while the review says APPROVED; a slim
   round makes none, and its tester checks the flag that made it slim.
 - **Checking arms by tier.** HEAVY keeps every arm (critique, triage, the tester's mutations, the review in every round
-  that changed non-test code): they catch the defects. LIGHT and STANDARD drop arms as R-23 rules, and the trial of
-  §5.6 measures what that loses; a further arm is cut only on that trial's measured escapes.
+  that changed non-test code): they catch the defects. LIGHT and STANDARD drop arms as R-23 rules; the trial is
+  closed (R-150 ruling 0), and the 1-in-2 audit and the analysis by tier and class (§5.6) watch for an escape, which
+  adds or widens a trigger rather than cutting an arm.
 - **A small always-loaded floor**: a lean AGENTS.md and memory index; typed agents with small tool sets start much
   lighter than a general-purpose agent.
 - **The orchestrator**: workflows return verdicts and paths (at most about 2k tokens); reports are read by section;
@@ -974,7 +1127,8 @@ differed, the step says so.
    each deletion is logged (§4); steps 8–12 wait until the pre-flight passes. Commit `<ORCH>`.
 6. **Settings and gate worktrees.** `kit/local-settings.ps1 -Worktree D:/claude/moirai -Orch D:/orch/moirai -WtRoot
    D:/moirai-wt` for the main checkout. Also set the main checkout's `.claude/settings.local.json` `env`:
-   `CARGO_TARGET_DIR` = `D:/moirai-target/laneA` and `CARGO_BUILD_JOBS` = 4 (R-8). Restart the session if `<ORCH>` is
+   `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS` for the orchestrator's own builds (`D:/moirai-target/laneA` and 4 at the
+   first setup); unit agents take theirs from the unit config (§7). Restart the session if `<ORCH>` is
    still not readable without a prompt. Then the gate worktrees: `git worktree add --detach D:/moirai-wt/gate-a HEAD`
    and `git worktree add --detach D:/moirai-wt/gate-b HEAD`. The first setup made them before any role worktree,
    because `xtask worktree` writes its deny rules for the worktrees that exist; under R-8 those rules go unused. If
