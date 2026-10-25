@@ -119,8 +119,11 @@ if (has('cut')) {
 }
 if (has('critique')) {
   phase('Critique')
-  crit = await run('critique', 'Critique', 'architecture-critic', S(['APPROVED', 'CHANGES_REQUESTED'], RATED),
-    `ROLE: architecture-critic. First check ${SP}cut.md exists, else STOP. Critique it against the spec and the tree: wrong locations, a touch set outside the lock set or in another unit's set, a path ${A.role} may not write (docs/m0/authors.md §3), a read the spec's reading limits forbid, a gate that cannot fail, unproved claims, concurrency and performance hazards. Line-cited findings, each Critical, Important or Minor, and CONFIRMED or PLAUSIBLE. Save ${SP}critique.md.`)
+  // Class M (a map rename, HEAVY) gets the product-only critique with L-13's five questions (U7; RULINGS R-178 OQ-4).
+  const CRITIQUE = A.class === 'M'
+    ? `ROLE: architecture-critic. First check ${SP}cut.md exists, else STOP. Class M (a map rename): critique the product only, with five questions: 1. is every goal sourced in the spec or a ruling; 2. can every gate fail on a wrong result; 3. is every coupling, a reader of a changed path, named; 4. is the admission tight: a map rename of the u44/u45/u47 profile, no expected-red set, no census hit; 5. is every derived value derived, not copied. Leave out citation form, line numbers, process, search forms, lanes and disk. Line-cited findings, each Critical, Important or Minor, and CONFIRMED or PLAUSIBLE. Save ${SP}critique.md.`
+    : `ROLE: architecture-critic. First check ${SP}cut.md exists, else STOP. Critique it against the spec and the tree: wrong locations, a touch set outside the lock set or in another unit's set, a path ${A.role} may not write (docs/m0/authors.md §3), a read the spec's reading limits forbid, a gate that cannot fail, unproved claims, concurrency and performance hazards. Line-cited findings, each Critical, Important or Minor, and CONFIRMED or PLAUSIBLE. Save ${SP}critique.md.`
+  crit = await run('critique', 'Critique', 'architecture-critic', S(['APPROVED', 'CHANGES_REQUESTED'], RATED), CRITIQUE)
   if (!crit) return { ok: false, tier: A.tier, stage: 'critique', crit: null }
 }
 const CRIT = crit ? crit.verdict : 'none'
