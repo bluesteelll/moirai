@@ -1,0 +1,245 @@
+<!--meta {"title": "Under the hood: Klotho", "nav": "The engine", "description": "How Klotho, the storage engine inside the moirai binary, stores the graph, lets many agent processes share it without a server, survives crashes and is held to its budgets."} -->
+<h1>Under the hood: Klotho</h1>
+<p class="lead">Moirai is one program, <code>moirai</code>. Inside it is <a href="glossary.html#term-klotho">Klotho</a>, a storage engine written from scratch for one job: keep a small, versioned graph on local disk, open it in about a millisecond, and let many agent processes read and write it at the same time without a server. This chapter explains where the data lives, how a write becomes durable, what happens after a crash, and which budgets the engine is designed to meet.</p>
+
+<div class="callout note">
+<p class="callout-title">Designed, not built yet</p>
+<p>This chapter describes the design. The engine is built in milestone M1, after the on-disk format version 1 is frozen (see <a href="building.html">How it is built, and where it stands</a>). Every number below is a design target, not a measured result of a finished product.</p>
+</div>
+
+<h2 id="one-binary">One binary with the engine inside</h2>
+<p>Moirai is designed as one static Rust binary. The command-line interface, the hooks that a harness calls and the MCP server are all the same <code>moirai</code> executable, started with different arguments. Klotho is a library compiled into that binary. It is not a separate service, and nothing else has to be installed or started.</p>
+<p>Klotho is not a wrapper around an existing database: the project uses no SQLite and no third-party storage engine anywhere. The log, the segments, the lock protocol, the version control and the git object layer are hand-written in Rust. When the engine crates are created, they take <code>klotho-*</code> names; the product, the binary and the command stay <code>moirai</code>.</p>
+
+<h2 id="store-location">Where the store lives</h2>
+<p>A <a href="glossary.html#term-store">store</a> is a directory. <code>moirai init</code> places it where agents find it without extra setup:</p>
+<table>
+<thead><tr><th>Where you run <code>moirai init</code></th><th>Where the store goes</th></tr></thead>
+<tbody>
+<tr><td>inside a git repository (any worktree)</td><td><code>&lt;git-common-dir&gt;/moirai/</code>: outside every working tree, so <code>git add -A</code> never picks up store files, and shared by all worktrees of the repository without any pointer files</td></tr>
+<tr><td>in the top-level directory of the main worktree, with <code>--here</code></td><td><code>.moirai/</code> in that directory, added to git's local exclude file</td></tr>
+<tr><td>outside any git repository</td><td><code>./.moirai/</code></td></tr>
+<tr><td>in any directory, with <code>--link STORE</code></td><td>no new store; a small pointer file <code>.moirai</code> that names an existing one</td></tr>
+</tbody>
+</table>
+<p>Every command finds its store in the same order: an explicit <code>--store DIR</code>, the <code>MOIRAI_DIR</code> environment variable, a walk up the directory tree looking for <code>.moirai</code>, and finally a hint from the enclosing git repository. Discovery never creates a store; if nothing is found, the command lists every path it examined.</p>
+<p>A store is used only on a local file system that the crash tests cover; on Windows that is NTFS. Network drives, cloud-synced folders such as OneDrive, FAT, exFAT, ReFS and paths into WSL are refused with the reason named. A store is touched by one operating-system kernel only, because byte-range locks do not work across a kernel boundary.</p>
+
+<h3 id="store-files">The files in a store</h3>
+<p>A store normally holds about a dozen files: <code>HEAD</code>, <code>LOCK</code>, <code>config</code>, up to four log extents, one base and up to three delta segments, and possibly a compression dictionary. Other files are added as history is retired, bodies are sealed and branches are promoted. Apart from <code>HEAD</code>, <code>LOCK</code>, <code>config</code>, the log extents and the <code>tmp/</code> and <code>trash/</code> directories, every file is <em>sealed</em>: written once, made durable, marked read-only on disk and never changed again.</p>
+<table>
+<thead><tr><th>File</th><th>What it holds</th><th>How it is read</th></tr></thead>
+<tbody>
+<tr><td><code>HEAD</code></td><td>two 4 KiB checksummed slots: the current set of segment files, the bound up to which readers may read the log, counters</td><td>at fixed offsets; never mapped</td></tr>
+<tr><td><code>LOCK</code></td><td>36 KiB of diagnostics and session records; the lock bytes themselves lie beyond the end of the file</td><td>never mapped</td></tr>
+<tr><td><code>config</code></td><td>the store's configuration keys, in git-config syntax</td><td>as text</td></tr>
+<tr><td><code>log.N</code></td><td>the append-only log, in 64 MiB extents; at most four are active</td><td>explicit reads and writes; never mapped</td></tr>
+<tr><td><code>seg.base.G</code>, <code>seg.dK</code></td><td>the current state: one base segment and up to three delta segments</td><td>mapped read-only</td></tr>
+<tr><td><code>seg.b&lt;ref_id&gt;.K</code></td><td>the segment of a long-lived branch that has been promoted</td><td>mapped read-only</td></tr>
+<tr><td><code>hist.N</code></td><td>retired log extents, compressed, with a commit index</td><td>mapped read-only</td></tr>
+<tr><td><code>blobs.N</code>, <code>dict.D</code></td><td>long text bodies, content-addressed and compressed; the compression dictionary</td><td>mapped on first use</td></tr>
+<tr><td><code>gitmap.N</code></td><td>the map between moirai commit ids and git object ids</td><td>mapped read-only</td></tr>
+<tr><td><code>cs.N</code></td><td>the changeset of one very large commit</td><td>mapped as one more delta layer</td></tr>
+<tr><td><code>tmp/</code>, <code>trash/</code></td><td>temporary files; project files moved aside by <code>moirai file rm --trash</code></td><td>never mapped</td></tr>
+</tbody>
+</table>
+<p>A few rules hold for all of them. The store grows by creating new files. No file is truncated, and no file is renamed over while a process may have it mapped. A file is deleted only after <code>HEAD</code> has pointed elsewhere for a grace period of 60 seconds and no branch or tag still pins it. There are no per-node and no per-commit files, so the number of files does not grow with the size of the graph.</p>
+<details>
+<summary>Why only sealed files are memory-mapped</summary>
+<p>Memory mapping lets every process read the same bytes straight from the operating system's page cache, with no copying. On Windows, however, a mapped file cannot be resized, and a mapped view is not kept consistent with ordinary writes to the same file. Klotho therefore maps only files that never change again, and reads and writes the log with explicit I/O calls. Every sealed file states its own length in its header, and the length is checked against the real file size before mapping.</p>
+</details>
+
+<h2 id="log-and-segments">History in a log, current state in segments</h2>
+<p>Klotho keeps two views of the same data.</p>
+<ul>
+<li><strong>The <a href="glossary.html#term-log">log</a> is the canonical history.</strong> Every change is appended as a record with a 32-byte header: its length, its position in the log (the log sequence number, or LSN), the store's <a href="glossary.html#term-epoch">epoch</a> (a random number chosen when the store is created) and an xxh3 checksum. A record is valid only at its own position and only in its own store. Nothing in the log is rewritten in place.</li>
+<li><strong>The <a href="glossary.html#term-segment">segments</a> hold the current state</strong> of the main branch in columns: node headers, titles and fields, the outgoing and incoming edges of every node in compact arrays, precomputed bitsets that answer questions such as "which tasks are unblocked", a symbol table, and references to bodies. Segments are immutable. Checkpoints produce them from the log.</li>
+</ul>
+<p>Between two checkpoints, the newest part of the log, the <em>tail</em>, is not yet in any segment. Each process replays the tail into a small in-memory <a href="glossary.html#term-overlay">overlay</a>. To find a node, a reader looks in the overlay first, then in the delta segments from newest to oldest, then in the base segment.</p>
+<p>This split makes opening a store cheap. Opening reads <code>HEAD</code>, maps at most eight segment files, and replays a tail whose length is capped by the checkpoint threshold. No step reads the whole history, so the cost of opening does not grow with the length of the history. The design target for opening a store, with a warm cache and a full tail, is at most 1 ms at 10,000 nodes and at most 3 ms at 1,000,000 nodes.</p>
+<details>
+<summary>How small a commit is</summary>
+<p>A commit stores a net changeset: the operations it performed, each with its before-image, so that every commit can be inverted for undo and revert. A typical small agent commit, with one parent, a short message and a few operations, is estimated at 0.35 to 0.5 KB before compression. Designs that copy whole pages of a tree for each commit pay kilobytes for every tiny change; a changeset pays bytes.</p>
+<p>About 99 bytes per node are read by most queries; they sit in the page cache that all moirai processes share.</p>
+</details>
+
+<h2 id="content-addressing">Content addressing</h2>
+<p>Every commit has an id that is the BLAKE3-256 hash of a <a href="glossary.html#term-canonical-form">canonical form</a> of the commit. The canonical form is a specified byte sequence: the commit's kind, its parents, its clock value, who made it, the git commit it was made against, its message, the schema version, the commit it reverts or cherry-picks and the git commit it was imported from (each left empty when there is none), and a digest of its net changeset. Two stores that hold the same commit compute the same id, and the git image carries every field needed to recompute the id after a round trip through git. Data that belongs to one store only, such as the store's own id, is kept out of the hashed form.</p>
+<p>Long text bodies are content-addressed too, by a 128-bit BLAKE3 hash, so an identical body is stored once. The chapters <a href="versions.html">Branches, merges and history</a> and <a href="git-image.html">Saving into git</a> show how these ids are used.</p>
+
+<h2 id="process-model">Many processes, no server</h2>
+<p>There is no daemon and no server process that holds the graph in memory. Every <code>moirai</code> command that an agent runs starts a process that opens the store, does its work and exits. The <a href="glossary.html#term-mcp-server">MCP server</a> that a harness session starts is the same binary in a long-running mode. To the engine it is one more client: it maps the same files and takes the same locks.</p>
+<table>
+<thead><tr><th>Process</th><th>Lifetime</th><th>What it does with the store</th></tr></thead>
+<tbody>
+<tr><td><code>moirai</code> command or hook</td><td>milliseconds</td><td>reads directly; takes the writer lock only for the commit step</td></tr>
+<tr><td><code>moirai mcp</code></td><td>one agent session</td><td>keeps its mappings and a small, size-capped cache of branch views; does routine maintenance in slices of at most 5 ms between requests</td></tr>
+<tr><td><code>moirai gc</code></td><td>one maintenance job</td><td>writes a new base segment (a rollup) and collects garbage; started explicitly or as a detached low-priority child</td></tr>
+</tbody>
+</table>
+<p><strong>Readers take no locks.</strong> They read the immutable segments through memory maps, so the operating system's page cache holds one copy of the hot data for all processes on the machine. They replay the log only up to the bound published in <code>HEAD</code>, so a reader never sees a durable change before the flush that covers it.</p>
+<p><strong>Writers take turns.</strong> At most one process at a time holds the writer lock: an exclusive lock on one byte of the <code>LOCK</code> file. On Windows this is <code>LockFileEx</code>; on Linux and macOS it is an open-file-description lock. A writer waits for the lock for a bounded time, set by a configuration key (2 seconds in the design; an M0 measurement fixes the default). If the wait runs out, the command fails with a message that names the process holding the lock, instead of hanging.</p>
+<p><strong>Nothing polls in the background.</strong> There are no timers, no file watchers and no polling loops. The only maintenance that outlives a command is the rollup child described <a href="#maintenance">below</a>: a process starts it, detached, when a threshold is crossed, and it does its one job and exits. The MCP server has at most two operating-system threads, and both are blocked while it is idle. Idle CPU use is zero by construction.</p>
+<details>
+<summary>Why not a daemon</summary>
+<p>A daemon that keeps the graph in RAM would use memory equal to the data set even when no agent is working, which breaks the memory budget, and daemons have been a recurring source of failures in earlier agent tools. An optional "leader" process that forwards writes is specified, but it is built only if measurements show that it is needed, and correctness never depends on it.</p>
+</details>
+
+<h3 id="three-phase-write">The three-phase write</h3>
+<p>Every write command, from setting one field to merging a branch, runs in three phases, so that the writer lock is held as briefly as possible.</p>
+<ol>
+<li><strong>Compute, without the lock.</strong> The process opens the store, catches up with the log, resolves its branch, validates the change (schema, guards, lease, status rules, cycle checks) and builds the complete changeset and its canonical form against a snapshot.</li>
+<li><strong>Commit, under the lock.</strong> The process takes the writer lock and scans what other writers appended since its snapshot. If none of it touched anything the change read or wrote, the prepared commit is attached to the new tip in constant time; otherwise it is recomputed once, or phase 1 runs again, at most twice. The process appends its records as one group and releases the lock. For a plain write the lock is held for tens of microseconds. The process then makes the group durable through group commit (next section), which takes the writer lock again only briefly.</li>
+<li><strong>After the commit.</strong> The process prints the result and, if a threshold was crossed, does some maintenance.</li>
+</ol>
+
+<h3 id="group-commit">One flush for many writers</h3>
+<p>Asking the disk to flush is the slowest step of a commit. If every writer flushed on its own, sixteen agents finishing at once would wait for sixteen flushes in a row.</p>
+<p>Klotho uses leaderless <a href="glossary.html#term-group-commit">group commit</a> instead. A writer whose group is not yet durable takes a second lock byte, the <em>flush byte</em>, and then the writer lock again. It re-writes the unflushed range of the log, releases the writer lock and flushes once. It then takes the writer lock again for a moment to publish a new <code>HEAD</code> slot that covers every group appended before the flush began. A writer that appended in the meantime finds its group already covered and does not flush again. The targets are at most one flush per durable commit, exactly one for a writer that is alone, and at most three flushes for a burst of sixteen writers.</p>
+<p>No process acts as a coordinator, so the protocol also works for agents in sandboxes that cannot reach another process. Each group's checksum is chained to that of the group before it. Before reporting success, a writer re-reads its own chained trailer. If another process's failed flush made the operating system drop unflushed pages, a lost group shows up there, and the writer retries with the same idempotency key instead of reporting a commit that is not on disk.</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 720 330" role="img" aria-labelledby="engine-d1-t">
+  <title id="engine-d1-t">The write path: compute, append under the writer lock, one shared flush, publish, acknowledge; readers take no lock</title>
+  <defs><marker id="engine-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <text class="d-text-small" x="12" y="22">Writer A runs one write command; time runs from left to right</text>
+  <path class="d-box" d="M20,34 H124 A8,8 0 0 1 132,42 V118 A8,8 0 0 1 124,126 H20 A8,8 0 0 1 12,118 V42 A8,8 0 0 1 20,34 Z"/>
+  <text class="d-text-strong" x="72" y="60" text-anchor="middle">1 Compute</text>
+  <text class="d-text-small" x="72" y="84" text-anchor="middle">no lock held</text>
+  <text class="d-text-small" x="72" y="104" text-anchor="middle">on a snapshot</text>
+  <path class="d-box" d="M164,34 H268 A8,8 0 0 1 276,42 V118 A8,8 0 0 1 268,126 H164 A8,8 0 0 1 156,118 V42 A8,8 0 0 1 164,34 Z"/>
+  <text class="d-text-strong" x="216" y="60" text-anchor="middle">2 Append</text>
+  <text class="d-text-small" x="216" y="84" text-anchor="middle">writer lock held</text>
+  <text class="d-text-small" x="216" y="104" text-anchor="middle">re-check, append</text>
+  <path class="d-box" d="M308,34 H412 A8,8 0 0 1 420,42 V118 A8,8 0 0 1 412,126 H308 A8,8 0 0 1 300,118 V42 A8,8 0 0 1 308,34 Z"/>
+  <text class="d-text-strong" x="360" y="60" text-anchor="middle">3 Flush</text>
+  <text class="d-text-small" x="360" y="84" text-anchor="middle">flush lock held</text>
+  <text class="d-text-small" x="360" y="104" text-anchor="middle">one disk flush</text>
+  <path class="d-box" d="M452,34 H556 A8,8 0 0 1 564,42 V118 A8,8 0 0 1 556,126 H452 A8,8 0 0 1 444,118 V42 A8,8 0 0 1 452,34 Z"/>
+  <text class="d-text-strong" x="504" y="60" text-anchor="middle">4 Publish</text>
+  <text class="d-text-small" x="504" y="84" text-anchor="middle">new HEAD slot</text>
+  <text class="d-text-small" x="504" y="104" text-anchor="middle">bound moves on</text>
+  <path class="d-box-accent" d="M596,34 H700 A8,8 0 0 1 708,42 V118 A8,8 0 0 1 700,126 H596 A8,8 0 0 1 588,118 V42 A8,8 0 0 1 596,34 Z"/>
+  <text class="d-text-strong" x="648" y="60" text-anchor="middle">5 Acknowledge</text>
+  <text class="d-text-small" x="648" y="84" text-anchor="middle">own trailer</text>
+  <text class="d-text-small" x="648" y="104" text-anchor="middle">checked first</text>
+  <path class="d-edge" d="M132,80 L156,80" marker-end="url(#engine-arrow)"/>
+  <path class="d-edge" d="M276,80 L300,80" marker-end="url(#engine-arrow)"/>
+  <path class="d-edge" d="M420,80 L444,80" marker-end="url(#engine-arrow)"/>
+  <path class="d-edge" d="M564,80 L588,80" marker-end="url(#engine-arrow)"/>
+  <path class="d-box" d="M164,166 H268 A8,8 0 0 1 276,174 V214 A8,8 0 0 1 268,222 H164 A8,8 0 0 1 156,214 V174 A8,8 0 0 1 164,166 Z"/>
+  <text class="d-text" x="216" y="190" text-anchor="middle">Writers B, C</text>
+  <text class="d-text-small" x="216" y="208" text-anchor="middle">append too</text>
+  <path class="d-edge-dashed" d="M276,194 L348,194 L348,128" marker-end="url(#engine-arrow)"/>
+  <text class="d-text-small" x="358" y="160">one flush</text>
+  <text class="d-text-small" x="358" y="176">covers A, B, C</text>
+  <path class="d-edge-accent" d="M504,126 L504,250" marker-end="url(#engine-arrow)"/>
+  <text class="d-text-small" x="514" y="200">readers see</text>
+  <text class="d-text-small" x="514" y="216">the new state</text>
+  <path class="d-box-muted" d="M20,252 H700 A8,8 0 0 1 708,260 V308 A8,8 0 0 1 700,316 H20 A8,8 0 0 1 12,308 V260 A8,8 0 0 1 20,252 Z"/>
+  <text class="d-text" x="360" y="278" text-anchor="middle">Readers take no lock: mapped segments, plus the log up to the published bound</text>
+  <text class="d-text-small" x="360" y="300" text-anchor="middle">Many processes share the same read-only pages in the operating system's cache</text>
+</svg>
+<figcaption>Writer A computes its change without any lock and holds the writer lock to re-check and append. The writer that flushes takes the writer lock again, briefly, to re-write the pending range and to publish. Writer A shares one flush with every writer that appended before it, and it reports success only after the new <code>HEAD</code> slot is published and its own chained trailer checks out. Readers never wait for a lock. Box 1 is phase 1 of the three-phase write; boxes 2 to 5 are phase 2.</figcaption>
+</figure>
+
+<h2 id="crash-safety">Crash safety</h2>
+<p>The engine is designed so that a process can be killed at any instruction, and the machine can crash at any moment, without losing a commit that was acknowledged.</p>
+<ul>
+<li><strong>All or nothing.</strong> Records are written in groups, for example a commit together with its lease and marker records. Recovery adopts a group whole or not at all, and the log ends at the first incomplete or invalid group. A task can therefore never appear completed without the marker that stops other branches from handing it out again.</li>
+<li><strong>Acknowledged means durable.</strong> A commit is reported as done only after a flush that began after the commit was written has returned, its effects are published, and the writer has checked its own chained trailer.</li>
+<li><strong>The log is the truth; <code>HEAD</code> is a cache.</strong> <code>HEAD</code> has two checksummed 4 KiB slots. A publish writes the new state into the older slot, and a reader takes the valid slot with the higher sequence number, so a torn write of one slot does no harm. <code>HEAD</code> is not flushed on every commit; it records how far the log is known to be durable and the boot of the machine in which the store was created or last recovered after a reboot. After a reboot, the first process re-scans the log from the last durable point and flushes <code>HEAD</code> once before anyone reads, so no reader sees a view from before the crash.</li>
+<li><strong>A failed flush is fatal.</strong> The process stops, and the next process that flushes re-writes the unflushed range instead of trusting pages that may have been dropped.</li>
+<li><strong>Deletion waits for both slots.</strong> Before maintenance deletes or recycles any file, both <code>HEAD</code> slots are made to name the new state and <code>HEAD</code> is flushed, so no surviving slot can point at a deleted file.</li>
+</ul>
+<p><code>moirai doctor --verify</code> recomputes every derived structure and branch head and compares them with what is stored; <code>moirai doctor --fsck</code> verifies checksums; <code>moirai repair --rebuild-from-log</code> rebuilds every segment and history file from the log.</p>
+<div class="callout warn">
+<p class="callout-title">A stated gap</p>
+<p>These guarantees are tested with a simulated file system that injects faults, with exhaustive crash-point enumeration, and with loops that kill real processes on Windows (see <a href="building.html#test-workstream">the test workstream</a>). A test rig that repeatedly crashes or hard-powers-off a Windows virtual machine is deferred until after the release. Until it runs, surviving a real power loss is an explicit, unverified risk, and the design assumes that the disk honours a flush request.</p>
+</div>
+
+<h2 id="durability">Durability classes and quiet mode</h2>
+<p>Not every record needs the same protection. Each kind of record has a <a href="glossary.html#term-durability-class">durability class</a>, and each class maps to exact system calls on each operating system.</p>
+<table>
+<thead><tr><th>Class</th><th>Used for</th><th>Guarantee</th></tr></thead>
+<tbody>
+<tr><td><code>durable</code></td><td>every graph change; claim, complete and release; deletions; branch and tag moves; the markers that keep finished tasks from being handed out again; idempotency results; checkpoints</td><td>acknowledged only after a flush that covers it; survives power loss</td></tr>
+<tr><td><code>lazy</code></td><td>heartbeats, read cursors, session marks, and evidence that the file-link resolver collects</td><td>appended and published at once, flushed by the next covering flush; may be lost after a power loss, an operating-system crash or a failed flush</td></tr>
+<tr><td><code>durable+meta</code></td><td>creating log extents and sealed files; the <code>HEAD</code> barrier</td><td>the file's data and its size are durable</td></tr>
+<tr><td><code>durable-name</code></td><td>a create, rename or delete that a durable record depends on</td><td>the directory entry is durable, because the parent directory is synced</td></tr>
+</tbody>
+</table>
+<p>Graph changes are always <code>durable</code>; no configuration key can change that. The durable flush is <code>NtFlushBuffersFileEx</code> with its data-only flag on Windows, <code>fdatasync</code> on Linux and <code>fcntl(F_FULLFSYNC)</code> on macOS, never a weaker call. If a location cannot provide a class, the store is refused there rather than silently weakened.</p>
+
+<h3 id="quiet-mode">Quiet mode</h3>
+<p><code>moirai quiet on</code> is for benchmark windows on the same machine. It switches off the maintenance that busy writers would otherwise do in the foreground: no automatic checkpoint until the log tail reaches a multiple of its usual threshold (eight in the design; an M0 measurement sets the final value), and then exactly one bounded checkpoint runs; and no rollup, promotion, garbage collection, image export or import unless forced. A lane whose status is <code>measuring</code> implies it; <code>moirai quiet off</code> ends it.</p>
+
+<h2 id="maintenance">Checkpoints, rollups and garbage collection</h2>
+<ul>
+<li><strong>Delta <a href="glossary.html#term-checkpoint">checkpoint</a>.</strong> When the log tail grows past a threshold (counted in operations, in bytes and in overlay memory), the tail is folded into a new delta segment, and its bodies are compressed and sealed into a <code>blobs</code> file. This happens outside the writer lock, and readers keep using the old segments until the next publish. The MCP server does this work in slices of at most 5 ms between requests; a command process does it only when the tail is twice over the threshold. Three delta segments are folded into one.</li>
+<li><strong><a href="glossary.html#term-rollup">Rollup</a>.</strong> When the delta segments grow past 25 % of the base, a new base segment is written. A rollup never runs inside the MCP server or a command or hook process. It runs only in a separate <code>moirai gc</code> process, started explicitly or spawned detached at low CPU, memory and I/O priority. It streams its input, so its memory stays bounded; the target is at most 24 MB at 100,000 nodes.</li>
+<li><strong>History retirement.</strong> A full log extent is compressed into a <code>hist</code> file. Nothing is dropped by default.</li>
+<li><strong>Garbage collection.</strong> <code>moirai gc</code> keeps everything reachable from a branch, a tag, a pin or a reflog entry younger than 90 days (<code>gc.reflog-expire</code>). Unreachable commits older than 14 days (<code>gc.cruft-delay</code>) are dropped from history; their headers are kept unless you ask otherwise. Files are deleted only after a 60-second grace period (<code>gc.delete-grace</code>) and the two-slot <code>HEAD</code> barrier. All three are configuration keys.</li>
+</ul>
+
+<h2 id="backup-restore">Backup and restore</h2>
+<p><code>moirai backup DIR</code> writes a copy of the store that is consistent at a commit boundary. It flushes every copied file and the directory before it reports success, and it records the backup in the log, so the warning about the age of the last backup is truthful.</p>
+<p><code>moirai restore DIR --into EMPTY_DIR</code> swaps a backup into place under the writer and maintenance locks, gives the restored store a new epoch, and marks the old store as retired, so every long-running process finds the store again.</p>
+<p>A second, independent copy comes from the <a href="glossary.html#term-git-image">git image</a>. The default export policy writes a checkpoint of <code>main</code> at every merge into <code>main</code> and one per day for <code>main</code> and for every live lane, so even unmerged work on a lane has a copy outside the store. See <a href="git-image.html">Saving into git</a>.</p>
+
+<h2 id="cross-platform">Windows first, Linux and macOS by design</h2>
+<p>Windows is built and tested first: every milestone up to the release is implemented and gated on Windows. Linux and macOS are designed now, not later. The on-disk format, the lock and commit protocol and the operating-system layer are specified for all three systems and are frozen together with format version 1. The Linux and macOS implementations come in a port phase after the Windows release, which is not yet scheduled. A port may add an implementation; it may never change the format or the protocol.</p>
+<ul>
+<li><strong>One format.</strong> Every byte layout is little-endian and 64-bit and does not depend on the page size or the path separator. A backup restores on another system, and an image imports anywhere.</li>
+<li><strong>One protocol, written for the weakest system.</strong> The rules assume the hardest failure behaviour of the three: directory entries that need their own sync, failed flushes that may drop pages, late lock release after a crash, reused inode numbers. The test file-system simulator enforces this model, so tests on Windows already exercise Unix failure behaviour.</li>
+<li><strong>One OS layer.</strong> Only one crate, today named <code>moirai-os</code>, contains operating-system-specific code. A lint rejects <code>cfg(windows)</code>, <code>std::os</code> and direct use of <code>windows-sys</code> or <code>libc</code> anywhere else. Each target has exactly one implementation of each interface, chosen at compile time.</li>
+<li><strong>Pure Rust only.</strong> No dependency may compile or link C, C++ or assembly. On every merge, the workspace is type-checked for Linux on x86-64 and ARM64 and for macOS on ARM64, with the C toolchains disabled, so a dependency that needs native code fails at once. Only the thin binary entry point, which is checked for Windows, and a few reviewed host-only test tools are left out of this check.</li>
+</ul>
+<table>
+<thead><tr><th>Topic</th><th>Windows</th><th>Linux</th><th>macOS</th></tr></thead>
+<tbody>
+<tr><td>Writer and flush locks</td><td><code>LockFileEx</code></td><td>open-file-description locks (kernel 3.15 or later)</td><td>open-file-description locks (macOS 14 or later)</td></tr>
+<tr><td>Durable flush</td><td><code>NtFlushBuffersFileEx</code>, data only</td><td><code>fdatasync</code></td><td><code>fcntl(F_FULLFSYNC)</code></td></tr>
+<tr><td>File systems admitted</td><td>NTFS</td><td>ext4, XFS, btrfs</td><td>local APFS</td></tr>
+<tr><td>Status</td><td>built and gated in every milestone up to the release</td><td>specified; ported later</td><td>specified; ported later</td></tr>
+</tbody>
+</table>
+
+<h2 id="budgets">Budgets</h2>
+<p>Each of the four priorities, speed, memory, correctness and agent tokens, has numeric budgets. The table below is a selection. All values are design targets. Times are engine time on a warm cache; they exclude starting the process, which the operating system pays for every command-line call.</p>
+<table>
+<thead><tr><th>Budget</th><th>Target</th></tr></thead>
+<tbody>
+<tr><td>Engine time of a read command on <code>main</code> (<code>get</code>, <code>ready</code>, <code>blocking</code> and similar)</td><td>≤ 5 ms at 10,000, 100,000 and 1,000,000 nodes</td></tr>
+<tr><td>Opening a store with a full log tail</td><td>≤ 1 ms, ≤ 1.5 ms and ≤ 3 ms at 10,000, 100,000 and 1,000,000 nodes</td></tr>
+<tr><td>Fetching one node</td><td>≤ 5 µs</td></tr>
+<tr><td>A durable commit</td><td>median at most one disk flush plus 0.5 ms; at most one flush per commit</td></tr>
+<tr><td>Holding the writer lock</td><td>≤ 5 ms at the 99th percentile, for every kind of write</td></tr>
+<tr><td>Waiting for the writer lock with 16 writers at once</td><td>≤ 50 ms at the 99th percentile</td></tr>
+<tr><td>An MCP read call</td><td>median ≤ 5 ms</td></tr>
+<tr><td>Memory of a command or hook process</td><td>≤ 4 MB of private memory at all three sizes</td></tr>
+<tr><td>Memory of the MCP server</td><td>≤ 8 MB plus a 4 MiB branch cache in steady state; ≤ 16 MB at peak; ≤ 2 threads; ≤ 3 MB if it is never called</td></tr>
+<tr><td>All moirai processes under a load of 16 sessions</td><td>≤ 256 MB in total</td></tr>
+<tr><td>Idle CPU</td><td>zero CPU time and zero context switches</td></tr>
+<tr><td>Tokens at session start (brief, skill listing, MCP tool names)</td><td>≤ 3,000 tokens</td></tr>
+<tr><td>Tokens added per spawned agent, not counting its context pack</td><td>≤ 2,000 tokens (≤ 1,500 for an agent that works through MCP)</td></tr>
+<tr><td>MCP tool schemas</td><td>≤ 5,000 bytes for all ten tools; none loaded up front by default</td></tr>
+</tbody>
+</table>
+<p><strong>How the budgets are gated.</strong> Each budget names its gate and the milestone from which the gate is mandatory, and it stays mandatory after that. Time and memory gates run under a written measurement protocol on a reference Windows 11 machine with real-time antivirus scanning on, both idle and while a recorded load of 16 agents is replayed, with sample sizes set by how long the measured operation takes. Several gates are relative to a physical floor measured in the same run, such as the cost of one flush, so they do not depend on one particular disk. The hosted CI runners build the code, run the lints and run the unit, property and differential test suites on synthetic data; that is a correctness signal only, never a timing gate. Token budgets are checked by a <a href="glossary.html#term-token-ledger">token ledger</a> that records every byte moirai places into an agent's context and counts it with the tokenizer of the model that the harness runs.</p>
+
+<h2 id="configuration">Configuration</h2>
+<p>Every operational policy is a configuration key with a type and a documented default. You change behaviour by setting a key, not by rebuilding.</p>
+<ul>
+<li><strong>Two scopes.</strong> Store keys live in <code>&lt;store&gt;/config</code> and apply to every process and worktree that uses the store, so all writers behave alike. User keys, such as paths on this machine and how stores are discovered, live in <code>%APPDATA%\moirai\config</code> on Windows and in <code>$XDG_CONFIG_HOME/moirai/config</code> on Linux and macOS. Each key has exactly one scope.</li>
+<li><strong>Precedence.</strong> A command-line flag beats an environment variable, which beats the configuration file, which beats the built-in default.</li>
+<li><strong>A typed registry.</strong> The binary carries every key's type, range, default, scope and reload class, and <code>moirai config list --defaults</code> prints it. <code>moirai config set</code> validates a value and refuses an invalid one. In a file edited by hand, an unknown key is a warning, and an invalid value falls back to the default; <code>moirai config check</code> and <code>moirai doctor</code> report both.</li>
+<li><strong>Reloading.</strong> Command and hook processes read the configuration for every command. The long-running MCP server notices a change through a counter in <code>HEAD</code> that <code>config set</code> increments, and reads the configuration again on its next request.</li>
+</ul>
+<p>The files use git-config syntax:</p>
+<pre><code class="lang-text"># moirai store configuration
+default-branch = main
+[gc]
+    reflog-expire = 90d
+    cruft-delay = 14d</code></pre>
+<p><code>moirai config get KEY</code> prints the value in effect for a key.</p>

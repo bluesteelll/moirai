@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moirai — the book</title>
+<meta name="description" content="Moirai is a versioned graph database, written from scratch in Rust, that gives AI coding agents one place for a project&#x27;s tasks, memory, rules and decisions.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="Moirai">
+<meta property="og:description" content="Moirai is a versioned graph database, written from scratch in Rust, that gives AI coding agents one place for a project&#x27;s tasks, memory, rules and decisions.">
+<meta property="og:type" content="article">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<script>(function(){try{var t=localStorage.getItem('moirai-book-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<link rel="stylesheet" href="assets/style.css">
+
+</head>
+<body class="home">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar">
+<a class="brand" href="index.html"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#17182b"/><path d="M5 11c6-5 12 5 22 0" fill="none" stroke="#e0b45c" stroke-width="2.3" stroke-linecap="round"/><path d="M5 16.5c6-5 12 5 22 0" fill="none" stroke="#8f8cf0" stroke-width="2.3" stroke-linecap="round"/><path d="M5 22c6-5 9 3 14 1.6" fill="none" stroke="#e57a8c" stroke-width="2.3" stroke-linecap="round"/></svg><span class="brand-name">Moirai</span><span class="brand-sub">book</span></a>
+<span class="spacer"></span>
+<nav class="topbar-links" aria-label="Site">
+<a class="hide-narrow" href="https://github.com/bluesteelll/moirai">GitHub</a>
+<span class="lang-switch"><span aria-current="true">EN</span></span>
+<button class="theme-toggle" type="button" aria-label="Switch between light and dark theme" title="Switch between light and dark theme"><svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"/></svg><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7z"/></svg></button>
+</nav>
+</header>
+<div class="layout">
+<aside class="sidebar"><p class="sidebar-title">Contents</p><nav aria-label="Chapters"><ul class="nav-list"><li><a href="index.html" aria-current="page"><span class="nav-num"></span><span>Home</span></a></li><li><a href="why.html"><span class="nav-num">1</span><span>Why Moirai</span></a></li><li><a href="concepts.html"><span class="nav-num">2</span><span>The graph</span></a></li><li><a href="tour.html"><span class="nav-num">3</span><span>A tour</span></a></li><li><a href="versions.html"><span class="nav-num">4</span><span>Branches &amp; merge</span></a></li><li><a href="git-image.html"><span class="nav-num">5</span><span>Git image</span></a></li><li><a href="file-links.html"><span class="nav-num">6</span><span>File links</span></a></li><li><a href="lachesis.html"><span class="nav-num">7</span><span>Lachesis</span></a></li><li><a href="agents.html"><span class="nav-num">8</span><span>Agents</span></a></li><li><a href="engine.html"><span class="nav-num">9</span><span>The engine</span></a></li><li><a href="building.html"><span class="nav-num">10</span><span>Roadmap &amp; status</span></a></li><li class="nav-sep" role="separator"></li><li><a href="faq.html"><span class="nav-num"></span><span>FAQ</span></a></li><li><a href="glossary.html"><span class="nav-num"></span><span>Glossary</span></a></li></ul></nav></aside>
+<main class="content" id="main">
+<details class="mobile-nav"><summary>Contents</summary><nav aria-label="Chapters"><ul class="nav-list"><li><a href="index.html" aria-current="page"><span class="nav-num"></span><span>Home</span></a></li><li><a href="why.html"><span class="nav-num">1</span><span>Why Moirai</span></a></li><li><a href="concepts.html"><span class="nav-num">2</span><span>The graph</span></a></li><li><a href="tour.html"><span class="nav-num">3</span><span>A tour</span></a></li><li><a href="versions.html"><span class="nav-num">4</span><span>Branches &amp; merge</span></a></li><li><a href="git-image.html"><span class="nav-num">5</span><span>Git image</span></a></li><li><a href="file-links.html"><span class="nav-num">6</span><span>File links</span></a></li><li><a href="lachesis.html"><span class="nav-num">7</span><span>Lachesis</span></a></li><li><a href="agents.html"><span class="nav-num">8</span><span>Agents</span></a></li><li><a href="engine.html"><span class="nav-num">9</span><span>The engine</span></a></li><li><a href="building.html"><span class="nav-num">10</span><span>Roadmap &amp; status</span></a></li><li class="nav-sep" role="separator"></li><li><a href="faq.html"><span class="nav-num"></span><span>FAQ</span></a></li><li><a href="glossary.html"><span class="nav-num"></span><span>Glossary</span></a></li></ul></nav></details>
+<article>
+<div class="preview-banner" role="note"><span class="dot" aria-hidden="true"></span><div><strong>Preview.</strong> This book describes Moirai as it is designed. Nothing is released yet: the project is in milestone M0, writing and testing its specification. Commands and outputs show the designed behaviour and may change.</div></div>
+<div class="hero" aria-hidden="true"><svg class="hero-threads" viewBox="0 0 720 150"><path class="t t1" d="M0,75 Q90,15 180,75 T360,75 T540,75 T720,75"/><path class="t t2" d="M0,75 Q90,135 180,75 T360,75 T540,75 T720,75"/><path class="t t3" d="M0,75 Q60,40 120,75 T240,75 T360,75 T480,75 T600,75"/><circle class="bead" cx="120" cy="75" r="3.6"/><circle class="bead" cx="240" cy="75" r="3.6"/><circle class="bead" cx="480" cy="75" r="3.6"/><circle class="knot" cx="180" cy="75" r="7"/><circle class="knot" cx="360" cy="75" r="7"/><circle class="knot" cx="540" cy="75" r="7"/><path class="cut" d="M607,64 L621,86 M607,86 L621,64"/></svg></div><h1>Moirai</h1>
+<p class="lead">Moirai is a versioned graph database, written from scratch in Rust, for projects where AI coding agents do much of the work. It gives every agent on a project one place for the tasks, the project memory, the rules and the decisions, versioned with branches like git and shared by all agents at once. It is one program, <code>moirai</code>, with no server. It is not released yet: the project is still writing and testing its specification, and nothing can be installed.</p>
+
+<p>This book explains Moirai to people who have never seen the project. It assumes that you know git, databases in general and AI coding agents such as Claude Code or Codex, but nothing of the project's own vocabulary. New terms are explained where they first appear, and the main ones are collected in the <a href="glossary.html">glossary</a>.</p>
+
+<h2 id="what-it-does">What it does<a class="anchor" href="#what-it-does" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Moirai keeps a project's work and its memory in one typed graph. A task, a rule, a decision, a review finding and a source file are all <a href="glossary.html#term-node">nodes</a>. "This subtask belongs to that task" and "this task must finish before that one starts" are edges. The engine checks every write against the schema, and it computes which tasks can start now, so nobody keeps that list by hand.</p>
+<p>Around the graph, Moirai adds what agents working in parallel need: <a href="glossary.html#term-lease">leases</a> so that two agents never take the same task, branches that merge field by field, a readable copy in git, links into project files that survive moves, and a query language that every read command is built on. Each card opens the chapter that explains one part.</p>
+<div class="cards">
+<a class="card" href="why.html"><span class="card-title">Why Moirai</span><span class="card-text">Agents forget between sessions, plans in Markdown drift, file references rot. The problem and the idea.</span></a>
+<a class="card" href="concepts.html"><span class="card-title">The graph</span><span class="card-text">Tasks, rules, decisions and findings as typed nodes. The engine computes which tasks are ready.</span></a>
+<a class="card" href="tour.html"><span class="card-title">A tour</span><span class="card-text">One designed session, from <code>moirai init</code> to a merged parallel lane.</span></a>
+<a class="card" href="versions.html"><span class="card-title">Branches and merges</span><span class="card-text">Its own version control: a branch per lane, a typed merge, conflicts kept as data.</span></a>
+<a class="card" href="git-image.html"><span class="card-title">Saving into git</span><span class="card-text">The whole graph as readable text files in a git repository, and back again.</span></a>
+<a class="card" href="file-links.html"><span class="card-title">File links</span><span class="card-text">Pointers into project files that follow renames, moves and edits.</span></a>
+<a class="card" href="lachesis.html"><span class="card-title">Lachesis</span><span class="card-text">A query language in the style of Cypher, behind every read of the graph and most writes.</span></a>
+<a class="card" href="agents.html"><span class="card-title">Working with agents</span><span class="card-text">A CLI, an MCP server, skills and hooks, with context sized for each task.</span></a>
+</div>
+
+<h2 id="first-look">A first look<a class="anchor" href="#first-look" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Two commands from the <a href="tour.html">tour</a>, in a small fictional project. The first asks which tasks an agent may start now. The second lets an agent called <code>dev-1</code> take one of them.</p>
+<pre data-lang="terminal"><code class="lang-console"><span class="cmd"><span class="prompt">$ </span>moirai ready</span>
+branch: main | rev 5 | live | 1 row
+#2 task open P2 "Parse the Connection header" parent:#1
+<span class="cmd"><span class="prompt">$ </span>moirai claim 2 --agent dev-1 --start</span>
+branch: main | rev 5 -&gt; 6 | committed c41a7d0e2
+1 CALL tx.claim([#2]): lease L-2 holder dev-1, expires 2026-11-16T09:55Z; status open-&gt;in_progress
+affected: none</code></pre>
+<p class="caption">Designed output.</p>
+<p>The first line of each result above names the branch and the revision it was read from; a write shows the revision before and after. Every record takes one line and starts with its short id. The engine worked out the answer to <code>ready</code> from the task tree, the blockers and the leases. The claim gives <code>dev-1</code> a lease on task <code>#2</code>, which every branch of the store sees, so no other agent is handed the same work.</p>
+
+<h2 id="big-picture">The big picture<a class="anchor" href="#big-picture" aria-hidden="true" tabindex="-1">#</a></h2>
+<figure class="diagram">
+<svg viewBox="0 0 720 564" role="img" aria-labelledby="index-d1-t">
+  <title id="index-d1-t">The big picture: agents in their harnesses use the moirai binary through the CLI, the MCP server and hooks; Lachesis and the Klotho engine sit inside it; the engine works with project files, the store and a git image that travels to a git remote</title>
+  <defs><marker id="index-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <path class="d-box-muted" d="M24,12 H696 A8,8 0 0 1 704,20 V84 A8,8 0 0 1 696,92 H24 A8,8 0 0 1 16,84 V20 A8,8 0 0 1 24,12 Z"/>
+  <text class="d-text-small" x="32" y="27" text-anchor="start" dominant-baseline="middle">AI coding agents in their harnesses, with skills that teach them the commands</text>
+  <path class="d-box" d="M48,40 H208 A8,8 0 0 1 216,48 V72 A8,8 0 0 1 208,80 H48 A8,8 0 0 1 40,72 V48 A8,8 0 0 1 48,40 Z"/>
+  <text class="d-text" x="128" y="60" text-anchor="middle" dominant-baseline="middle">Claude Code</text>
+  <path class="d-box" d="M280,40 H440 A8,8 0 0 1 448,48 V72 A8,8 0 0 1 440,80 H280 A8,8 0 0 1 272,72 V48 A8,8 0 0 1 280,40 Z"/>
+  <text class="d-text" x="360" y="60" text-anchor="middle" dominant-baseline="middle">Codex</text>
+  <path class="d-box" d="M512,40 H672 A8,8 0 0 1 680,48 V72 A8,8 0 0 1 672,80 H512 A8,8 0 0 1 504,72 V48 A8,8 0 0 1 512,40 Z"/>
+  <text class="d-text" x="592" y="60" text-anchor="middle" dominant-baseline="middle">other harnesses</text>
+  <path class="d-edge" d="M128,80 L128,124" marker-end="url(#index-arrow)"/>
+  <path class="d-edge" d="M360,80 L360,124" marker-end="url(#index-arrow)"/>
+  <path class="d-edge" d="M592,80 L592,124" marker-end="url(#index-arrow)"/>
+  <path class="d-box-muted" d="M24,124 H696 A8,8 0 0 1 704,132 V364 A8,8 0 0 1 696,372 H24 A8,8 0 0 1 16,364 V132 A8,8 0 0 1 24,124 Z"/>
+  <text class="d-text-strong" x="32" y="143" text-anchor="start" dominant-baseline="middle">moirai: one binary, no daemon</text>
+  <path class="d-box" d="M48,160 H208 A8,8 0 0 1 216,168 V208 A8,8 0 0 1 208,216 H48 A8,8 0 0 1 40,208 V168 A8,8 0 0 1 48,160 Z"/>
+  <text class="d-text" x="128" y="181" text-anchor="middle" dominant-baseline="middle">CLI</text>
+  <text class="d-text-small" x="128" y="201" text-anchor="middle" dominant-baseline="middle">moirai &lt;verb&gt;</text>
+  <path class="d-box" d="M280,160 H440 A8,8 0 0 1 448,168 V208 A8,8 0 0 1 440,216 H280 A8,8 0 0 1 272,208 V168 A8,8 0 0 1 280,160 Z"/>
+  <text class="d-text" x="360" y="181" text-anchor="middle" dominant-baseline="middle">MCP server</text>
+  <text class="d-text-small" x="360" y="201" text-anchor="middle" dominant-baseline="middle">stdio, ten tools</text>
+  <path class="d-box" d="M512,160 H672 A8,8 0 0 1 680,168 V208 A8,8 0 0 1 672,216 H512 A8,8 0 0 1 504,208 V168 A8,8 0 0 1 512,160 Z"/>
+  <text class="d-text" x="592" y="181" text-anchor="middle" dominant-baseline="middle">Hooks (optional)</text>
+  <text class="d-text-small" x="592" y="201" text-anchor="middle" dominant-baseline="middle">fail-open</text>
+  <path class="d-edge" d="M128,216 L128,240" marker-end="url(#index-arrow)"/>
+  <path class="d-edge" d="M360,216 L360,240" marker-end="url(#index-arrow)"/>
+  <path class="d-edge" d="M592,216 L592,240" marker-end="url(#index-arrow)"/>
+  <path class="d-box" d="M48,240 H672 A8,8 0 0 1 680,248 V272 A8,8 0 0 1 672,280 H48 A8,8 0 0 1 40,272 V248 A8,8 0 0 1 48,240 Z"/>
+  <text class="d-text" x="360" y="260" text-anchor="middle" dominant-baseline="middle">Lachesis: queries and mutations of the graph</text>
+  <path class="d-edge" d="M360,280 L360,304" marker-end="url(#index-arrow)"/>
+  <path class="d-box-accent" d="M48,304 H672 A8,8 0 0 1 680,312 V348 A8,8 0 0 1 672,356 H48 A8,8 0 0 1 40,348 V312 A8,8 0 0 1 48,304 Z"/>
+  <text class="d-text-strong" x="360" y="323" text-anchor="middle" dominant-baseline="middle">Klotho: the storage engine</text>
+  <text class="d-text-small" x="360" y="343" text-anchor="middle" dominant-baseline="middle">log, segments, locks, branches and history</text>
+  <path class="d-edge" d="M136,356 L136,412" marker-end="url(#index-arrow)"/>
+  <path class="d-edge" d="M360,356 L360,412" marker-start="url(#index-arrow)" marker-end="url(#index-arrow)"/>
+  <path class="d-edge-dashed" d="M584,356 L584,412" marker-start="url(#index-arrow)" marker-end="url(#index-arrow)"/>
+  <text class="d-text-small" x="146" y="392" text-anchor="start" dominant-baseline="middle">file links</text>
+  <text class="d-text-small" x="370" y="392" text-anchor="start" dominant-baseline="middle">log and segments</text>
+  <text class="d-text-small" x="594" y="392" text-anchor="start" dominant-baseline="middle">export / import</text>
+  <path class="d-box" d="M48,412 H224 A8,8 0 0 1 232,420 V460 A8,8 0 0 1 224,468 H48 A8,8 0 0 1 40,460 V420 A8,8 0 0 1 48,412 Z"/>
+  <text class="d-text" x="136" y="432" text-anchor="middle" dominant-baseline="middle">project files</text>
+  <text class="d-text-small" x="136" y="452" text-anchor="middle" dominant-baseline="middle">in each worktree</text>
+  <path class="d-box" d="M272,412 H448 A8,8 0 0 1 456,420 V460 A8,8 0 0 1 448,468 H272 A8,8 0 0 1 264,460 V420 A8,8 0 0 1 272,412 Z"/>
+  <text class="d-text" x="360" y="432" text-anchor="middle" dominant-baseline="middle">store directory</text>
+  <text class="d-text-small" x="360" y="452" text-anchor="middle" dominant-baseline="middle">&lt;git-common-dir&gt;/moirai/</text>
+  <path class="d-box" d="M496,412 H672 A8,8 0 0 1 680,420 V460 A8,8 0 0 1 672,468 H496 A8,8 0 0 1 488,460 V420 A8,8 0 0 1 496,412 Z"/>
+  <text class="d-text" x="584" y="432" text-anchor="middle" dominant-baseline="middle">image repository</text>
+  <text class="d-text-small" x="584" y="452" text-anchor="middle" dominant-baseline="middle">one .moi file per node</text>
+  <path class="d-edge-dashed" d="M584,468 L584,500" marker-start="url(#index-arrow)" marker-end="url(#index-arrow)"/>
+  <text class="d-text-small" x="574" y="485" text-anchor="end" dominant-baseline="middle">push / pull with git</text>
+  <path class="d-box" d="M496,500 H672 A8,8 0 0 1 680,508 V540 A8,8 0 0 1 672,548 H496 A8,8 0 0 1 488,540 V508 A8,8 0 0 1 496,500 Z"/>
+  <text class="d-text" x="584" y="517" text-anchor="middle" dominant-baseline="middle">git remote</text>
+  <text class="d-text-small" x="584" y="535" text-anchor="middle" dominant-baseline="middle">any git host</text>
+  <text class="d-text-muted" x="40" y="512" text-anchor="start" dominant-baseline="middle">dashed: explicit, optional steps</text>
+  <text class="d-text-muted" x="40" y="534" text-anchor="start" dominant-baseline="middle">one store per repository</text>
+</svg>
+<figcaption>Agents reach Moirai through the command line, the MCP server or optional hooks. Skills, short instruction files installed into each harness, teach them the commands; the binary is installed separately. Commands read the graph with Lachesis queries and change it with Lachesis mutations, which Klotho, the storage engine inside the one <code>moirai</code> binary, executes. Klotho keeps all data in one store per repository, which every worktree shares, and its file links point into the project's files. The git image is a text copy of the store in a separate git repository, which ordinary <code>git</code> can push to any remote.</figcaption>
+</figure>
+<p>Three names appear in the picture. <strong>Moirai</strong> is the product, and <code>moirai</code> is its one command. <strong><a href="glossary.html#term-klotho">Klotho</a></strong> is the storage engine, a library inside that binary. <strong><a href="glossary.html#term-lachesis">Lachesis</a></strong> is the query language. In Greek myth the Moirai are the three Fates; Klotho spins the thread and Lachesis measures it.</p>
+<p>There is no server to start and no background process. Each command opens the <a href="glossary.html#term-store">store</a>, does its work and exits, and the MCP server lives only as long as the agent session that started it. Inside a git repository the store sits in git's common directory, outside every working tree, so all worktrees of the repository share one store without any setup. Git itself is never needed to run Moirai; it is only one way to keep and move a copy of the data.</p>
+
+<h2 id="where-it-stands">Where it stands<a class="anchor" href="#where-it-stands" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="callout note">
+<p class="callout-title">Milestone M0: contract and evidence</p>
+<p>Nothing is released, and there is nothing to install yet. The project is in its first milestone, M0, "contract and evidence". The repository holds the byte-level specification of the on-disk format, a complete reference model in Rust that serves as the test oracle, test fixtures, test harnesses and the first measurement tools. The storage engine is built in the next milestone, M1, which starts after version 1 of the on-disk format is frozen with the git tag <code>format-v1</code>. There is no release date. <a href="building.html">How it is built, and where it stands</a> has the roadmap from M0 to M11 and the list of what exists today.</p>
+</div>
+<p>This book therefore describes the designed system. Commands and their output are designed output taken from the specification, not recordings, and every number is a design target, not a measurement. Where the book and the specification in the repository differ, the specification is right.</p>
+
+<h2 id="how-to-read">How to read this book<a class="anchor" href="#how-to-read" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>The chapters build on each other, but each one can be read alone. If you have ten minutes, read the first chapter and the tour.</p>
+<ol>
+<li><a href="why.html">Why Moirai</a>: the problem it solves, its requirements, its four priorities and what it deliberately is not.</li>
+<li><a href="concepts.html">The graph</a>: nodes, kinds, statuses, edges, derived state such as "ready", deletion and leases.</li>
+<li><a href="tour.html">A session, start to finish</a>: one fictional project, command by command, with designed output.</li>
+<li><a href="versions.html">Branches, merges and history</a>: Moirai's own version control and how parallel lanes merge.</li>
+<li><a href="git-image.html">Saving into git</a>: how the graph is written into a git repository as text and read back.</li>
+<li><a href="file-links.html">File links that survive moves</a>: pointers into project files that follow renames and edits.</li>
+<li><a href="lachesis.html">Lachesis, the query language</a>: queries, versions inside queries, guarded writes and the accuracy benchmark.</li>
+<li><a href="agents.html">Working with agents</a>: the CLI, the MCP server, skills, hooks, context packs and leases.</li>
+<li><a href="engine.html">Under the hood: Klotho</a>: the storage engine, crash safety and the performance budgets.</li>
+<li><a href="building.html">How it is built, and where it stands</a>: the specification, the reference model, the tests, the roadmap and the status.</li>
+<li><a href="faq.html">Questions and answers</a>: short answers to the questions people ask first.</li>
+<li><a href="glossary.html">Glossary</a>: every term the book uses, with a link to the chapter where it matters.</li>
+</ol>
+
+<hr>
+<p>Moirai is open source under the Apache License 2.0. The source code, the design documents and the specification are on GitHub at <a href="https://github.com/bluesteelll/moirai">github.com/bluesteelll/moirai</a>.</p>
+
+<nav class="pager"><a class="next" href="why.html"><span class="dir">Next →</span><span class="ttl">Why Moirai</span></a></nav>
+<footer class="site-footer"><p>Moirai is open source under the Apache License 2.0. Source and specification: <a href="https://github.com/bluesteelll/moirai">github.com/bluesteelll/moirai</a>. This book is a preview of the design; where it and the specification in the repository differ, the specification is authoritative.</p></footer>
+</article>
+</main>
+<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><ul><li><a href="#what-it-does">What it does</a></li><li><a href="#first-look">A first look</a></li><li><a href="#big-picture">The big picture</a></li><li><a href="#where-it-stands">Where it stands</a></li><li><a href="#how-to-read">How to read this book</a></li></ul></aside>
+</div>
+<script>(function(){var b=document.querySelector('.theme-toggle');if(!b)return;b.addEventListener('click',function(){var r=document.documentElement;var cur=r.getAttribute('data-theme')||(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');var nx=cur==='dark'?'light':'dark';r.setAttribute('data-theme',nx);try{localStorage.setItem('moirai-book-theme',nx);}catch(e){}});})();</script>
+</body>
+</html>
