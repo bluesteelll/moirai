@@ -72,16 +72,17 @@ STRINGS = {
     },
 }
 
-LOGO = ('<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#17182b"/>'
-        '<path d="M5 11c6-5 12 5 22 0" fill="none" stroke="#e0b45c" stroke-width="2.3" stroke-linecap="round"/>'
-        '<path d="M5 16.5c6-5 12 5 22 0" fill="none" stroke="#8f8cf0" stroke-width="2.3" stroke-linecap="round"/>'
-        '<path d="M5 22c6-5 9 3 14 1.6" fill="none" stroke="#e57a8c" stroke-width="2.3" stroke-linecap="round"/></svg>')
+LOGO = ('<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#2a2b2f"/>'
+        '<path d="M5 11c6-5 12 5 22 0" fill="none" stroke="#d6a55e" stroke-width="2.3" stroke-linecap="round"/>'
+        '<path d="M5 16.5c6-5 12 5 22 0" fill="none" stroke="#e9e7e2" stroke-opacity="0.55" stroke-width="2.3" '
+        'stroke-linecap="round"/>'
+        '<path d="M5 22c6-5 9 3 14 1.6" fill="none" stroke="#e9e7e2" stroke-opacity="0.55" stroke-width="2.3" '
+        'stroke-linecap="round"/></svg>')
 
 FONTS = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
          '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-         '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;'
-         '0,700;1,500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=JetBrains+Mono:wght@400;600'
-         '&amp;display=swap">')
+         '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400..700'
+         '&amp;family=JetBrains+Mono:wght@400..600&amp;display=swap">')
 
 THEME_HEAD = ("<script>(function(){try{var t=localStorage.getItem('moirai-book-theme');"
               "if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>")
@@ -98,17 +99,6 @@ TOGGLE_ICONS = ('<svg class="sun" viewBox="0 0 24 24" fill="none" stroke="curren
                 '</svg><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
                 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 '
                 '9.8 3.5a8.5 8.5 0 1 0 10.7 10.7z"/></svg>')
-
-HERO = ('<div class="hero" aria-hidden="true"><svg class="hero-threads" viewBox="0 0 720 150">'
-        '<path class="t t1" d="M0,75 Q90,15 180,75 T360,75 T540,75 T720,75"/>'
-        '<path class="t t2" d="M0,75 Q90,135 180,75 T360,75 T540,75 T720,75"/>'
-        '<path class="t t3" d="M0,75 Q60,40 120,75 T240,75 T360,75 T480,75 T600,75"/>'
-        '<circle class="bead" cx="120" cy="75" r="3.6"/><circle class="bead" cx="240" cy="75" r="3.6"/>'
-        '<circle class="bead" cx="480" cy="75" r="3.6"/>'
-        '<circle class="knot" cx="180" cy="75" r="7"/><circle class="knot" cx="360" cy="75" r="7"/>'
-        '<circle class="knot" cx="540" cy="75" r="7"/>'
-        '<path class="cut" d="M607,64 L621,86 M607,86 L621,64"/>'
-        '</svg></div>')
 
 LANG_LABEL = {"console": "terminal", "lq": "Lachesis", "moi": ".moi", "text": ""}
 
@@ -236,9 +226,7 @@ def render(lang, slug, pages, other_exists):
 
     nav = nav_list(pages, slug, lang)
     content = decorate(body)
-    if slug == "index":
-        content = content.replace("<h1", HERO + "<h1", 1)
-    else:
+    if slug != "index":
         label = (f'{s["chapter"]} {NUMBERED.index(slug) + 1}' if slug in NUMBERED else s["reference"])
         content = content.replace("<h1", f'<p class="eyebrow">{label}</p><h1', 1)
     body_class = ' class="home"' if slug == "index" else ""
