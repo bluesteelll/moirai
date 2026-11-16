@@ -603,6 +603,9 @@ dd {
   transition: border-color 0.3s;
 }
 dt:target + dd { border-left-color: var(--accent); }
+/* A definition written as several paragraphs makes the whole list loose; keep its spacing tight. */
+dd > p { margin: 0 0 0.6em; }
+dd > p:last-child { margin-bottom: 0; }
 
 /* ---------- diagrams ---------- */
 

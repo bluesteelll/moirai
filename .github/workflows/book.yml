@@ -1,0 +1,88 @@
+# Build and publish the Moirai book (https://bluesteelll.github.io/moirai/).
+#
+# - Runs on every push to gh-pages, whether from a local clone or from an edit in the GitHub web editor. To rebuild
+#   without a change, re-run the last run (Actions > the run > Re-run all jobs). GitHub shows a "Run workflow"
+#   button only for workflows on the default branch, so workflow_dispatch here serves the API and
+#   `gh workflow run book.yml --ref gh-pages`.
+# - Builds the pages from the Markdown chapters in source/ with source/build.py: first `--check` (links, anchors,
+#   forbidden content, chapter format), then the build. A failed check fails the run, and the site keeps its last
+#   good version.
+# - Publishes only the built pages and assets/, never source/, README.md or .github/.
+# - The checkout is plain git over HTTPS, as on master. The only actions are GitHub's own (setup-python and the two
+#   Pages actions), pinned by commit. The Markdown parser comes from PyPI, pinned by version and hash in
+#   source/requirements.txt.
+# - permissions: the build job only reads. Only the deploy job may write to Pages and request the OIDC token that
+#   Pages needs.
+
+name: book
+
+on:
+  push:
+    branches: [gh-pages]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time. A newer push waits for the running one; it does not cancel it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the pushed commit
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          git init -q .
+          git remote add origin "https://github.com/${REPO}.git"
+          git fetch -q --depth 1 --no-tags origin "${GITHUB_SHA}"
+          git checkout -q --detach FETCH_HEAD
+          git log -1 --format='%H %s'
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install the Markdown parser
+        run: python -m pip install --disable-pip-version-check --require-hashes -r source/requirements.txt
+
+      - name: Check the sources
+        run: python source/build.py --check
+
+      - name: Build the pages
+        run: |
+          set -eu
+          python source/build.py
+          mkdir _site
+          cp -- ./*.html _site/
+          cp -R -- ru assets _site/
+          test -f _site/index.html
+          test -f _site/ru/index.html
+          echo "pages: $(find _site -name '*.html' | wc -l)"
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
