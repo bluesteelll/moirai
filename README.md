@@ -12,6 +12,10 @@ and decisions in one typed graph.
 - **Agent interfaces:** a CLI and an MCP server that work with Claude Code, Codex and other agent harnesses.
 - **Priorities:** speed, minimal RAM, correctness and minimal agent tokens.
 
+**The book:** [Moirai, the book](https://bluesteelll.github.io/moirai/) explains the project to newcomers, chapter by
+chapter; it is also [in Russian](https://bluesteelll.github.io/moirai/ru/). It is a preview of the design, and the
+specification in this repository is authoritative.
+
 **Status:** design stage. There is no code yet. The architecture, the roadmap and the research behind them are in
 [docs/ARCHITECTURE-RESEARCH.md](docs/ARCHITECTURE-RESEARCH.md).
 
