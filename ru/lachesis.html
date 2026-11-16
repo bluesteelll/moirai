@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lachesis, язык запросов · Книга о Moirai</title>
+<meta name="description" content="Собственный язык запросов Moirai: паттерны в стиле Cypher по графу, состояние движка во встроенных функциях, версии внутри запросов, защищённые записи и бенчмарк, который решает, когда язык будет заморожен.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="Lachesis, язык запросов">
+<meta property="og:description" content="Собственный язык запросов Moirai: паттерны в стиле Cypher по графу, состояние движка во встроенных функциях, версии внутри запросов, защищённые записи и бенчмарк, который решает, когда язык будет заморожен.">
+<meta property="og:type" content="article">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>(function(){try{var t=localStorage.getItem('moirai-book-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="alternate" hreflang="en" href="https://bluesteelll.github.io/moirai/lachesis.html"><link rel="alternate" hreflang="ru" href="https://bluesteelll.github.io/moirai/ru/lachesis.html">
+</head>
+<body>
+<a class="skip-link" href="#main">К содержимому</a>
+<header class="topbar">
+<a class="brand" href="index.html"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#17182b"/><path d="M5 11c6-5 12 5 22 0" fill="none" stroke="#e0b45c" stroke-width="2.3" stroke-linecap="round"/><path d="M5 16.5c6-5 12 5 22 0" fill="none" stroke="#8f8cf0" stroke-width="2.3" stroke-linecap="round"/><path d="M5 22c6-5 9 3 14 1.6" fill="none" stroke="#e57a8c" stroke-width="2.3" stroke-linecap="round"/></svg><span class="brand-name">Moirai</span><span class="brand-sub">книга</span></a>
+<span class="spacer"></span>
+<nav class="topbar-links" aria-label="Site">
+<a class="hide-narrow" href="https://github.com/bluesteelll/moirai">GitHub</a>
+<span class="lang-switch"><a href="../lachesis.html" hreflang="en" lang="en">EN</a><span aria-current="true">RU</span></span>
+<button class="theme-toggle" type="button" aria-label="Переключить светлую или тёмную тему" title="Переключить светлую или тёмную тему"><svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"/></svg><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7z"/></svg></button>
+</nav>
+</header>
+<div class="layout">
+<aside class="sidebar"><p class="sidebar-title">Содержание</p><nav aria-label="Главы"><ul class="nav-list"><li><a href="index.html"><span class="nav-num"></span><span>Главная</span></a></li><li><a href="why.html"><span class="nav-num">1</span><span>Зачем Moirai</span></a></li><li><a href="concepts.html"><span class="nav-num">2</span><span>Граф</span></a></li><li><a href="tour.html"><span class="nav-num">3</span><span>Пример сессии</span></a></li><li><a href="versions.html"><span class="nav-num">4</span><span>Ветки и слияния</span></a></li><li><a href="git-image.html"><span class="nav-num">5</span><span>Git-образ</span></a></li><li><a href="file-links.html"><span class="nav-num">6</span><span>Файловые ссылки</span></a></li><li><a href="lachesis.html" aria-current="page"><span class="nav-num">7</span><span>Lachesis</span></a></li><li><a href="agents.html"><span class="nav-num">8</span><span>Агенты</span></a></li><li><a href="engine.html"><span class="nav-num">9</span><span>Движок</span></a></li><li><a href="building.html"><span class="nav-num">10</span><span>План и статус</span></a></li><li class="nav-sep" role="separator"></li><li><a href="faq.html"><span class="nav-num"></span><span>Вопросы и ответы</span></a></li><li><a href="glossary.html"><span class="nav-num"></span><span>Глоссарий</span></a></li></ul></nav></aside>
+<main class="content" id="main">
+<details class="mobile-nav"><summary>Содержание</summary><nav aria-label="Главы"><ul class="nav-list"><li><a href="index.html"><span class="nav-num"></span><span>Главная</span></a></li><li><a href="why.html"><span class="nav-num">1</span><span>Зачем Moirai</span></a></li><li><a href="concepts.html"><span class="nav-num">2</span><span>Граф</span></a></li><li><a href="tour.html"><span class="nav-num">3</span><span>Пример сессии</span></a></li><li><a href="versions.html"><span class="nav-num">4</span><span>Ветки и слияния</span></a></li><li><a href="git-image.html"><span class="nav-num">5</span><span>Git-образ</span></a></li><li><a href="file-links.html"><span class="nav-num">6</span><span>Файловые ссылки</span></a></li><li><a href="lachesis.html" aria-current="page"><span class="nav-num">7</span><span>Lachesis</span></a></li><li><a href="agents.html"><span class="nav-num">8</span><span>Агенты</span></a></li><li><a href="engine.html"><span class="nav-num">9</span><span>Движок</span></a></li><li><a href="building.html"><span class="nav-num">10</span><span>План и статус</span></a></li><li class="nav-sep" role="separator"></li><li><a href="faq.html"><span class="nav-num"></span><span>Вопросы и ответы</span></a></li><li><a href="glossary.html"><span class="nav-num"></span><span>Глоссарий</span></a></li></ul></nav></details>
+<article>
+<div class="preview-banner" role="note"><span class="dot" aria-hidden="true"></span><div><strong>Предварительная версия.</strong> Книга описывает Moirai такой, какой она задумана. Ничего ещё не выпущено: проект на вехе M0, где пишется и проверяется его спецификация. Команды и их вывод показывают задуманное поведение и могут измениться.</div></div>
+<p class="eyebrow">Глава 7</p><h1>Lachesis, язык запросов</h1>
+
+<p class="lead">Lachesis (LQ, файлы <code>*.lq</code>) — это способ спросить у Moirai всё, что не покрывают её команды; им пользуются и агенты, и люди. Язык похож на Cypher, принимает распространённые варианты написания из GQL, знает собственные понятия Moirai — готовность, версии и файловые ссылки — и спроектирован и измерен так, чтобы языковые модели писали на нём правильно. Он назван по имени мойры, которая отмеряет нить: именно это и делает запрос.</p>
+
+<h2 id="why-a-language">Зачем собственный язык<a class="anchor" href="#why-a-language" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>У Moirai много команд: <code>ready</code>, <code>blockers</code>, <code>show</code>, <code>log</code>, <code>links check</code> и другие. Каждая из них — запрос, написанный на LQ. <code>moirai ready --scope 200</code> — то же самое, что <code>moirai q ready scope=200</code>: оба выполняют стандартный <a href="glossary.html#term-named-query">именованный запрос</a> <code>std.ready</code>. Каждая команда записи — именованная мутация, которая разворачивается в блок записи LQ. Все чтения обслуживают один парсер, биндер, планировщик и исполнитель, а все записи — один компилятор операторов. Поэтому запрос и команда никогда не разойдутся в том, что значит «готова» или «заблокирована».</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 720 320" role="img" aria-labelledby="lachesis-d1-t">
+  <title id="lachesis-d1-t">Команды и свободные запросы идут по одному пути чтения и одному пути записи</title>
+  <defs><marker id="lachesis-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <path class="d-box" d="M32,20 h184 a8,8 0 0 1 8,8 v20 a8,8 0 0 1 -8,8 h-184 a8,8 0 0 1 -8,-8 v-20 a8,8 0 0 1 8,-8 z"/>
+  <text class="d-text-small" x="124" y="38" text-anchor="middle" dominant-baseline="middle">moirai ready --scope 200</text>
+  <path class="d-box" d="M32,80 h184 a8,8 0 0 1 8,8 v20 a8,8 0 0 1 -8,8 h-184 a8,8 0 0 1 -8,-8 v-20 a8,8 0 0 1 8,-8 z"/>
+  <text class="d-text-small" x="124" y="98" text-anchor="middle" dominant-baseline="middle">moirai q ready scope=200</text>
+  <path class="d-box" d="M32,140 h184 a8,8 0 0 1 8,8 v20 a8,8 0 0 1 -8,8 h-184 a8,8 0 0 1 -8,-8 v-20 a8,8 0 0 1 8,-8 z"/>
+  <text class="d-text-small" x="124" y="158" text-anchor="middle" dominant-baseline="middle">moirai q - / query в MCP</text>
+  <path class="d-box" d="M272,44 h136 a8,8 0 0 1 8,8 v32 a8,8 0 0 1 -8,8 h-136 a8,8 0 0 1 -8,-8 v-32 a8,8 0 0 1 8,-8 z"/>
+  <text class="d-text-small" x="340" y="59" text-anchor="middle" dominant-baseline="middle">именованный запрос</text>
+  <text class="d-text-small" x="340" y="77" text-anchor="middle" dominant-baseline="middle">std.ready</text>
+  <path class="d-box-accent" d="M456,70 h232 a8,8 0 0 1 8,8 v80 a8,8 0 0 1 -8,8 h-232 a8,8 0 0 1 -8,-8 v-80 a8,8 0 0 1 8,-8 z"/>
+  <text class="d-text-strong" x="572" y="90" text-anchor="middle" dominant-baseline="middle">Путь чтения</text>
+  <text class="d-text-small" x="572" y="112" text-anchor="middle" dominant-baseline="middle">один парсер, биндер, планировщик</text>
+  <text class="d-text-small" x="572" y="132" text-anchor="middle" dominant-baseline="middle">исполнитель над представлением</text>
+  <text class="d-text-small" x="572" y="152" text-anchor="middle" dominant-baseline="middle">только для чтения</text>
+  <line class="d-edge" x1="224" y1="38" x2="264" y2="62" marker-end="url(#lachesis-arrow)"/>
+  <line class="d-edge" x1="224" y1="98" x2="264" y2="76" marker-end="url(#lachesis-arrow)"/>
+  <line class="d-edge" x1="416" y1="68" x2="448" y2="92" marker-end="url(#lachesis-arrow)"/>
+  <line class="d-edge" x1="224" y1="158" x2="448" y2="128" marker-end="url(#lachesis-arrow)"/>
+  <path class="d-box" d="M32,200 h184 a8,8 0 0 1 8,8 v20 a8,8 0 0 1 -8,8 h-184 a8,8 0 0 1 -8,-8 v-20 a8,8 0 0 1 8,-8 z"/>
+  <text class="d-text-small" x="124" y="218" text-anchor="middle" dominant-baseline="middle">moirai set / moirai tx</text>
+  <path class="d-box" d="M32,260 h184 a8,8 0 0 1 8,8 v20 a8,8 0 0 1 -8,8 h-184 a8,8 0 0 1 -8,-8 v-20 a8,8 0 0 1 8,-8 z"/>
+  <text class="d-text-small" x="124" y="278" text-anchor="middle" dominant-baseline="middle">инструмент MCP write</text>
+  <path class="d-box" d="M272,230 h136 a8,8 0 0 1 8,8 v20 a8,8 0 0 1 -8,8 h-136 a8,8 0 0 1 -8,-8 v-20 a8,8 0 0 1 8,-8 z"/>
+  <text class="d-text-small" x="340" y="248" text-anchor="middle" dominant-baseline="middle">один блок TX</text>
+  <path class="d-box-accent" d="M456,222 h232 a8,8 0 0 1 8,8 v36 a8,8 0 0 1 -8,8 h-232 a8,8 0 0 1 -8,-8 v-36 a8,8 0 0 1 8,-8 z"/>
+  <text class="d-text-strong" x="572" y="240" text-anchor="middle" dominant-baseline="middle">Путь записи</text>
+  <text class="d-text-small" x="572" y="260" text-anchor="middle" dominant-baseline="middle">один коммит, всё или ничего</text>
+  <line class="d-edge" x1="224" y1="218" x2="264" y2="242" marker-end="url(#lachesis-arrow)"/>
+  <line class="d-edge" x1="224" y1="278" x2="264" y2="256" marker-end="url(#lachesis-arrow)"/>
+  <line class="d-edge" x1="416" y1="248" x2="448" y2="248" marker-end="url(#lachesis-arrow)"/>
+</svg>
+<figcaption>Команда чтения — это именованный запрос; команда записи разворачивается в блок <code>TX</code>. Свободный LQ попадает на те же два пути.</figcaption>
+</figure>
+
+<p>Форма взята у Cypher, потому что языковые модели видели Cypher гораздо больше, чем GQL. LQ сохраняет смысл Cypher везде, где принимает его написание, принимает написания GQL там, где они означают то же самое, а каждую неподдерживаемую форму превращает в ошибку, которая показывает, как записать то же на LQ. В грамматику входят только те формы, которые нужны для заявленного требования, для стандартного именованного запроса или по данным бенчмарка, потому что каждая продукция грамматики версии 1 остаётся в ней навсегда.</p>
+
+<p>Кроме того, язык измеряется. Перед заморозкой бенчмарк <a href="#lq-bench">LQ-Bench</a> проверяет, что модель, получив только короткую карточку skill, пишет правильные запросы, а если ошибается, то явно, а не молча.</p>
+
+<h2 id="first-query">Первый запрос<a class="anchor" href="#first-query" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Примеры на этой странице используют небольшой вымышленный HTTP-сервер <code>tinyhttp</code>. У этой главы свой снимок хранилища этого проекта, поэтому id и ревизии здесь не совпадают с другими главами. У задачи-кампании <code>#200</code> «Поддержка HTTP/2» есть подзадачи, а работа идёт на ветке <code>lane/http2</code>. Какие подзадачи агент может начать прямо сейчас?</p>
+
+<pre data-lang="terminal"><code class="lang-console"><span class="cmd"><span class="prompt">$ </span>moirai q - &lt;&lt;'EOF'</span>
+MATCH (t:task) WHERE t.ready AND t IN subtree(#200) RETURN t ORDER BY t.priority LIMIT 5
+EOF
+branch: lane/http2 | rev 4520 | live | 2 rows
+#204 task open P1 "Decode HTTP/2 frames" parent:#200
+#216 task open P3 "Request logging" parent:#200
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<p>Первая строка каждого результата — заголовок: ветка и ревизия, из которых прочитаны строки, пометка <code>live</code>, потому что готовность зависит от текущих аренд, и число строк. Каждая строка результата — строка узла: id, вид, статус, приоритет, название и ключевые поля. <code>P0</code> — самый важный приоритет, поэтому <code>ORDER BY t.priority</code> выводит самые важные задачи первыми. В строках узлов приоритет печатается как <code>P0</code>–<code>P4</code>, но в LQ приоритет — это число: <code>P1</code> равен 1, так что <code>t.priority &lt;= 1</code> выбирает <code>P0</code> и <code>P1</code>.</p>
+
+<p>Для того же вопроса есть именованный запрос: он короче и ни в одной оболочке не требует кавычек. <code>--show-query</code> печатает стоящий за ним LQ — так агенты учат язык по командам, которыми уже пользуются:</p>
+
+<pre data-lang="terminal"><code class="lang-console"><span class="cmd"><span class="prompt">$ </span>moirai q ready scope=200 --show-query</span>
+std.ready($scope: node? = NULL, $role: text? = NULL, $limit: int = 20) SHAPE node   (built-in, LQ 1)
+MATCH (t:task)
+WHERE t.ready
+  AND ($scope IS NULL OR t IN subtree($scope))
+  AND ($role IS NULL OR fits_role(t, $role))
+RETURN t ORDER BY t.priority, t.id LIMIT $limit
+// bound: $scope = #200, $role = NULL, $limit = 20
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<div class="callout tip">
+<p class="callout-title">Id в командной строке</p>
+<p>Внутри запроса <code>#200</code> — это узел. В командной строке оболочки <code>#</code> без кавычек начинает комментарий, поэтому в аргументах пишут голые числа: <code>scope=200</code>. Свободный текст запроса передают через heredoc в кавычках в Bash, через here-string по конвейеру в PowerShell или через инструмент MCP <code>query</code>.</p>
+</div>
+
+<h2 id="patterns">Паттерны: виды, рёбра и направления<a class="anchor" href="#patterns" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Паттерн описывает фрагмент графа. Метки — это виды узлов: <code>task</code>, <code>doc</code>, <code>note</code>, <code>rule</code>, <code>decision</code>, <code>question</code>, <code>finding</code>, <code>verdict</code>, <code>measurement</code>, <code>artifact</code>, <code>run</code>, <code>lane</code> и <code>area</code>. У узла ровно один вид, поэтому <code>(x:note|rule)</code> означает «заметка или правило». <code>#N</code> — литерал узла; <code>#u:</code> с 32 шестнадцатеричными цифрами — переносимая форма того же id. <code>CALL schema(kind: 'task')</code> перечисляет поля вида.</p>
+
+<p>В LQ тип ребра — это <a href="concepts.html#edges">вид ребра</a> из схемы, записанный заглавными буквами: <code>blocks</code> становится <code>BLOCKS</code>, <code>about</code> — <code>ABOUT</code>. Единственное исключение — <code>parent</code>: в LQ это ребро называется <code>CHILD_OF</code>, чтобы <code>(a)-[:CHILD_OF]-&gt;(b)</code> читалось правильно. Типы рёбер названы так, чтобы правильно читаться слева направо в том направлении, в котором рёбра хранятся. У большинства есть обратные алиасы, чтобы задать вопрос с другой стороны:</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Ребро</th><th>Обратный алиас</th><th>Как читается <code>(a)-[:T]-&gt;(b)</code></th></tr></thead>
+<tbody>
+<tr><td><code>CHILD_OF</code></td><td><code>PARENT_OF</code></td><td>a — дочерний узел b</td></tr>
+<tr><td><code>BLOCKS</code></td><td><code>BLOCKED_BY</code></td><td>a нужно завершить до того, как начнётся b</td></tr>
+<tr><td><code>GATES</code></td><td><code>GATED_BY</code></td><td>вердикт a служит гейтом для завершения b</td></tr>
+<tr><td><code>SUPERSEDES</code></td><td><code>SUPERSEDED_BY</code></td><td>a заменяет b</td></tr>
+<tr><td><code>CITES</code></td><td><code>CITED_BY</code></td><td>a цитирует b</td></tr>
+<tr><td><code>ABOUT</code></td><td>&mdash;</td><td>a относится к b</td></tr>
+<tr><td><code>AT</code></td><td>&mdash;</td><td>a привязан к файлу b (<a href="file-links.html">файловая ссылка</a>)</td></tr>
+</tbody>
+</table></div>
+
+<p>Перепутанное направление — классическая тихая ошибка в графовых запросах: вопрос «чего ждёт #211?», записанный задом наперёд, вернёт задачи, которые блокирует сама #211. LQ делает направление видимым. Когда паттерн начинается с фиксированного узла на ребре, оба конца которого могут быть одного вида (например, <code>BLOCKS</code> между задачами), или когда в нём есть обратный алиас, результат сразу под заголовком содержит <a href="glossary.html#term-reading-echo">эхо чтения</a> — строку, которая словами говорит, что означает паттерн:</p>
+
+<pre data-lang="terminal"><code class="lang-console"><span class="cmd"><span class="prompt">$ </span>moirai q - &lt;&lt;'EOF'</span>
+MATCH (#211)-[:BLOCKED_BY]-&gt;(b) RETURN b
+EOF
+branch: lane/http2 | rev 4520 | 2 rows
+reads: b BLOCKS #211 (written #211 BLOCKED_BY b) | b must finish before #211 starts
+#207 task in_progress P1 "Connection pool" parent:#200 lease:dev#2(L-18)
+#209 task open P2 "Limit header size" parent:#200 blockers:#204 BLOCKED
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<p>Это подкрепляют ещё две проверки. Биндер проверяет виды узлов на обоих концах каждого ребра как типы, поэтому <code>DEPENDS_ON</code> между двумя задачами — ошибка, которая называет <code>BLOCKS</code> и <code>BLOCKED_BY</code>. А когда заякоренный паттерн ничего не находит, хотя рёбра этого вида идут в обратную сторону, уведомление <code>N07</code> сообщает об этом и показывает развёрнутый паттерн. Модели, которые не прошли гейты бенчмарка, видят эхо чтения на каждом паттерне с ребром.</p>
+
+<h2 id="clauses">WHERE, RETURN, ORDER BY и LIMIT<a class="anchor" href="#clauses" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Форма запроса: <code>[USE rev] MATCH pattern [WHERE ...] RETURN ... [ORDER BY ...] [LIMIT n]</code>. <code>OPTIONAL MATCH</code>, <code>WITH</code>, <code>UNWIND</code>, агрегаты, <code>EXISTS { }</code>, <code>COUNT { }</code>, <code>CASE</code>, параметры (<code>$name</code>; они никогда не подставляются в текст запроса) и <code>UNION</code>, <code>EXCEPT</code> и <code>INTERSECT</code> работают так же, как в Cypher.</p>
+
+<pre data-lang="Lachesis"><code class="lang-lq">MATCH (t:task)
+WHERE t.unfinished AND t.priority &lt;= 1 AND 'h2' IN t.labels
+RETURN t.id, t.status, t.priority
+ORDER BY t.priority, t.id
+</code></pre>
+
+<pre><code class="lang-text">branch: lane/http2 | rev 4520 | 2 rows
+t.id  t.status     t.priority
+#204  open         1
+#207  in_progress  1
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<p>У каждого результата полный детерминированный порядок: сначала явные ключи, затем id связанных элементов. Страница по умолчанию вмещает 50 строк. Более длинный результат заканчивается курсором, который получает следующую страницу, а запрос, который не читает живое состояние, на одной и той же версии всегда возвращает одни и те же байты. <code>SKIP</code> и <code>OFFSET</code> в язык не входят: смещения на меняющемся графе пропускают или повторяют строки.</p>
+
+<h2 id="counting">Подсчёт<a class="anchor" href="#counting" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Подсчёт устроен так же, как в Cypher и GQL. Паттерн связывается один раз на каждое совпадение всех своих элементов, включая анонимные, поэтому этот запрос считает блокирующие рёбра каждой задачи:</p>
+
+<pre data-lang="Lachesis"><code class="lang-lq">MATCH (t:task)&lt;-[:BLOCKS]-()
+WHERE t IN subtree(#200)
+RETURN t.id, count(*) AS blockers
+ORDER BY blockers DESC, t.id
+</code></pre>
+
+<pre><code class="lang-text">branch: lane/http2 | rev 4520 | 2 rows
+t.id  blockers
+#211  2
+#209  1
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<p><code>RETURN</code> сохраняет повторяющиеся строки; <code>RETURN DISTINCT</code> их удаляет, а уведомление <code>N09</code> указывает на повторы на странице. С частью переменной длины дело обстоит иначе: она связывается один раз на пару начального и конечного узлов, а не на каждый путь, потому что на графах, где есть рёбра в обход промежуточных узлов, число путей растёт взрывообразно. Поэтому подсчёт по такой части считает пары концов, и об этом сообщает уведомление:</p>
+
+<pre data-lang="terminal"><code class="lang-console"><span class="cmd"><span class="prompt">$ </span>moirai q - &lt;&lt;'EOF'</span>
+MATCH (x:task)-[:BLOCKS*1..]-&gt;(#211) RETURN count(*) AS upstream
+EOF
+branch: lane/http2 | rev 4520 | 1 row
+reads: x BLOCKS*1.. #211 | x must finish before #211 starts (through 1 or more steps)
+upstream
+3
+N08: count(*) over a quantified pattern counts (x, #211) endpoint pairs, not paths
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<h2 id="absent-values">Отсутствующее значение и двузначная логика<a class="anchor" href="#absent-values" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Поля заголовка узла, такие как статус и приоритет, всегда имеют значение. Необязательные поля, например <code>assignee</code> у задачи, могут отсутствовать. LQ использует двузначную логику с явным отсутствующим значением, тогда как SQL и GQL — трёхзначную:</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Выражение при отсутствующем <code>x</code></th><th>Результат</th></tr></thead>
+<tbody>
+<tr><td><code>x = v</code>, <code>x IN list</code>, <code>x CONTAINS s</code></td><td>ложь</td></tr>
+<tr><td><code>x &lt;&gt; v</code>, <code>x NOT IN list</code></td><td>истина</td></tr>
+<tr><td><code>x &lt; v</code> и другие сравнения порядка</td><td>ложь</td></tr>
+<tr><td><code>x IS NULL</code></td><td>истина</td></tr>
+<tr><td>группировка, <code>DISTINCT</code></td><td>все отсутствующие значения образуют одну группу</td></tr>
+<tr><td><code>ORDER BY</code></td><td>отсутствующие значения идут последними при любом направлении сортировки</td></tr>
+</tbody>
+</table></div>
+
+<p>Поэтому <code>t.assignee &lt;&gt; 'dev#1'</code> включает задачи без исполнителя — почти всегда именно это и имеет в виду автор запроса; в трёхзначной логике такие строки молча исчезли бы. Предупреждение <code>W01</code> подсчитывает строки, которые отсутствующее значение исключило из сравнения порядка. Сравнение с <code>NULL</code> — ошибка, в которой сразу указано исправление:</p>
+
+<pre><code class="lang-text">error[E118 null_comparison]: a comparison with NULL is never true
+ --&gt; &lt;stdin&gt;:1:33
+  |
+1 | MATCH (t:task) WHERE t.assignee = NULL RETURN t
+  |                                 ^ write t.assignee IS NULL
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<p>Деление — ещё одно намеренное отличие от Cypher: <code>/</code> всегда возвращает число с дробной частью, поэтому <code>refuted / raised</code> — это доля, а не 0. Целочисленный смысл даёт <code>toInteger(a / b)</code>.</p>
+
+<h2 id="built-ins">Состояние движка во встроенных функциях<a class="anchor" href="#built-ins" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Агент мог бы попытаться вычислить «готова» вручную: открытая задача без незавершённых блокеров. Но так он пропустит блокеры, унаследованные от родителя, блокеры, оставшиеся после удаления, отложенные задачи, контейнеры, аренды и работу, завершённую на других ветках. Вместо этого LQ даёт доступ к собственным определениям движка. Они делят код с путём записи, а рукописная проверка готовности вызывает предупреждение <code>W07</code>:</p>
+
+<pre><code class="lang-text">W07: hand-derived readiness misses inherited and flagged blockers, markers, leases, defer_until and containers; use t.unblocked (structural) or t.ready (dispatchable now)
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Встроенное</th><th>Смысл</th><th>Где действует</th></tr></thead>
+<tbody>
+<tr><td><code>t.ready</code></td><td>задачу можно выдать в работу сейчас; ровно то, что выводит <code>moirai ready</code></td><td>на вершине ветки</td></tr>
+<tr><td><code>t.unblocked</code>, <code>t.blocked</code></td><td>структурная часть: открытых блокеров нет или они есть</td><td>на любой версии</td></tr>
+<tr><td><code>t.unfinished</code>, <code>t.done</code></td><td>не завершена; завершена или отменена (предупреждение <code>W03</code>, если в результате есть отменённые)</td><td>на любой версии</td></tr>
+<tr><td><code>t.open_blockers</code>, <code>t.is_blocker</code>, <code>t.suspect</code>, <code>t.conflicted</code></td><td>производные счётчики и флаги</td><td>на любой версии</td></tr>
+<tr><td><code>t.claimed</code>, <code>t.lease</code></td><td>кто сейчас держит задачу</td><td>на вершине ветки</td></tr>
+<tr><td><code>subtree(n)</code>, <code>ancestors(n)</code>, <code>children(n)</code></td><td>множества узлов, используются с <code>IN</code></td><td>на любой версии</td></tr>
+<tr><td><code>CALL blockers(n, transitive: true)</code></td><td>полный список блокеров с точки зрения движка, включая унаследованные, оставшиеся после удаления и работу, закрытую на других ветках, — с глубиной и узлом, через который действует блокер</td><td>на любой версии; столбец <code>elsewhere</code> — только на вершине ветки</td></tr>
+<tr><td><code>applies(r, 'src/http/parse.rs')</code></td><td>применяется ли правило или заметка к пути</td><td>на любой версии</td></tr>
+<tr><td><code>file('src/http/parse.rs')</code></td><td>файловый узел по текущему или старому пути</td><td>на любой версии</td></tr>
+<tr><td><code>link_state(x)</code>, <code>CALL links(scope: n)</code></td><td><a href="file-links.html#link-states">состояние ссылки</a>, вычисленное в вашем рабочем дереве</td><td>на вершине ветки с разрешённым деревом</td></tr>
+</tbody>
+</table></div>
+
+<p>Среди других встроенных функций — <code>search()</code> для ранжированного текстового поиска по названиям и аннотациям, <code>staleness()</code>, <code>relevant_to()</code>, <code>fits_role()</code>, <code>neighbors()</code>, <code>history()</code>, <code>changes()</code> и другие. Чтобы узнать, почему задача заблокирована, используют отношение, которое возвращает цепочку без переменных путей:</p>
+
+<pre data-lang="terminal"><code class="lang-console"><span class="cmd"><span class="prompt">$ </span>moirai q - &lt;&lt;'EOF'</span>
+CALL blockers(#211, transitive: true) YIELD blocker, depth, via, reason
+RETURN blocker, depth, via, reason
+EOF
+branch: lane/http2 | rev 4520 | 3 rows
+#204 task open P1 "Decode HTTP/2 frames" parent:#200 depth=2 via=#209 reason=direct
+#207 task in_progress P1 "Connection pool" parent:#200 lease:dev#2(L-18) depth=1 reason=direct
+#209 task open P2 "Limit header size" parent:#200 blockers:#204 depth=1 reason=direct BLOCKED
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<p>Состояния ссылок устроены так же. Этот запрос перечисляет все ссылки под кампанией, которые требуют внимания; он читает файлы в вашем рабочем дереве и ничего не пишет:</p>
+
+<pre data-lang="Lachesis"><code class="lang-lq">MATCH (n)-[a:AT]-&gt;(f:artifact)
+WHERE n IN subtree(#200) AND link_state(a) &lt;&gt; 'ok'
+RETURN f.path AS path, a.kind AS anchor, link_state(a) AS state
+ORDER BY path
+</code></pre>
+
+<p>Состояние, которое существует только сейчас, — готовность, аренды и состояния ссылок — есть только на вершине ветки. На прошлой версии обращение к нему даёт ошибку <code>E302</code>, которая предлагает <code>unblocked</code> вместо <code>ready</code>. Это ошибка, а не значение «неизвестно», потому что в двузначной логике «неизвестно» удовлетворяло бы условию <code>&lt;&gt; 'ok'</code> и превращало бы каждую ссылку старой версии в битую.</p>
+
+<h2 id="quantified-paths">Квантифицированные пути<a class="anchor" href="#quantified-paths" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Квантор повторяет ребро. Работают оба написания, и означают они одно и то же: <code>-[:CHILD_OF*1..2]-&gt;</code> в стиле Cypher и <code>-[:CHILD_OF]-&gt;{1,2}</code> в стиле GQL; <code>+</code> означает один шаг или больше. Группа в скобках со своим <code>WHERE</code> фильтрует каждый шаг. Этот запрос находит задачи, от которых по цепочке блокировок зависит <code>#211</code>, проходя только через незавершённые задачи и не дальше пяти шагов:</p>
+
+<pre data-lang="Lachesis"><code class="lang-lq">MATCH (x:task)((a:task)-[:BLOCKS]-&gt;(b) WHERE a.unfinished){1,5}(#211)
+RETURN x
+</code></pre>
+
+<p>Граница <code>{m,n}</code> допускает конечный узел, достижимый обходом длиной от <code>m</code> до <code>n</code> шагов. На ациклических видах рёбер Moirai, таких как <code>CHILD_OF</code> и <code>BLOCKS</code>, это совпадает с ответом Cypher. Вычисление идёт уровень за уровнем с множеством посещённых узлов, поэтому любой квантифицированный паттерн завершается на любом графе и ограничивающее ключевое слово никогда не нужно. Переменных путей и поиска кратчайшего пути в версии 1 нет; цепочку и так возвращает <code>blockers()</code>.</p>
+
+<h2 id="versions">Версии внутри запроса<a class="anchor" href="#versions" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Moirai хранит историю, как git (см. главу <a href="versions.html">«Ветки, слияния и история»</a>), и запрос может читать любую её версию. <code>USE</code> выбирает версию для части запроса. Ревизии распознаются только в позициях ревизий (после <code>USE</code>, после <code>ON</code> и <code>IF TIP</code> в блоке записи и в аргументах-версиях исторических отношений), поэтому переменную с именем <code>s1</code> никогда не примут за ревизию. Формы взяты из git: ветка (<code>lane/http2</code>), предок (<code>main~5</code>, <code>main^2</code>), префикс коммита (<code>c4f1a9e20</code>), порядковый номер в хранилище (<code>s4400</code>), позиция или время в reflog (<code>main@3</code>, <code>main@2026-11-01T10:00Z</code>) и диапазоны (<code>main..lane/http2</code>, <code>main...lane/http2</code>).</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Запрос</th><th>На какой вопрос отвечает</th></tr></thead>
+<tbody>
+<tr><td><code>USE main~5 MATCH (t {id: #211}) RETURN t.status, t.unblocked</code></td><td>Каким было состояние этой задачи на <code>main</code> пять коммитов назад?</td></tr>
+<tr><td><code>CALL log(main..lane/http2)</code></td><td>Какие коммиты линии ещё не попали в <code>main</code>?</td></tr>
+<tr><td><code>CALL diff(main...lane/http2) YIELD change, node, aspect, side WHERE side = 'both'</code></td><td>Предпросмотр слияния: что изменили обе стороны?</td></tr>
+<tr><td><code>CALL history(#204, field: 'status')</code></td><td>Все изменения одного поля, с актором и коммитом.</td></tr>
+<tr><td><code>CALL blame(#204)</code></td><td>Кто последним задал каждое поле и ребро?</td></tr>
+<tr><td><code>USE lane/http2 CALL conflicts() YIELD key, node, class, base, ours, theirs</code></td><td>Какие конфликтные значения лежат на линии после слияния?</td></tr>
+<tr><td><code>CALL across(refs: [main, lane/http2], ids: [#204, #207]) YIELD node, name, ref, value, diverged WHERE diverged RETURN node, name, ref, value</code></td><td>Чем эти узлы различаются на двух ветках?</td></tr>
+</tbody>
+</table></div>
+
+<p>Производные свойства, такие как <code>unblocked</code>, на прошлой версии вычисляются заново, и заголовок об этом сообщает. Части составного запроса могут читать разные версии: <code>MATCH (t:task) WHERE t.unblocked RETURN t EXCEPT USE main~5 MATCH (t:task) WHERE t.unblocked RETURN t</code> перечисляет задачи, которые разблокировались за последние пять коммитов.</p>
+
+<h2 id="writes">Запись: один блок TX — один коммит<a class="anchor" href="#writes" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Чтения идут через <code>moirai q</code> и инструмент MCP <code>query</code>, в грамматике которых нет операторов записи; у исполнителя чтения есть только представление хранилища, доступное лишь для чтения. Записи идут через <code>moirai tx</code> и инструмент MCP <code>write</code>. Один блок <code>TX</code> — это один коммит на одной ветке, по принципу «всё или ничего»:</p>
+
+<pre data-lang="terminal"><code class="lang-console"><span class="cmd"><span class="prompt">$ </span>moirai tx - &lt;&lt;'EOF'</span>
+TX ON lane/http2 LEASE 'L-18' {
+  MATCH (t {id: #207}) WHERE t.status = 'in_progress' EXPECT 1
+  SET t.done = true
+}
+EOF
+branch: lane/http2 | rev 4520 -&gt; 4521 | committed c7d02b9e1 | lease L-18
+1 MATCH ... EXPECT 1: matched 1 (#207)
+  SET #207.done = true: status in_progress-&gt;done (resolution completed); lease L-18 released into settled
+affected: none | markers: settled #207 (lane/http2)
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<p>Главное в этой конструкции — охранные условия:</p>
+
+<ul>
+<li><strong><code>EXPECT n</code></strong> обязателен для каждой цели <code>MATCH</code>: точное число, диапазон, <code>&lt;= n</code> или <code>&gt;= n</code>. Под блокировкой писателя цели проверяются ещё раз — по той вершине ветки, на которую ляжет блок. При несовпадении ничего не записывается, команда завершается с кодом 4 и печатает текущие значения.</li>
+<li><strong><code>IF TIP c...</code></strong> отвергает блок, если ветка сдвинулась. <strong><code>IF TARGETS '...'</code></strong> отвергает его, если найденное множество отличается от того, что показал пробный прогон.</li>
+<li><strong><code>LEASE 'L-n'</code></strong> предъявляет <a href="glossary.html#term-lease">аренду</a>, которая ограждает задачу от второго воркера.</li>
+<li><strong><code>ASSERT expr ELSE 'message'</code></strong> проверяет условие на результате до того, как что-либо будет записано.</li>
+<li><strong><code>DRY</code></strong> выполняет все проверки без блокировки писателя и печатает изменения, которые были бы сделаны, и дайджест множества целей. Применение того же блока с <code>IF TARGETS</code> и этим дайджестом и есть схема «спланировать, затем применить».</li>
+<li><strong><code>KEY 'k'</code></strong> делает блок идемпотентным. Ключ привязан к канонической форме блока со значениями его параметров и к ветке: повтор с тем же содержимым возвращает исходный результат с кодом выхода 0, а тот же ключ с другим содержимым завершается с кодом 9.</li>
+</ul>
+
+<p>Если другой агент уже успел завершить <code>#207</code>, тот же блок завершается явной ошибкой:</p>
+
+<pre><code class="lang-text">error[E401 expect_mismatch]: statement 1 matched 0 bindings, expected 1
+  #207 now: status=done rev=4521 (changed at c3e9a1f00 by dev#3 on lane/http2: "complete #207")
+  nothing was written
+  = help: re-read with moirai q show ids=207
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<p>Массовое изменение делается теми же средствами:</p>
+
+<pre data-lang="Lachesis"><code class="lang-lq">TX ON lane/http2 KEY 'reprio-h2' IF TIP c4f1a9e20 {
+  MATCH (t:task)-[:CHILD_OF]-&gt;+(#200) WHERE t.status = 'open' AND 'h2' IN t.labels EXPECT 3
+  SET t.priority = 1;
+  ASSERT COUNT { MATCH (x:task)-[:CHILD_OF]-&gt;+(#200) WHERE x.priority = 0 } = 0
+    ELSE 'triage P0 work under #200 first'
+} DRY
+</code></pre>
+
+<details>
+<summary>Полный набор операторов</summary>
+<p>Операторы один к одному соответствуют операциям изменения Moirai, поэтому любую запись можно сохранить в журнале, откатить и слить: <code>CREATE ... [UNDER p] [UNLESS EXISTS { ... }]</code> (создать узел или связаться с единственным существующим совпадением; <code>MERGE</code> нет), <code>SET</code> и <code>REMOVE</code>, <code>SET t.done = true</code> (охраняемый переход), <code>SET c = c + k</code> (приращение счётчика, которое никогда не конфликтует при слиянии), <code>PATCH x.body REMOVE $old ADD $new</code>, <code>CREATE</code> и <code>DELETE</code> для рёбер, <code>MOVE ... UNDER</code>, <code>REOPEN ... REASON</code>, <code>DELETE ... POLICY ... REPLACED BY ... RELEASE</code> (политики удаления из схемы, своя для каждого вида рёбер; <code>DETACH</code> нет), <code>RESOLVE</code> для конфликтных значений, <code>CALL tx.*</code> для именованных мутаций, а также <code>DEFINE QUERY</code> и <code>DROP QUERY</code>.</p>
+<p>Операции, которые читают или перемещают файлы проекта, например создание файловой ссылки или перемещение файла, — это команды, а не операторы: они не являются чистыми функциями графа, и оператор <code>TX</code>, который пытается выполнить такую операцию, отвергается с указанием нужной команды.</p>
+</details>
+
+<h2 id="named-queries">Именованные запросы и мутации<a class="anchor" href="#named-queries" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Каждая команда чтения — именованный запрос встроенной библиотеки <code>std</code>, а каждая команда записи — именованная мутация <code>tx.*</code>. <code>moirai q --list</code> перечисляет их, <code>moirai q --describe NAME</code> показывает сигнатуру одного из них, <code>--show-query</code> печатает LQ запроса, а <code>--show-tx</code> — то, во что разворачивается команда записи. Аргументы передаются парами <code>k=v</code> и типизируются по сигнатуре: <code>moirai q blockers id=211 transitive=true</code>, <code>moirai q diff range=main...lane/http2</code>.</p>
+
+<p>Проект может добавлять собственные запросы. По умолчанию определять их могут только роли <code>orchestrator</code> и <code>owner</code>, через командную строку:</p>
+
+<pre data-lang="Lachesis"><code class="lang-lq">TX KEY 'define-stale-in-progress' {
+  DEFINE QUERY stale_in_progress($scope: node = #200, $days: int = 3) SHAPE node AS {
+    MATCH (t:task)
+    WHERE t IN subtree($scope) AND t.status = 'in_progress'
+      AND t.updated_at &lt; now() - $days * 1d
+    RETURN t ORDER BY t.updated_at
+  }
+}
+</code></pre>
+
+<p>После этого его выполняет <code>moirai q stale_in_progress days=2</code>. Запрос проекта — это версионированные данные схемы: он ветвится и сливается вместе с данными, которые читает, и экспортируется вместе с <a href="git-image.html">git-образом</a>. Он хранится в переносимой форме: каждый id узла переписан в переносимый uid, а каждый порядковый номер или префикс коммита — в полный id коммита (имена ref не меняются, позиции reflog отвергаются). Поэтому другое хранилище, которое импортирует образ, связывает запрос с теми же узлами. Определение сливается как одно значение, и два определения, которые различаются только форматированием, никогда не конфликтуют. После каждого слияния затронутые им определения связываются заново, и определение, которое больше не связывается, останавливает слияние, как любое другое нарушение.</p>
+
+<h2 id="budgets">Бюджеты и код выхода 10<a class="anchor" href="#budgets" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Каждый запрос выполняется под счётными бюджетами, а не под таймерами, поэтому один и тот же запрос на одной и той же версии всегда останавливается на одной и той же строке:</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Бюджет</th><th>По умолчанию</th></tr></thead>
+<tbody>
+<tr><td>единицы работы (просмотренные строки, развёрнутые рёбра и т. п.)</td><td>2 000 000, примерно 10–40 мс</td></tr>
+<tr><td>приватная память</td><td>не больше 1 МиБ и никогда не больше запаса процесса до его гейта по памяти; никогда не меньше 256 КиБ</td></tr>
+<tr><td>строки и байты на страницу</td><td>50 строк, 8 000 байт</td></tr>
+<tr><td>узлы, посещённые при вычислении замыкания</td><td>100 000</td></tr>
+<tr><td>ветки, прочитанные в одном запросе</td><td>4</td></tr>
+<tr><td>единицы работы с файловой системой для состояний ссылок</td><td>400</td></tr>
+<tr><td>предельное время по часам, только как страховка</td><td>2 с из командной строки, 5 с через MCP</td></tr>
+</tbody>
+</table></div>
+
+<p>Вызывающий может поднять бюджет до потолка своей роли через <code>--budget</code>. Длинный результат, который просто заполнил страницу, — не сбой: он завершается с кодом 0 и курсором. Если бюджет исчерпан, результат неполон, сколько бы строк он ни напечатал, и код выхода — 10. Отказ до выполнения, когда доказуемо, что запрос превысит бюджет, и отмена тоже завершаются с кодом 10. Подвал результата называет бюджет и способ продолжить:</p>
+
+<pre><code class="lang-text">fs: 400 units used; 7 links unverified | --budget fs=800 | exit 10
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<h2 id="errors">Сообщения об ошибках, написанные для моделей<a class="anchor" href="#errors" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Одна повторная попытка по точному сообщению об ошибке исправляет большинство неудачных запросов, поэтому LQ переводит каждую ошибку, которую может обнаружить, из разряда «валидно, но неверно» в ошибку, предупреждение или уведомление. Каждая ошибка называет ровно одно исправление, печатает готовый текст замены, если исправление механическое, и берёт подсказки из текущей схемы — сначала ближайшие, не больше пяти:</p>
+
+<pre><code class="lang-text">error[E101 unknown_field]: kind `task` has no field `stauts`
+ --&gt; &lt;stdin&gt;:2:9
+  |
+2 | WHERE t.stauts = 'open'
+  |         ^^^^^^ did you mean `status`?
+  = help: task fields: status, priority, labels, assignee, work_kind, ... (CALL schema(kind: 'task'))
+</code></pre>
+<p class="caption">Спроектированный вывод.</p>
+
+<p>Текст ошибки не длиннее 600 байт. Его постоянная часть написана в ASCII (имена и значения, взятые из вашего запроса или из хранилища, сохраняют свои символы), и в нём нет строки с кодом выхода, потому что инструмент оболочки агента и так сообщает код. Предупреждения и уведомления не меняют код выхода; они стоят в подвале результата и указывают на вероятную ошибку.</p>
+
+<details>
+<summary>Формы, которых нет в LQ, и что писать вместо них</summary>
+<div class="table-wrap"><table>
+<thead><tr><th>Написано</th><th>Форма LQ</th></tr></thead>
+<tbody>
+<tr><td><code>MERGE</code></td><td><code>CREATE ... UNLESS EXISTS { ... }</code></td></tr>
+<tr><td><code>DETACH DELETE</code></td><td><code>DELETE</code> с политиками схемы для каждого вида рёбер</td></tr>
+<tr><td>переменные путей, <code>shortestPath()</code></td><td><code>CALL blockers(#N, transitive: true) YIELD blocker, depth, via</code></td></tr>
+<tr><td><code>SKIP</code>, <code>OFFSET</code></td><td>курсор предыдущей страницы</td></tr>
+<tr><td>списковые включения, <code>x[i]</code></td><td><code>any()</code>, <code>all()</code>, <code>none()</code>, <code>IN</code>, <code>UNWIND</code></td></tr>
+<tr><td><code>=~</code> (регулярные выражения)</td><td><code>CONTAINS</code>, <code>STARTS WITH</code>, <code>glob_match()</code>, <code>search()</code></td></tr>
+<tr><td><code>= NULL</code></td><td><code>IS NULL</code></td></tr>
+<tr><td><code>:note:rule</code></td><td><code>:note|rule</code> (у узла один вид)</td></tr>
+<tr><td>оператор записи в <code>moirai q</code></td><td><code>moirai tx</code> или инструмент MCP <code>write</code></td></tr>
+</tbody>
+</table></div>
+</details>
+
+<h2 id="lq-bench">LQ-Bench: гейт, который замораживает язык<a class="anchor" href="#lq-bench" aria-hidden="true" tabindex="-1">#</a></h2>
+
+<p>Агенты учат LQ по карточке skill объёмом не больше 1 000 токенов и 3 500 байт. В черновике карточки семь примеров, выбранных для тех частей, которых нет ни в одном другом языке: <code>#N</code>, встроенные функции, <code>USE</code>, диапазоны и <code>TX</code>; сколько примеров останется в окончательной карточке, решит бенчмарк. Более подробный справочник загружается только по требованию. <code>CALL schema()</code> перечисляет виды узлов и поля ветки, а <code>CALL schema_edges()</code> — её виды рёбер с обратными алиасами и прочтениями.</p>
+
+<p>LQ-Bench — постоянный тест, который измеряет, достаточно ли этого. Он запускает модель с карточкой и настоящим набором инструментов на синтетическом хранилище примерно из 2 000 узлов, устроенном как реальная проектная работа: линии, слияния с конфликтными значениями, удалённые узлы, помеченные блокеры и файловые ссылки во всех состояниях. Среди заданий — 150 синтетических вопросов, каждый в трёх формулировках, где используются слова предметной области, а не LQ, и 40 заданий-ловушек, нацеленных на известные ошибки: развёрнутые рёбра, подсчёт по анонимным элементам, <code>= NULL</code>, рукописная проверка готовности, состояния на прошлых версиях и другие.</p>
+
+<p>Язык замораживается, только когда выполнены все гейты:</p>
+
+<ul>
+<li>точность с первой попытки не ниже 85 % и не ниже 95 % после одной повторной попытки на буквальных и коротких формулировках;</li>
+<li>уверенно неверные ответы (код выхода 0, ничего не помечено, результат неверен) — не больше 2 % чтений в целом и не больше 5 % для любой отдельной конструкции, а для записей — ни одного;</li>
+<li>именованный запрос используется не меньше чем в 80 % случаев, где он есть;</li>
+<li>ни одна группа заданий не ниже 75 % после одной повторной попытки;</li>
+<li>карточка укладывается в 1 000 токенов.</li>
+</ul>
+
+<p>Сначала гейты будут измерены на одной модели — Claude Opus 5.5. Сам бенчмарк ещё не построен; см. раздел <a href="building.html#status-crates">«Крейты»</a>. Каждый прогон задаёт профиль модели для того семейства моделей, которое он измерил: <code>gated</code> — для модели, прошедшей гейты записи, <code>compatible</code> — для модели, которая после одной повторной попытки набирает 75 % в каждой группе заданий, и <code>unknown</code> — в остальных случаях. Модель с профилем <code>unknown</code> пишет только через именованные мутации, а для моделей <code>compatible</code> и <code>unknown</code> эхо чтения включено всегда. Проваленный гейт может изменить карточку, текст ошибки, предупреждение, встроенную функцию и даже семантику, но никогда не сам бенчмарк. Бенчмарк также решает открытые вопросы сравнением вариантов, например, показывать ли кванторы в написании Cypher или GQL. Сначала он прогоняется на эталонной модели проекта, ещё до появления какого-либо кода движка, а затем — при каждом изменении карточки, грамматики, текстов ошибок или предупреждений. После заморозки изменение смысла требует новой версии грамматики, а каждый сохранённый именованный запрос сохраняет смысл той версии, на которой он написан.</p>
+
+<nav class="pager"><a class="prev" href="file-links.html"><span class="dir">← Назад</span><span class="ttl">Файловые ссылки</span></a><a class="next" href="agents.html"><span class="dir">Далее →</span><span class="ttl">Агенты</span></a></nav>
+<footer class="site-footer"><p>Moirai — открытый проект под лицензией Apache 2.0. Исходный код и спецификация: <a href="https://github.com/bluesteelll/moirai">github.com/bluesteelll/moirai</a>. Книга — предварительное описание замысла; если она расходится со спецификацией в репозитории, верна спецификация.</p></footer>
+</article>
+</main>
+<aside class="toc" aria-label="На этой странице"><p class="toc-title">На этой странице</p><ul><li><a href="#why-a-language">Зачем собственный язык</a></li><li><a href="#first-query">Первый запрос</a></li><li><a href="#patterns">Паттерны: виды, рёбра и направления</a></li><li><a href="#clauses">WHERE, RETURN, ORDER BY и LIMIT</a></li><li><a href="#counting">Подсчёт</a></li><li><a href="#absent-values">Отсутствующее значение и двузначная логика</a></li><li><a href="#built-ins">Состояние движка во встроенных функциях</a></li><li><a href="#quantified-paths">Квантифицированные пути</a></li><li><a href="#versions">Версии внутри запроса</a></li><li><a href="#writes">Запись: один блок TX — один коммит</a></li><li><a href="#named-queries">Именованные запросы и мутации</a></li><li><a href="#budgets">Бюджеты и код выхода 10</a></li><li><a href="#errors">Сообщения об ошибках, написанные для моделей</a></li><li><a href="#lq-bench">LQ-Bench: гейт, который замораживает язык</a></li></ul></aside>
+</div>
+<script>(function(){var b=document.querySelector('.theme-toggle');if(!b)return;b.addEventListener('click',function(){var r=document.documentElement;var cur=r.getAttribute('data-theme')||(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');var nx=cur==='dark'?'light':'dark';r.setAttribute('data-theme',nx);try{localStorage.setItem('moirai-book-theme',nx);}catch(e){}});})();</script>
+</body>
+</html>
