@@ -111,17 +111,6 @@ The first line of each result above names the branch and the revision it was rea
 > [!NOTE]
 > Three names appear in the picture. **Moirai** is the product, and `moirai` is its one command. **[Klotho](glossary.html#term-klotho)** is the storage engine, a library inside that binary. **[Lachesis](glossary.html#term-lachesis)** is the query language. In Greek myth the Moirai are the three Fates; Klotho spins the thread and Lachesis measures it.
 
-There is no server to start and no background process. Each command opens the [store](glossary.html#term-store), does its work and exits, and the MCP server lives only as long as the agent session that started it. Inside a git repository the store sits in git's common directory, outside every working tree, so all worktrees of the repository share one store without any setup. Git itself is never needed to run Moirai; it is only one way to keep and move a copy of the data.
-
-## Where it stands {#where-it-stands}
-
-> [!NOTE]
-> **Milestone M0: contract and evidence**
->
-> Nothing is released, and there is nothing to install yet. The project is in its first milestone, M0, "contract and evidence". The repository holds the byte-level specification of the on-disk format, a complete reference model in Rust that serves as the test oracle, test fixtures, test harnesses and the first measurement tools. The storage engine is built in the next milestone, M1, which starts after version 1 of the on-disk format is frozen with the git tag `format-v1`. There is no release date. [How it is built, and where it stands](building.html) has the roadmap from M0 to M11 and the list of what exists today.
-
-This book therefore describes the designed system. Commands and their output are designed output taken from the specification, not recordings, and every number is a design target, not a measurement. Where the book and the specification in the repository differ, the specification is right.
-
 ## How to read this book {#how-to-read}
 
 The chapters build on each other, but each one can be read alone. If you have ten minutes, read the first chapter and the tour.
