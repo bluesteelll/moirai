@@ -11,7 +11,7 @@ AI coding agents change code quickly, but they forget what they learned when a s
 > [!NOTE]
 > **Status**
 >
-> Moirai is not released, and you cannot install it yet. The project is in its first milestone, "contract and evidence": the specification of the on-disk format, a complete reference model in Rust that serves as the test oracle, test fixtures and measurement tools. The storage engine is built in the next milestone, after the on-disk format is frozen. This book describes the designed system. The [chapter on how Moirai is built](building.html) has the plan.
+> Moirai is not released yet: the project is in milestone M0, where its specification is written and tested. This book describes the designed system; [Where it stands now](building.html#status) has the details.
 
 ## The problem {#the-problem}
 
@@ -70,19 +70,17 @@ The last piece replaces the hand-written brief. An agent asks for a *context pac
 
 The [picture on the home page](index.html#big-picture) shows where Moirai sits between the agents, the project files and git.
 
-Three names recur in this book. **Moirai** is the product and `moirai` its single command. **Klotho** is the storage engine, a library inside that one binary. **Lachesis** is the query language. Inside a git repository the store lives in a `moirai` directory under git's common directory (`<git-common-dir>/moirai/`), outside every working tree, so all worktrees of the repository share one store without extra setup. Outside a git repository it is a `.moirai/` directory.
+Three names recur in this book. **Moirai** is the product and `moirai` its single command. **Klotho** is the storage engine, a library inside that one binary. **Lachesis** is the query language.
 
 ## The requirements {#requirements}
 
 The project started from a short brief: a graph database written from scratch in Rust, with typed fields, subtasks and blockers, references that stay consistent when something is deleted, a command-line tool, an MCP server and skills, high speed and low memory use. Five requirements were added on top of it, and they shape most of the design.
 
-| # | Requirement | In plain words |
-|---|---|---|
-| 1 | Branches that merge | All data (tasks, statuses, blockers, rules, notes, decisions, findings, measurements, even the schema) lives on branches that can be created, compared and merged, with history, tags, revert, cherry-pick, a reflog and undo. |
-| 2 | Its own version control | The version control is Moirai's own and does not depend on git. The core never starts a git process and never links a git library. Moirai branches have their own life; they are not created automatically for git branches or worktrees. |
-| 3 | A git-compatible image | Moirai can save its branches and history into a git repository as deterministic, human-readable text, and load them back. That is how the data is backed up, shared and reviewed with ordinary git tools. |
-| 4 | File links that survive moves | A node can link to a project file or a place inside it, and the link survives renames, moves, edits and deletions, whoever makes them. See [the chapter on file links](file-links.html). |
-| 5 | Its own query language | Every question an agent can ask is a query in Lachesis, including every built-in read command. |
+1. **Branches that merge.** All data, the schema included, lives on branches, with history tools like git's, down to cherry-pick and a reflog. See [the chapter on versions](versions.html).
+2. **Its own version control.** It does not depend on git: the core never starts a git process and never links a git library. See [Git is optional](git-image.html#git-optional).
+3. **A git-compatible image.** See [the chapter on the git image](git-image.html).
+4. **File links that survive moves.** See [the chapter on file links](file-links.html).
+5. **Its own query language.** See [the chapter on Lachesis](lachesis.html).
 
 One more requirement from the brief deserves a name of its own: **"when a node is deleted, everyone knows"**. Deleting a task, a rule or a file node updates everything that referenced it in the same commit, and nothing that depended on it is silently unblocked. [The graph](concepts.html#deletion) explains how.
 

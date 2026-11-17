@@ -9,9 +9,9 @@ description: How AI coding agents reach Moirai through the CLI, the MCP server, 
 Moirai is built to be used by AI coding agents. They reach it through four surfaces: a command line, an MCP server, short skills, and optional hooks. Each surface is designed for the limits agents live with: a context window that cannot forget, output that a harness may cut, shells that quote text differently, and many agents writing at once.
 
 > [!NOTE]
-> **Design, not a product yet**
+> **Designed interface**
 >
-> This page describes the designed agent interface. Nothing here can be installed today. Numbers are design targets and default settings, not measurements.
+> This page describes the designed agent interface: its commands and outputs are designed, not recorded, and its numbers are design targets and default settings, not measurements. [Where it stands now](building.html#status).
 
 <figure class="diagram">
 <svg viewBox="0 0 720 360" role="img" aria-labelledby="agents-d1-t">
@@ -94,7 +94,7 @@ moirai pack #4 developer | branch lane/tls | rev 19 | 15,912/16,000 B | dropped 
 dropped: 3 notes(optional) #31 #33 #40 | more: moirai pack 4 --role developer --more
 ```
 
-*Designed output: the first and the last line of a pack.*
+*The first and the last line of a pack.*
 
 | Surface | Default ceiling |
 |---|---|
@@ -234,7 +234,7 @@ An **owner ruling** is a rule, decision or note recorded with the project owner'
 - Each node appears once, at the highest level any class gives it; other classes list its id as `also: #N`.
 - An entry is shortened (full body, then abstract, then one line) before anything is dropped, and never cut in the middle of its text.
 - Owner rulings and critical rules never go below the abstract level. Records waiting for review carry `~proposed`; suspect and stale records keep their markers.
-- The order is deterministic. The first and last lines carry the drop count and the continuation. A digest identifies the pack, so `complete` can later report what changed since.
+- The order is deterministic. A digest identifies the pack, so `complete` can later report what changed since.
 - `pack --explain` names the named query behind each entry. A pack writes nothing, unless `--record-run` asks it to record what a run consumed.
 
 Budgets are per role. The provisional defaults are 16,000 B for developers, testers and code reviewers, and 24,000 B for architects and architecture critics. A pack that the CLI prints never exceeds the 24,000-byte CLI pack ceiling, whatever the role's budget. The final defaults will be set by need: for each role, the smallest budget at which at least 90 % of at least 20 recorded dispatches are judged complete without asking for more. The target cost is at most 20 ms of engine time for a pack at 100,000 nodes.
@@ -257,8 +257,6 @@ A caller with no lease gets the narrowest row: it may record findings, notes and
 error[E406 role_policy]: this write needs a lease
   = help: an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)
 ```
-
-*Designed output.*
 
 Each lease carries a [fencing token](glossary.html#term-fencing-token), so a write with an old lease is refused with exit code 5 after the lease was lost or taken over. Where the harness names threads, a lease passed through the environment binds to the first thread that uses it, so a subagent does not inherit its parent's rights through the environment. A role label reported by a hook can only narrow the rights of the lease, never widen them.
 
@@ -313,7 +311,7 @@ Using a lane like the [tour's](tour.html#parallel-lane) `lane/tls`, before it is
  notes: [{kind, title, text}], next: string|null}
 ```
 
-The `findings` and `notes` fields carry only what a worker could not write itself, for example inside a sandbox; otherwise it writes directly and lists the ids. `apply` reads each result from where the harness left it, so no result passes through the orchestrator's context:
+The `findings` and `notes` fields carry only what a worker could not write itself, for example inside a sandbox; otherwise it writes directly and lists the ids. `apply` reads each result from where the harness left it:
 
 | Source | Reads |
 |---|---|
@@ -321,7 +319,7 @@ The `findings` and `notes` fields carry only what a worker could not write itsel
 | `codex-exec:DIR` | The output files of `codex exec` workers. |
 | `jsonl:FILE` or `-` | One `result.v1` per line, from any harness's headless mode. |
 
-A run is applied as one all-or-nothing batch under the key `run:r7`. The run's leases are released; `run close` and `reclaim --run` are the safety net. Running the dispatcher again after a crash re-claims as the same holders, skips tasks that are already settled and applies under the same key, so it converges instead of doing work twice. Under Codex, a plain script of about twenty lines around `codex exec` replaces the workflow tool, and Moirai itself is the journal from which it resumes.
+A run is applied as one all-or-nothing batch under the key `run:r7`. The run's leases are released; `run close` and `reclaim --run` are the safety net. Running the dispatcher again after a crash re-claims as the same holders, skips tasks that are already settled and applies under the same key. Under Codex, a plain script of about twenty lines around `codex exec` replaces the workflow tool, and Moirai itself is the journal from which it resumes.
 
 </details>
 
@@ -361,7 +359,7 @@ moirai integrate --check
 moirai integrate --remove <harness>
 ```
 
-It renders every harness's configuration from one registry compiled into the binary. It writes only marker-delimited Markdown blocks and structural JSON merges, keeps a backup of every JSON file it changes, and does not overwrite a block a person edited unless asked with `--force`. It writes no TOML: for Codex it prints the one configuration line to add. `--check` reports drift, `--remove` removes only what Moirai recorded, and `--print` writes nothing and prints every file. `moirai hooks install` is the same as `moirai integrate claude --hooks full`.
+It renders every harness's configuration from one registry compiled into the binary. It writes only marker-delimited Markdown blocks and structural JSON merges, keeps a backup of every JSON file it changes, and does not overwrite a block a person edited unless asked with `--force`. It writes no TOML: for Codex it prints the one configuration line to add. `--check` reports drift, `--remove` removes only what Moirai recorded, and `--print` writes nothing and prints every file.
 
 </details>
 
@@ -372,7 +370,7 @@ Reads never need write access. Writes do, and some sandboxes forbid them. Such a
 <details>
 <summary>Writes inside a sandbox</summary>
 
-For example, Codex's `workspace-write` mode keeps `.git` read-only, which includes the store. The planned default grants a writable root on exactly the store directory. MCP writes usually still work, because harnesses start MCP servers outside the command sandbox. A refused write exits with code 7 and prints a line for the agent, a fallback line and a fix for the person who set up the machine:
+For example, Codex's `workspace-write` mode keeps `.git` read-only, which includes the store. The planned default grants a writable root on exactly the store directory. MCP writes usually still work, because harnesses start MCP servers outside the command sandbox. The refused write prints a line for the agent, a fallback line and a fix for the person who set up the machine:
 
 ```text
 error[store_read_only]: this sandbox cannot write the moirai store /work/tinyhttp/.git/moirai (access denied)
@@ -380,8 +378,6 @@ do now: repeat this write with the moirai MCP tool: complete{id: 4, lease: "L-12
 if the moirai tools are unavailable: put this write in your final result.v1 (or tell the user) and continue
 owner fix: moirai integrate codex --store-writes writable-root   (prints the sandbox_workspace_write.writable_roots line to add)
 ```
-
-*Designed output.*
 
 A write that lands in `result.v1` is applied by the dispatcher later: it is delayed, not lost.
 

@@ -19,7 +19,7 @@ Every [node](glossary.html#term-node) has two identities.
 
 The short number is a deliberate choice for agents. A long random id costs many tokens on every mention, and models copy long ids with more mistakes. Ids carry no hierarchy and no kind prefix: `#93` stays `#93` when the task moves under another parent. A node's place in a tree is computed when it is shown, never built into its id.
 
-On the command line you type ids without the `#`, because an unquoted `#40` starts a comment in common shells: `moirai show 40`. Inside text, `#40` is welcome. When a title, an abstract or a body mentions `#40`, Moirai records a `mentions` edge to that node, so the mention can be followed, and it still leads to the node's tombstone if the node is later deleted.
+On the command line ids are typed without the `#` (`moirai show 40`; see [shell-safe arguments](agents.html#bodies-on-stdin)). Inside text, `#40` is welcome. When a title, an abstract or a body mentions `#40`, Moirai records a `mentions` edge to that node, so the mention can be followed, and it still leads to the node's tombstone if the node is later deleted.
 
 Every node has a title (one line, at most 200 bytes), an optional one-line abstract and an optional body of up to 64 KiB of text. Larger files stay in the repository and are linked as file nodes.
 
@@ -255,8 +255,6 @@ A deleted node does not vanish. Its row stays, marked deleted, with its kind, it
 ```text
 N01: #40 is deleted in this view (rev 4471 c3f9a2b10 by dev-2 "dup of #52" -> #52)
 ```
-
-*Designed output.*
 
 ### How everyone finds out {#who-finds-out}
 

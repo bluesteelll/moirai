@@ -109,7 +109,7 @@ The first line of each result above names the branch and the revision it was rea
   <text class="d-text-muted" x="40" y="512" text-anchor="start" dominant-baseline="middle">dashed: explicit, optional steps</text>
   <text class="d-text-muted" x="40" y="534" text-anchor="start" dominant-baseline="middle">one store per repository</text>
 </svg>
-<figcaption>Agents reach Moirai through the command line, the MCP server or optional hooks. Skills, short instruction files installed into each harness, teach them the commands; the binary is installed separately. Commands read the graph with Lachesis queries and change it with Lachesis mutations, which Klotho, the storage engine inside the one <code>moirai</code> binary, executes. Klotho keeps all data in one store per repository, which every worktree shares, and its file links point into the project's files. The git image is a text copy of the store in a separate git repository, which ordinary <code>git</code> can push to any remote.</figcaption>
+<figcaption>Agents reach Moirai through the command line, the MCP server or optional hooks. Skills, short instruction files installed into each harness, teach them the commands; the binary is installed separately. Commands read the graph with Lachesis queries and change it with Lachesis mutations, which Klotho, the storage engine, executes. Klotho keeps all data in one store per repository, which every worktree shares, and its file links point into the project's files. The git image is a text copy of the store in a separate git repository, which ordinary <code>git</code> can push to any remote.</figcaption>
 </figure>
 
 > [!NOTE]
@@ -117,20 +117,9 @@ The first line of each result above names the branch and the revision it was rea
 
 ## How to read this book {#how-to-read}
 
-The chapters build on each other, but each one can be read alone. If you have ten minutes, read the first chapter and the tour.
+The chapters build on each other, but each one can be read alone. If you have ten minutes, read [the first chapter](why.html) and [the tour](tour.html).
 
-1. [Why Moirai](why.html): the problem it solves, its requirements, its four priorities and what it deliberately is not.
-2. [The graph](concepts.html): nodes, kinds, statuses, edges, derived state such as "ready", deletion and leases.
-3. [A session, start to finish](tour.html): one fictional project, command by command, with designed output.
-4. [Branches, merges and history](versions.html): Moirai's own version control and how parallel lanes merge.
-5. [Saving into git](git-image.html): how the graph is written into a git repository as text and read back.
-6. [File links that survive moves](file-links.html): pointers into project files that follow renames and edits.
-7. [Lachesis, the query language](lachesis.html): queries, versions inside queries, guarded writes and the accuracy benchmark.
-8. [Working with agents](agents.html): the CLI, the MCP server, skills, hooks, context packs and leases.
-9. [Under the hood: Klotho](engine.html): the storage engine, crash safety and the performance budgets.
-10. [How it is built, and where it stands](building.html): the specification, the reference model, the tests, the roadmap and the status.
-11. [Questions and answers](faq.html): short answers to the questions people ask first.
-12. [Glossary](glossary.html): every term the book uses, with a link to the chapter where it matters.
+The cards leave out two chapters: [Under the hood: Klotho](engine.html) covers the storage engine, crash safety and the performance budgets, and [How it is built, and where it stands](building.html) covers the specification, the reference model, the tests, the roadmap and the status. The book ends with [Questions and answers](faq.html) and the [glossary](glossary.html).
 
 ---
 

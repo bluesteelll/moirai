@@ -54,7 +54,7 @@ The language is also measured. Before it is frozen, a benchmark called [LQ-Bench
 
 ## A first query {#first-query}
 
-The examples on this page use a small, fictional HTTP server, `tinyhttp`. This chapter uses its own snapshot of that project's store, so its ids and revisions differ from those in other chapters. Its campaign task `#200`, "HTTP/2 support", has subtasks, and the work happens on the branch `lane/http2`. Which subtasks can an agent start now?
+The examples on this page use a small, fictional HTTP server, `tinyhttp`, and their output is designed, not recorded. This chapter uses its own snapshot of that project's store, so its ids and revisions differ from those in other chapters. Its campaign task `#200`, "HTTP/2 support", has subtasks, and the work happens on the branch `lane/http2`. Which subtasks can an agent start now?
 
 ```console
 $ moirai q - <<'EOF'
@@ -66,9 +66,7 @@ branch: lane/http2 | rev 4520 | live | 2 rows
 
 ```
 
-*Designed output.*
-
-The first line of every result is a header: the branch and revision the rows were read from, `live` because readiness depends on current leases, and the row count. Each row is a node line: id, kind, status, priority, title and key fields. `P0` is the most important priority, so `ORDER BY t.priority` lists the most important first. Node lines print a priority as `P0` to `P4`, but in LQ a priority is its number: `P1` is 1, so `t.priority <= 1` selects `P0` and `P1`.
+Below the [header](agents.html#ids-first), where `live` means that the result depends on runtime state such as leases, each row is a node line: id, kind, status, priority, title and key fields. `P0` is the most important priority, so `ORDER BY t.priority` lists the most important first. Node lines print a priority as `P0` to `P4`, but in LQ a priority is its number: `P1` is 1, so `t.priority <= 1` selects `P0` and `P1`.
 
 The same question has a named query, which is shorter and needs no quoting in any shell. `--show-query` prints the LQ behind it, which is how agents learn the language from the commands they already use:
 
@@ -83,8 +81,6 @@ RETURN t ORDER BY t.priority, t.id LIMIT $limit
 // bound: $scope = #200, $role = NULL, $limit = 20
 
 ```
-
-*Designed output.*
 
 > [!TIP]
 > **Ids on the command line**
@@ -120,8 +116,6 @@ reads: b BLOCKS #211 (written #211 BLOCKED_BY b) | b must finish before #211 sta
 
 ```
 
-*Designed output.*
-
 Two more checks back this up. The binder checks the kinds at both ends of each edge as types, so `DEPENDS_ON` between two tasks is an error that names `BLOCKS` and `BLOCKED_BY`. And when an anchored pattern matches nothing while edges of that kind point the other way, notice `N07` says so and shows the reversed pattern. Models that have not passed the benchmark's gates see the reading echo on every edge pattern.
 
 ## WHERE, RETURN, ORDER BY and LIMIT {#clauses}
@@ -143,8 +137,6 @@ t.id  t.status     t.priority
 #207  in_progress  1
 
 ```
-
-*Designed output.*
 
 Every result has a total, deterministic order: explicit keys first, then the ids of the bound elements. A page holds 50 rows by default. A longer result ends with a cursor that fetches the next page, and a query that reads no live state returns the same bytes every time on the same version. `SKIP` and `OFFSET` are not in the language, because offsets over a changing graph skip or repeat rows.
 
@@ -168,8 +160,6 @@ t.id  blockers
 
 ```
 
-*Designed output.*
-
 `RETURN` keeps duplicate rows; `RETURN DISTINCT` removes them, and notice `N09` points out duplicates on a page. A variable-length part is different: it binds once per pair of start and end nodes, not once per path, because path counts explode on graphs with shortcuts. A count over such a part therefore counts endpoint pairs, and a notice says so:
 
 ```console
@@ -183,8 +173,6 @@ upstream
 N08: count(*) over a quantified pattern counts (x, #211) endpoint pairs, not paths
 
 ```
-
-*Designed output.*
 
 ## The absent value and two-valued logic {#absent-values}
 
@@ -210,8 +198,6 @@ error[E118 null_comparison]: a comparison with NULL is never true
 
 ```
 
-*Designed output.*
-
 Division is another deliberate departure from Cypher: `/` always returns a number with a fraction, so `refuted / raised` is a ratio, not 0. `toInteger(a / b)` gives the other meaning.
 
 ## The engine's state as built-ins {#built-ins}
@@ -222,8 +208,6 @@ An agent could try to work out "ready" by hand: an open task with no unfinished 
 W07: hand-derived readiness misses inherited and flagged blockers, markers, leases, defer_until and containers; use t.unblocked (structural) or t.ready (dispatchable now)
 
 ```
-
-*Designed output.*
 
 | Built-in | Meaning | Valid at |
 |---|---|---|
@@ -251,8 +235,6 @@ branch: lane/http2 | rev 4520 | 3 rows
 #209 task open P2 "Limit header size" parent:#200 blockers:#204 depth=1 reason=direct BLOCKED
 
 ```
-
-*Designed output.*
 
 Link states work the same way. This lists every link under the campaign that needs attention, and it reads the files in your working tree without writing anything:
 
@@ -312,8 +294,6 @@ affected: none | markers: settled #207 (lane/http2)
 
 ```
 
-*Designed output.*
-
 The guards are the point of the design:
 
 - **`EXPECT n`** is required on every `MATCH` target: an exact count, a range, `<= n` or `>= n`. Targets are checked again under the writer lock against the tip the block lands on. A mismatch writes nothing, exits with code 4 and prints the current values.
@@ -332,8 +312,6 @@ error[E401 expect_mismatch]: statement 1 matched 0 bindings, expected 1
   = help: re-read with moirai q show ids=207
 
 ```
-
-*Designed output.*
 
 A bulk change uses the same tools:
 
@@ -397,8 +375,6 @@ fs: 400 units used; 7 links unverified | --budget fs=800 | exit 10
 
 ```
 
-*Designed output.*
-
 ## Error messages written for models {#errors}
 
 One retry on a precise error recovers most failed queries, so LQ moves every mistake it can detect from "valid but wrong" into an error, a warning or a notice. Each error names exactly one fix, prints the replacement text when the fix is mechanical, and draws its suggestions from the current schema, nearest first, at most five:
@@ -412,8 +388,6 @@ error[E101 unknown_field]: kind `task` has no field `stauts`
   = help: task fields: status, priority, labels, assignee, work_kind, ... (CALL schema(kind: 'task'))
 
 ```
-
-*Designed output.*
 
 An error text is at most 600 bytes. Its fixed wording is ASCII (names and values taken from your query or the store keep their own characters), and it carries no exit-code line, because the agent's shell tool already reports the code. Warnings and notices do not change the exit code; they sit in the footer and point at the likely mistake.
 

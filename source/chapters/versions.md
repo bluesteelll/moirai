@@ -58,8 +58,6 @@ Every result of a command that reads or writes a branch starts with that branch,
 branch: lane/chunked | rev 5131 | 4 rows | behind main 3
 ```
 
-*Designed output.*
-
 `moirai checkout REF` moves the caller's HEAD. Checking out a commit instead of a branch is allowed for reading; a write there is refused unless you name a new branch with `--branch-new`.
 
 <details>
@@ -89,8 +87,6 @@ A [lane](glossary.html#term-lane) is the usual unit of parallel work. It joins t
 $ moirai lane open chunked --worktree /work/tinyhttp-lanes/chunked --git-branch chunked
 branch: main | rev 5040 -> 5041 | committed c3e7a90d1
 ```
-
-*Designed output.*
 
 The command creates the `lane` node on `main`, forks `lane/chunked` from that commit and binds the worktree directory to the new branch. From then on, every `moirai` command run inside that worktree reads and writes `lane/chunked` without a flag.
 
@@ -198,8 +194,6 @@ branch: lane/chunked | rev 5131 -> 5132 | committed c4be19d2e
 affected: #31
 ```
 
-*Designed output.*
-
 In a sync, `ours` is the lane and `theirs` is `main`. The `resolve:` line shows the same action written in [Lachesis](lachesis.html), the query language. Readers never meet merge markers: a context pack shows a conflicted note as one line with its base text and the command that resolves it. Git-style `<<<<<<<` markers appear only on request, with `moirai show --full --markers`. If you want git's behaviour instead, `merge --strict` treats every conflict value like a violation and stops the merge.
 
 ## Structural violations stop the merge {#violations}
@@ -247,14 +241,7 @@ $ moirai merge lane/chunked --into main
 branch: main | rev 5117 -> 5123 | committed c2a6d9f03
 ```
 
-*Designed output.*
-
 The merge into `main` started with its sync of `main` into the lane. That sync found the dangling edge and stopped on `merge/lane/chunked/from/main`; neither branch moved. The `repoint` resolution replaced the deleted end of the edge with `#52`, so the edge became `#203 blocks #52`. `merge --continue` landed the sync on the lane, and the merge into `main` then ran clean.
-
-> [!NOTE]
-> **Value conflicts and violations, side by side**
->
-> A value conflict lands on the branch as data, takes the node out of the ready queue and waits for `resolve`. A structural violation never lands: the merge waits on a staging ref, and both branches stay as they were.
 
 ## History {#history}
 
@@ -316,8 +303,6 @@ branch: lane/keepalive | rev 5140 | live | 1 row | behind main 3
 #31 task open P1 "Parse chunked request bodies" depth=1 reason=direct elsewhere=lane/chunked SETTLED-ELSEWHERE
 ```
 
-*Designed output.*
-
 On `lane/keepalive`, `#31` is still `open`, so `#33` stays blocked there until the completion of `#31` reaches it through `main`. But the row shows that `#31` is finished on `lane/chunked`, and no one will be sent to build it a second time. The header says `live` because the result reads store-wide state that is not history. A lane also learns when it falls behind. The result header shows `behind main N`, and the hooks add one line such as `behind main by 4 commits (1 completions, 2 rules, 0 deletions touching your nodes)`, printed only when the counts change. Critical rules written on `main` that a lane has not synced yet still appear in that lane's context packs, marked `~main`, so branching never hides a rule from an agent.
 
 <details>
@@ -330,4 +315,4 @@ Deleting `#40` on `lane/x` does not change any other branch: `#40` stays live on
 > [!NOTE]
 > **Where this stands**
 >
-> This chapter describes the designed system. Version control is specified in a chapter of the draft format specification, which is waiting for review and is not frozen yet, and the project's Rust reference model implements these rules as the test oracle. The engine's version control is built in milestone M3, after the storage engine and the graph core; see [how Moirai is being built](building.html). Nothing here can be installed or run yet. The specification is in [docs/spec/format/12-vcs.md](https://github.com/bluesteelll/moirai/blob/master/docs/spec/format/12-vcs.md).
+> Version control is specified in [docs/spec/format/12-vcs.md](https://github.com/bluesteelll/moirai/blob/master/docs/spec/format/12-vcs.md), a draft chapter of the format specification, and the engine's version control is built in milestone M3. [Where it stands now](building.html#status).

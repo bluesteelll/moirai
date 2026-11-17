@@ -272,8 +272,6 @@ export main tags/* lane/* (checkpoint, sha1) -> /work/tinyhttp-moirai.git
   refs updated: refs/heads/main, refs/heads/lane/chunked, refs/klotho/meta/0c4e9a71...
 ```
 
-*Designed output.*
-
 Then a colleague clones the image repository with plain git. On `main` they fix a typo in the `title:` line of a node file and commit. On `lane/chunked` they run `git merge --allow-unrelated-histories main` (at checkpoint granularity the checkpoint chains of different branches share no git commit), get a text conflict in one node file, and commit that file with git's conflict markers still in it. They push both branches back. The next import reads both commits:
 
 ```console
@@ -283,8 +281,6 @@ import refs/heads/main: 1 new git commit
 import refs/heads/lane/chunked: 1 new git commit
   9c03d7e foreign merge  nodes/1d/60/1d603c9a852269c3c1999802c8096f81.moi: line 9 matches no rule (git conflict marker) -> staged on import/lane/chunked (ImageParse)
 ```
-
-*Designed output.*
 
 The first commit has no `Klotho-Commit` trailer, so it is a [foreign commit](glossary.html#term-foreign-commit): its changed lines become one ordinary field change on `main`. The second commit left git's conflict markers in a node file. That file does not parse, so the commit waits on the staging ref `import/lane/chunked`, and `lane/chunked` in the store does not move.
 
@@ -349,11 +345,11 @@ That is possible because Moirai has its own git object layer, written from scrat
 
 Reading git's files in-process, without starting git, Moirai finds the repository a command runs in, records which git commit, branch and worktree a write happened in, and answers "is this git commit an ancestor of the worktree's tip?" for its `check` and `stale` commands. It starts `git` only when git is installed, and only in four explicit, optional places: `image push` and `image pull` (otherwise it prints the command); ref updates in an image repository that uses reftable; `moirai doctor lanes --refresh-graph`; and `moirai file mv --git`. None of them is on a read, query, claim or hook path.
 
-### Where the store lives {#store-location}
+### The store is not in the image {#store-outside-image}
 
-The store itself is not in the image: it is a directory of binary files that only Moirai writes. Where `moirai init` puts it, and how a command finds it, is described on the engine page, in [Where the store lives](engine.html#store-location). Inside a git repository the store goes into git's own directory, at `<git-common-dir>/moirai/`, and is deleted together with that directory, which is one more reason for the daily export and for `moirai backup`.
+The store itself is a directory of binary files that only Moirai writes, and it is not in the image. Inside a git repository it sits in git's own directory (see [Where the store lives](engine.html#store-location)) and is deleted together with that directory, which is one more reason for the daily export and for `moirai backup`.
 
 > [!NOTE]
 > **Where this stands**
 >
-> This chapter describes the designed system. The image format, including the grammar of `.moi` files and every trailer, is specified byte by byte in a chapter of the draft format specification. That chapter is waiting for review and is not frozen yet; milestone M0 freezes the format. In the build order, the in-process git object layer is milestone M4 and the git image is milestone M5; see [how Moirai is being built](building.html). Nothing here can be installed or run yet. The specification is in [docs/spec/format/14-image.md](https://github.com/bluesteelll/moirai/blob/master/docs/spec/format/14-image.md).
+> The image format, including the grammar of `.moi` files and every trailer, is specified byte by byte in [docs/spec/format/14-image.md](https://github.com/bluesteelll/moirai/blob/master/docs/spec/format/14-image.md), a chapter of the draft format specification. The in-process git object layer is milestone M4 and the git image is milestone M5. [Where it stands now](building.html#status).

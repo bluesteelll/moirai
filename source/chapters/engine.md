@@ -11,7 +11,7 @@ Moirai is one program, `moirai`. Inside it is [Klotho](glossary.html#term-klotho
 > [!NOTE]
 > **Designed, not built yet**
 >
-> This chapter describes the design. The engine is built in milestone M1, after the on-disk format version 1 is frozen (see [How it is built, and where it stands](building.html)). Every number below is a design target, not a measured result of a finished product.
+> The engine is built in milestone M1, after the on-disk format version 1 is frozen; every number below is a design target. See [Where it stands now](building.html#status).
 
 ## One binary with the engine inside {#one-binary}
 

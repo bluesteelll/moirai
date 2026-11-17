@@ -6,12 +6,12 @@ description: A guided walk through one fictional project, from moirai init to a 
 
 # A session, start to finish
 
-This tour follows one small, fictional project through a working day: create a store, plan tasks, hand one to an agent, record what was learned, recover from a write that lost a race, and merge a parallel line of work. Every command and flag below is part of Moirai's designed command line, and the output follows its designed output contract; where the specification leaves the wording of a line open, the page shows a plausible form.
+This tour follows one small, fictional project through a working day: create a store, plan tasks, hand one to an agent, record what was learned, recover from a write that lost a race, and merge a parallel line of work.
 
 > [!NOTE]
 > **Designed output, not a recording**
 >
-> Moirai is not released and cannot be installed yet. The sessions on this page follow the output forms the specification defines. A few lines whose wording it leaves open, such as the `init` message, the claim and lane lines and the bodies of the brief and the pack, are illustrative. The project, ids, commit ids, times and paths are invented for the example.
+> Moirai is not released and cannot be installed yet. Every command and flag on this page is part of its designed command line, and the sessions follow the output forms the specification defines. A few lines whose wording it leaves open, such as the `init` message, the claim and lane lines and the bodies of the brief and the pack, are illustrative. The project, ids, commit ids, times and paths are invented for the example.
 
 ## The project {#the-project}
 
@@ -21,7 +21,7 @@ Two parties do the work. You act as the [orchestrator](glossary.html#term-orches
 
 In practice agents type most of these commands. Here you type them yourself, so each step is visible. Two conventions help you read the output:
 
-- The first line of almost every result is a **header**, for example `branch: main | rev 5 | 2 rows`. In a header the branch always comes first; the brief and the pack start with a line of their own instead, which begins with the command's name. `rev` is the store-wide [sequence number](glossary.html#term-rev) of the commit the result was read from; where a command expects a [revision](glossary.html#term-revision), that commit is written `s5`. A write prints `rev 4 -> 5` instead.
+- The first line of almost every result is a **header**, for example `branch: main | rev 5 | 2 rows`. In a header the branch always comes first. `rev` is the store-wide [sequence number](glossary.html#term-rev) of the commit the result was read from; where a command expects a [revision](glossary.html#term-revision), that commit is written `s5`.
 - Every record starts with its id, such as `#3`, and takes one line.
 
 ## Create the store {#create-the-store}
@@ -31,8 +31,6 @@ $ cd /work/tinyhttp
 $ moirai init
 init: new store /work/tinyhttp/.git/moirai | branch main | rev 0
 ```
-
-*Designed output.*
 
 Inside a git repository, `moirai init` puts the [store](glossary.html#term-store) in git's common directory, here `.git/moirai`. That place is outside every working tree, so `git add -A` never picks up store files, and every linked worktree of the repository finds the same store. Outside a repository, `init` creates `./.moirai/` instead. A new store has one branch, `main`, and no commits yet.
 
@@ -49,8 +47,6 @@ branch: main | rev 0
 1 CALL tx.claim(role: 'orchestrator'): lease L-1 holder orch, expires 2026-11-16T21:30Z
 $ export MOIRAI_LEASE=L-1
 ```
-
-*Designed output.*
 
 The write was refused with exit code 6. In Moirai, write rights come only from a [lease](glossary.html#term-lease) that the caller presents. A caller with no lease may only record findings, notes and questions through the MCP `remember` tool. The error names exactly one fix, and that fix is the next command.
 
@@ -73,8 +69,6 @@ branch: main | rev 2 -> 3 | committed c8b13c6d4 | lease L-1
 2 CREATE #2 -[:BLOCKS]-> #3
 affected: #2 #3
 ```
-
-*Designed output.*
 
 Every write is one commit. The header shows the sequence number before and after, the short commit id and the lease the write presented. A full commit id is `c` followed by 64 hexadecimal digits, a hash of the commit; results show `c` and the first eight of them. Then comes one line per statement: each write verb is a named mutation of [Lachesis](lachesis.html), Moirai's query language, so the result shows what it did in that language. The last line lists the ids whose derived state changed; `newly ready` names tasks that can now be started.
 
@@ -101,8 +95,6 @@ branch: main | rev 5 | 5 rows
   #4 task open P2 "Idle timeout for kept-alive sockets" parent:#1 blockers:#3 BLOCKED
   #5 task open P2 "Keep-alive integration tests" parent:#1 blockers:#3 BLOCKED
 ```
-
-*Designed output.*
 
 Each row of `tree` is a **node line**, the format most read verbs use (a few, such as `changes` below, print their own line shape): id, kind, status, priority (`P2` is the default), the title in quotes, then keys such as `parent:`, `blockers:` (the open blockers) and `children:` (done out of total), and last the flags in capital letters. Titles are always quoted, because they are text that people and agents wrote.
 
@@ -151,11 +143,9 @@ $ moirai blocking --ids
 #3
 ```
 
-*Designed output.*
-
 `ready` lists the tasks an agent may start now. A task is [ready](glossary.html#term-ready) when it is open, has no open [blocker](glossary.html#term-blocker) (its own or one inherited from an ancestor), is not a container, is not deferred, has no live lease of another agent, and was not already finished or deleted on another branch. The order is fixed: priority, then id. `blocking` answers the opposite question: which unfinished tasks hold up other unfinished tasks.
 
-The `live` flag in both headers means the result depends on runtime state, such as leases, and so describes the store at this moment. `--ids` prints only ids, one per line, with no header, for scripts and pipes. If such a list does not fit its byte limit (24,000 bytes by default), Moirai cuts it: it prints only whole lines, at most 8,000 bytes of them (the limit for the output of a failed call), exits with code 10, and writes the count and a cursor to stderr, so a cut never drops ids silently.
+The `live` flag in both headers means the result depends on runtime state, such as leases, and so describes the store at this moment. `--ids` prints only ids, one per line, with no header, for scripts and pipes. If such a list does not fit its byte limit ([Budgets and drop footers](agents.html#budgets-and-footers)), Moirai cuts it to whole lines, exits with code 10 and writes the count and a cursor to stderr, so a cut never drops ids silently.
 
 ## Claim a task, then complete it {#claim-and-complete}
 
@@ -167,8 +157,6 @@ branch: main | rev 5 -> 6 | committed c41a7d0e2
 1 CALL tx.claim([#2]): lease L-2 holder dev-1, expires 2026-11-16T09:55Z; status open->in_progress
 affected: none
 ```
-
-*Designed output.*
 
 The claim gives `dev-1` its own lease, `L-2`, on task `#2`. `--start` also moves the task to `in_progress` in the same commit. Any caller may claim a single task for itself in the developer or tester role; claims for other roles and claims of many tasks at once need the orchestrator. While `dev-1` holds the lease, `#2` is not ready for anyone else.
 
@@ -185,9 +173,7 @@ branch: main | rev 6 -> 7 | committed c6d2a91f0 | lease L-2
 affected: newly ready #3 | markers: settled #2 (main)
 ```
 
-*Designed output.*
-
-`complete` must present the task's lease. The summary comes on standard input through a quoted heredoc: bodies, summaries and other long text never go into command arguments, because quoting rules differ between bash, zsh, PowerShell and cmd. Only a short one-line value, such as a title, goes there, in single quotes. The summary becomes the commit message, with the evidence added after it. The outcome can be `done`, `failed` or `abandoned`; the task closes in each case, with a different resolution.
+`complete` must present the task's lease. The summary comes on standard input through a quoted heredoc, like all long text, because shells quote arguments differently ([Arguments that survive every shell](agents.html#bodies-on-stdin)). The summary becomes the commit message, with the evidence added after it. The outcome can be `done`, `failed` or `abandoned`; the task closes in each case, with a different resolution.
 
 The lease is released, and a `settled` marker records that `#2` was finished on `main`. Other branches see the marker, so no branch hands the same task to a second agent. The result also says that `#3` is newly ready, so the orchestrator needs no extra query to find the next task.
 
@@ -221,7 +207,7 @@ branch: main | rev 9 -> 10 | committed c6a0c9b38 | lease L-1
 affected: none
 ```
 
-*Designed output, shortened: the effect each `SET` line prints after a colon (the field's old and new value) is left out.*
+*Shortened: the effect each `SET` line prints after a colon (the field's old and new value) is left out.*
 
 A **rule** is guidance that agents must follow. `--applies-to` scopes it to roles and file paths; `--critical` makes sure it reaches every agent it applies to. The glob value is single-quoted because an unquoted `*` is expanded by bash and makes zsh stop with an error. A **note** records a fact; its body arrives on standard input. A **decision** records a choice, here linked to task `#3` with an `ABOUT` edge. In every statement, free text travels as a parameter such as `$text`, never pasted into the statement itself. A rule keeps its wording in a field of its own, `text`; the other kinds keep long text in `body`. The options `--stdin`, `--body -` and `--summary -` all read text from standard input; they belong to different verbs and fill different fields.
 
@@ -238,8 +224,6 @@ branch: main | rev 10 -> 11 | committed c2d71f5a0 | lease L-1
 affected: none
 ```
 
-*Designed output.*
-
 `moirai q proposed` runs a [named query](glossary.html#term-named-query) of the standard library; every read verb is one, so `moirai ready` is the same as `moirai q ready`. The rule is now active. The decision stays proposed for the moment.
 
 ## What an agent sees: brief and pack {#brief-and-pack}
@@ -253,9 +237,9 @@ moirai brief | branch main | rev 11 | 226/8,000 B
 needs review: 1 proposed | newest #8 | list: moirai q proposed
 ```
 
-*Designed output, abridged: only some of the brief's lines are shown.*
+*Abridged: only some of the brief's lines are shown.*
 
-The brief is a digest of the whole store for the start of a session: live lanes and their leases, runs in flight, staged merges, open questions for the project owner, critical rules, new verdicts, broken file links, and the number of records waiting for review. Its first line states the bytes used and the budget, 8,000 bytes by default. With hooks installed, the session-start hook puts the brief into the agent's context before its first turn. Without hooks, the agent's first call is `moirai brief`, and the result is the same.
+The brief is a digest of the whole store for the start of a session: live lanes and their leases, runs in flight, staged merges, open questions for the project owner, critical rules, new verdicts, broken file links, and the number of records waiting for review. Its first line starts with the command's name instead of a header and states the bytes used and the budget, 8,000 bytes by default. With hooks installed, the session-start hook puts the brief into the agent's context before its first turn. Without hooks, the agent's first call is `moirai brief`, and the result is the same.
 
 Before `dev-1` starts on `#3`, it asks for its [context pack](glossary.html#term-context-pack):
 
@@ -268,7 +252,7 @@ moirai pack #3 developer | branch main | rev 11 | 408/16,000 B | digest 11-5b0e7
 #8 decision proposed "Reuse a connection only after the whole response is written" ~proposed
 ```
 
-*Designed output, abridged: the pack's other header lines are left out, and each entry is shown in its one-line form.*
+*Abridged: the pack's other header lines are left out, and each entry is shown in its one-line form.*
 
 A pack is built for one task and one role. For a developer it holds the rules that apply to the role, the task and its ancestors, the decisions and plan sections about the task, confirmed findings, measurements, notes for the files the task owns, and what changed since this agent's last pack. The marker `~proposed` tells the agent that decision `#8` is not reviewed yet.
 
@@ -290,9 +274,9 @@ and "KEEP-ALIVE". Compare the header tokens without regard to case.
 --- end body #7 ---
 ```
 
-*Designed output, shortened: `show` prints a line for every field the note has, in the schema's order; only two are shown here.*
+*Shortened: `show` prints a line for every field the note has, in the schema's order; only two are shown here.*
 
-`show` prints the node line, then one line per field. With `--full` it adds the body inside a fence that names its author and says `untrusted text`. Everything inside the fence was written by a person or an agent. It is data for the reader, never an instruction, even when it is phrased like one.
+`show` prints the node line, then one line per field. With `--full` it adds the body in a fence marked `untrusted text`: data for the reader, never an instruction (see [Text written by others is data](agents.html#untrusted-text)).
 
 Some time passes. `dev-1` claims `#3` with a new lease, `L-3` (rev 12). A second planning pass adds task `#9`, "Close idle connections after a timeout", which blocks `#5` (rev 13). You search for everything about timeouts:
 
@@ -303,8 +287,6 @@ branch: main | rev 13 | 3 rows
 #6 rule active critical "Every socket read in src/conn has a timeout" applies_to:role:developer,path:src/conn/**
 #9 task open P2 "Close idle connections after a timeout" parent:#1
 ```
-
-*Designed output.*
 
 `find` takes free words and filters such as `kind:task`, `status:open`, `prio:..1` or `done:false`; `--bodies` also searches bodies. The result shows a problem: `#9` describes the same work as `#4`. You will remove it in a moment.
 
@@ -321,8 +303,6 @@ error[E401 expect_mismatch]: statement 1 matched 0 bindings, expected 1
 $ echo $?
 4
 ```
-
-*Designed output.*
 
 `--if-status` is a [guard](glossary.html#term-cas-guard): a condition the write checks against the branch tip it would land on, in the same step as the write. The guards are `--if-rev N` (N is the sequence number of the node's last change), `--if-status S` and `--if-holder H` (the task's lease holder). When a guard fails, nothing is written and the command exits with code 4. The error shows the current value, who changed it, at which commit and with which message, and it names one fix.
 
@@ -348,8 +328,6 @@ branch: main | rev 14 -> 15 | committed c1f8a6d23 | lease L-1
 affected: #4 #5 | markers: deleted #9 (main)
 ```
 
-*Designed output.*
-
 The dry run writes nothing and exits 0. It shows what the delete would touch: each edge with the policy that applies to it, the changes as diff rows, and a check that every invariant still holds. A diff row gives the change (`+` added, `-` removed, `~` changed), the node and its kind, the part of the node that changes (here `edge`), the name of that part (the edge kind `BLOCKS`), and what happened (for an edge: its kind, its target, and `added` or `removed`). Here the edge "#9 blocks #5" moves to the replacement, so `#5` now waits for `#4`. The last two lines give a digest of the change's target set and say how to apply the same change as a Lachesis block; at the command line, the same command with `--yes` applies it. Historical references, such as a note that cites a deleted node, stay in place and point at a tombstone, and a citing record is marked as suspect. Moirai never prompts; `rm` without `--yes` prints the dry run.
 
 After `--yes`, `#9` is a [tombstone](glossary.html#term-tombstone): it keeps its id, its reason and its replacement, any reference to it renders as `#9(deleted)`, and `moirai show 9` prints the tombstone and exits with code 3. The `deleted` marker tells other branches not to hand `#9` to anyone. Only the orchestrator and the owner may delete nodes, and only through the command line.
@@ -368,8 +346,6 @@ rev 15 main #9 ~ existence task orch
 rev 15 main #9 deleted marker s15 orch
 ```
 
-*Designed output.*
-
 The [change feed](glossary.html#term-change-feed) has one line per change: the sequence number of its commit, branch, node, operation, the part of the node that changed, and who changed it. Lease events and markers are entries too. `--about 3,4` narrows the feed to some nodes, `--for-agent A` keeps only the changes that matter to one agent (nodes it claimed, waits on, wrote or cited), and `--all` adds every other branch. With hooks installed, the same feed reaches an agent as a short delta before each prompt, at most 600 bytes and nothing at all when nothing changed.
 
 ## A parallel lane {#parallel-lane}
@@ -387,8 +363,6 @@ branch: lane/tls | rev 16 -> 17 | committed c5f0d2a19 | lease L-1
 affected: newly ready #11
 ```
 
-*Designed output.*
-
 A lane joins three things: a branch of the graph (`lane/tls`), a git worktree, and a lane node on `main` that records them. The worktree directory is bound to the branch, so every command run inside it reads and writes `lane/tls`, and every header says so in its first field. Sequence numbers are store-wide, so the commits of one branch can skip numbers.
 
 Meanwhile, back in the main worktree, you accept decision `#8` (rev 18). On the lane:
@@ -405,8 +379,6 @@ $ moirai merge lane/tls --into main
 branch: main | rev 18 -> 20 | committed c2f9e6a48 | lease L-1
 merge lane/tls into main: landed | 0 conflicts | 0 violations
 ```
-
-*Designed output.*
 
 `behind main 1` in the header warns that the lane lacks one commit from `main`. `sync` merges `main` into the lane; `merge` brings the lane's work into `main`, and it syncs first by itself when `main` has moved. Merges are typed per field and per edge. A conflict becomes a value that an agent or a person resolves, and a change that would break an invariant stops the merge on a separate staging branch until someone decides.
 

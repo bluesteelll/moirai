@@ -38,8 +38,6 @@ $ moirai link 204 --at src/parse.rs:40-44
 
 ```
 
-*Designed output.*
-
 Paths are relative to the project root. A bare file name that matches several files is refused when the link is written, with the list of matches, so an ambiguous citation never enters the store.
 
 > [!NOTE]
@@ -114,8 +112,6 @@ a31  stale-anchor          src/conn.rs:118-131  edited 0.86 | was: "pub fn read_
 verify #N: moirai file where N --evidence
 
 ```
-
-*Designed output.*
 
 The header names the branch, the revision, `live` (the result depends on the working tree) and the tree: its label, git branch, git `HEAD` and dirty file count. Each row starts with a handle: `#N` for a file node, `aN` for one anchor.
 

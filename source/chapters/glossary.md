@@ -8,7 +8,7 @@ description: Every term this book uses, from absent value to writer tree, each w
 
 Every term this book defines or links, in alphabetical order. Each entry gives a short definition and links to the chapter where the term matters. Terms written in `code` are typed exactly as shown, in commands, queries or files.
 
-Some terms belong to the way the project itself is built, not to the product, such as unit, tier or red-first; their entries say so. Like the rest of the book, the entries describe the designed system.
+Some terms belong to the way the project itself is built, not to the product, such as unit, tier or red-first; their entries say so.
 
 ## Terms {#terms}
 
@@ -67,7 +67,7 @@ Canonical form {#term-canonical-form}
 : A specified byte sequence for a piece of data, so that every implementation writes exactly the same bytes for the same content. A commit's canonical form covers its kind, parents, clock value, author, git context, message and changes, and its hash is the commit id; node files of the git image are canonical text too. See [Content addressing](engine.html#content-addressing).
 
 CAS guard {#term-cas-guard}
-: A compare-and-set guard: a condition that a write checks against the branch tip it would land on, in the same step as the write, such as the revision, status or lease holder it expects (`--if-rev`, `--if-status`, `--if-holder`). If the guard fails, nothing is written, and the command exits with code 4 and prints the current value and who changed it. See [A write that lost the race](tour.html#guarded-write).
+: A compare-and-set guard: a condition that a write checks against the branch tip it would land on, in the same step as the write, such as the revision, status or lease holder it expects (`--if-rev`, `--if-status`, `--if-holder`). If the guard fails, nothing is written (exit code 4). See [A write that lost the race](tour.html#guarded-write).
 
 Chained trailer {#term-chained-trailer}
 : A short checksum value at the end of each group of records in the [log](#term-log), chained to the value of the group before it. Before a writer reports success, it reads its own chained trailer back, so a group lost through another process's failed flush is found and retried instead of being reported as committed. See [One flush for many writers](engine.html#group-commit).
@@ -190,7 +190,7 @@ Format oracle {#term-format-oracle}
 : The git tag that will freeze version 1 of the on-disk format. It ends milestone M0 and starts M1, the storage engine; after it, any change to a frozen byte reopens M0. The tag does not exist yet. See [Reviews and named holes](building.html#reviews-and-holes).
 
 fs unit {#term-fs-unit}
-: A counted unit of file-system work that bounds how much a read may do to compute link states (400 per query by default). Counting units instead of time makes the same tree state always stop at the same link; links not reached show `unverified (budget)`, and the command exits with code 10. See [Time budgets](file-links.html#time-budgets).
+: A counted unit of file-system work that bounds how much a read may do to compute link states (400 per query by default). Counting units instead of time makes the same tree state always stop at the same link; links not reached show `unverified (budget)`. See [Time budgets](file-links.html#time-budgets).
 
 Fuzzing {#term-fuzzing}
 : Testing a parser with large numbers of generated, often malformed inputs. Every parser in Moirai gets a fuzzer: log records and segments, `.moi` files, git objects, query text and command-line arguments. See [The test workstream](building.html#test-workstream).
@@ -205,7 +205,7 @@ Gate worktree {#term-gate-worktree}
 : In the project's own build process, a separate, neutral git worktree where the full gate runs on a branch tip before that branch may be merged into the [trunk](#term-trunk). See [Built by AI agents under a strict process](building.html#agent-process).
 
 Git common directory {#term-git-common-directory}
-: The directory that all worktrees of one git repository share, usually the `.git` directory of the main worktree. Moirai puts its store there, at `<git-common-dir>/moirai/`, so every worktree finds the same store. See [Where the store lives](git-image.html#store-location).
+: The directory that all worktrees of one git repository share, usually the `.git` directory of the main worktree. Moirai puts its store there, at `<git-common-dir>/moirai/`, so every worktree finds the same store. See [Where the store lives](engine.html#store-location).
 
 Git image {#term-git-image}
 : A copy of the whole graph and its history written into a git repository as text: one [`.moi` file](#term-moi-file) per node, and one git commit per Moirai commit or per [checkpoint](#term-checkpoint). Any git tool can read and move it, and Moirai can import it back, including edits made with git; the store stays the source of truth. See [Saving into git](git-image.html).
@@ -433,7 +433,7 @@ Run {#term-run}
 : One run of an agent or a scripted workflow, recorded as a node of kind `run` with the artifacts it is expected to produce. A [dispatcher](#term-dispatcher) claims tasks for a whole run and applies its results in one batch, and a run closes green only when every expected artifact exists. See [The dispatcher pattern](agents.html#dispatcher).
 
 Sandbox {#term-sandbox}
-: A harness's limit on what an agent's commands may write. Reads never need write access; a write that a sandbox refuses exits with code 7 and tells the agent to repeat it through the MCP tool or to put it in its `result.v1`, so it is delayed, not lost. See [Sandboxes](agents.html#sandboxes).
+: A harness's limit on what an agent's commands may write. Reads never need write access; a refused write tells the agent another way to make it, so it is delayed, not lost. See [Sandboxes](agents.html#sandboxes).
 
 Schema as data {#term-schema-as-data}
 : Moirai's schema, the kinds, fields, edge kinds and named queries, is itself stored in the graph: versioned per branch, merged and exported like everything else. A project's additions apply at once; changing or retiring an item needs an explicit migration. See [Schema as data](concepts.html#schema).
