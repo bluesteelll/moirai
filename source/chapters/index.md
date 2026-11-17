@@ -1,18 +1,22 @@
 ---
 title: Moirai
 nav: Home
-description: Moirai is a versioned graph database, written from scratch in Rust, that gives AI coding agents one place for a project's tasks, memory, rules and decisions.
+description: Moirai is a versioned graph database for managing the workflow of AI agents, written in Rust.
 ---
 
 # Moirai
 
-Moirai is a versioned graph database, written from scratch in Rust, for projects where AI coding agents do much of the work. It gives every agent on a project one place for the tasks, the project memory, the rules and the decisions, versioned with branches like git and shared by all agents at once. It is one program, `moirai`, with no server. It is not released yet: the project is still writing and testing its specification, and nothing can be installed.
+Moirai is a versioned graph database for managing the workflow of AI agents, written in Rust.
 
-This book explains Moirai to people who have never seen the project. It assumes that you know git, databases in general and AI coding agents such as Claude Code or Codex, but nothing of the project's own vocabulary. New terms are explained where they first appear, and the main ones are collected in the [glossary](glossary.html).
+It gives every agent on a project one place for the tasks, the project memory, the rules and the decisions. All of it is versioned with branches, as in git, and shared by all agents at once.
+
+The main terms are collected in the [glossary](glossary.html).
 
 ## What it does {#what-it-does}
 
-Moirai keeps a project's work and its memory in one typed graph. A task, a question, a rule, a decision, a note, a review finding and a source file are all [nodes](glossary.html#term-node), and the links between them are [edges](concepts.html#edges). The core schema has 25 kinds of edge, and the order of work is only part of them: a subtask belongs to a task, one task must finish before another starts, a decision answers a question, a new rule supersedes an old one, a review finding is about the code that was reviewed, a note is anchored to a place in a source file. The engine checks every write against the schema and computes what follows from the graph, such as which tasks can start now, so nobody keeps such lists by hand. To get answers out of the graph, Moirai has its own query language, [Lachesis](lachesis.html). One query follows several links at once, so an agent does not have to dig through files and notes by hand: before editing a file, for example, a single query returns every rule and decision that concerns it.
+Moirai keeps all its data in one typed graph. A task, a question, a rule, a decision, a note, a review finding and a source file are all [nodes](glossary.html#term-node), and the meaningful links between them are [edges](concepts.html#edges). The core schema has 25 kinds of edge, for example: a subtask belongs to a task, one task must finish before another starts, a decision answers a question, a new rule supersedes an old one, a review finding is about the code that was reviewed, a note is anchored to a place in a source file.
+
+The engine checks every write against the schema and computes what follows from the graph, such as which tasks can start now, so nobody keeps such lists by hand. To get answers out of the graph, Moirai has its own query language, [Lachesis](lachesis.html). One query can follow many links at once, so an agent does not have to dig through files and notes by hand.
 
 Around the graph is what agents need to work in parallel: task [leases](glossary.html#term-lease), branches that merge, a copy in git, file links that survive moves, and a query language. The cards below lead to a chapter on each.
 
