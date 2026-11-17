@@ -57,9 +57,7 @@ STRINGS = {
         "site": "Moirai book",
         "home_title": "Moirai — the book",
         "book": "book",
-        "banner": "<strong>Preview.</strong> This book describes Moirai as it is designed. Nothing is released yet: "
-                  "the project is in milestone M0, writing and testing its specification. Commands and outputs show "
-                  "the designed behaviour and may change.",
+        "banner": "<strong>Preview.</strong> Moirai is in development, and its behaviour may change.",
         "toc": "On this page",
         "prev": "Previous",
         "next": "Next",
@@ -80,9 +78,7 @@ STRINGS = {
         "site": "Книга о Moirai",
         "home_title": "Moirai — книга",
         "book": "книга",
-        "banner": "<strong>Предварительная версия.</strong> Книга описывает Moirai такой, какой она задумана. "
-                  "Ничего ещё не выпущено: проект на вехе M0, где пишется и проверяется его спецификация. Команды и "
-                  "их вывод показывают задуманное поведение и могут измениться.",
+        "banner": "<strong>Предварительная версия.</strong> Moirai в разработке, её поведение может измениться.",
         "toc": "На этой странице",
         "prev": "Назад",
         "next": "Далее",
