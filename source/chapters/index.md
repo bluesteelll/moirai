@@ -108,7 +108,8 @@ The first line of each result above names the branch and the revision it was rea
 <figcaption>Agents reach Moirai through the command line, the MCP server or optional hooks. Skills, short instruction files installed into each harness, teach them the commands; the binary is installed separately. Commands read the graph with Lachesis queries and change it with Lachesis mutations, which Klotho, the storage engine inside the one <code>moirai</code> binary, executes. Klotho keeps all data in one store per repository, which every worktree shares, and its file links point into the project's files. The git image is a text copy of the store in a separate git repository, which ordinary <code>git</code> can push to any remote.</figcaption>
 </figure>
 
-Three names appear in the picture. **Moirai** is the product, and `moirai` is its one command. **[Klotho](glossary.html#term-klotho)** is the storage engine, a library inside that binary. **[Lachesis](glossary.html#term-lachesis)** is the query language. In Greek myth the Moirai are the three Fates; Klotho spins the thread and Lachesis measures it.
+> [!NOTE]
+> Three names appear in the picture. **Moirai** is the product, and `moirai` is its one command. **[Klotho](glossary.html#term-klotho)** is the storage engine, a library inside that binary. **[Lachesis](glossary.html#term-lachesis)** is the query language. In Greek myth the Moirai are the three Fates; Klotho spins the thread and Lachesis measures it.
 
 There is no server to start and no background process. Each command opens the [store](glossary.html#term-store), does its work and exits, and the MCP server lives only as long as the agent session that started it. Inside a git repository the store sits in git's common directory, outside every working tree, so all worktrees of the repository share one store without any setup. Git itself is never needed to run Moirai; it is only one way to keep and move a copy of the data.
 
